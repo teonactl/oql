@@ -149,22 +149,26 @@ CueListModel::CueListModel(CueList *list, QObject *parent)
     rebuildVisibleRows();
 }
 
-void CueListModel::rebuildVisibleRows() {
-    m_visibleRows.clear();
+QVector<int> CueListModel::computeVisibleRows() const {
     QSet<QString> collapsed;
     for (int i = 0; i < m_list->count(); ++i) {
         const Cue *c = m_list->cueAt(i);
-        if (c->type() == Cue::Type::Group) {
+        if (c->type() == Cue::Type::Group)
             if (const auto *gc = dynamic_cast<const GroupCue*>(c); gc && gc->collapsed())
                 collapsed.insert(gc->id());
-        }
     }
+    QVector<int> rows;
     for (int i = 0; i < m_list->count(); ++i) {
         const Cue *c = m_list->cueAt(i);
         if (!c->parentGroupId().isEmpty() && collapsed.contains(c->parentGroupId()))
             continue;
-        m_visibleRows.append(i);
+        rows.append(i);
     }
+    return rows;
+}
+
+void CueListModel::rebuildVisibleRows() {
+    m_visibleRows = computeVisibleRows();
 }
 
 void CueListModel::toggleGroupAt(int visibleRow) {
@@ -456,9 +460,16 @@ void CueListModel::onCueStateChanged(int index, Cue::State) {
 }
 
 void CueListModel::onCuePropertyChanged(int index) {
-    const int vis = m_visibleRows.indexOf(index);
-    if (vis >= 0)
-        emit dataChanged(this->index(vis, 0), this->index(vis, ColCount - 1));
+    const QVector<int> next = computeVisibleRows();
+    if (next != m_visibleRows) {
+        beginResetModel();
+        m_visibleRows = next;
+        endResetModel();
+    } else {
+        const int vis = m_visibleRows.indexOf(index);
+        if (vis >= 0)
+            emit dataChanged(this->index(vis, 0), this->index(vis, ColCount - 1));
+    }
 }
 
 void CueListModel::onPlayheadChanged(int) {

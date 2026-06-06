@@ -42,7 +42,8 @@ private slots:
     void onPlayheadChanged(int index);
 
 private:
-    void rebuildVisibleRows();
+    QVector<int> computeVisibleRows() const;
+    void         rebuildVisibleRows();
 
     CueList      *m_list;
     QVector<int>  m_visibleRows;
