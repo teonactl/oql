@@ -150,19 +150,39 @@ CueListModel::CueListModel(CueList *list, QObject *parent)
 }
 
 QVector<int> CueListModel::computeVisibleRows() const {
+    // Collect collapsed group IDs and existing group IDs
     QSet<QString> collapsed;
+    QSet<QString> groupIds;
     for (int i = 0; i < m_list->count(); ++i) {
         const Cue *c = m_list->cueAt(i);
-        if (c->type() == Cue::Type::Group)
+        if (c->type() == Cue::Type::Group) {
+            groupIds.insert(c->id());
             if (const auto *gc = dynamic_cast<const GroupCue*>(c); gc && gc->collapsed())
                 collapsed.insert(gc->id());
+        }
     }
-    QVector<int> rows;
+
+    // Split into roots (no parent, or parent group no longer exists) and children
+    QMap<QString, QVector<int>> children; // groupId -> actual indices
+    QVector<int> roots;
     for (int i = 0; i < m_list->count(); ++i) {
         const Cue *c = m_list->cueAt(i);
-        if (!c->parentGroupId().isEmpty() && collapsed.contains(c->parentGroupId()))
-            continue;
-        rows.append(i);
+        const QString pgid = c->parentGroupId();
+        if (!pgid.isEmpty() && groupIds.contains(pgid))
+            children[pgid].append(i);
+        else
+            roots.append(i);
+    }
+
+    // Build visible list: each root in order, followed immediately by its children
+    QVector<int> rows;
+    for (int actualIdx : roots) {
+        rows.append(actualIdx);
+        const Cue *c = m_list->cueAt(actualIdx);
+        if (c->type() == Cue::Type::Group && !collapsed.contains(c->id())) {
+            for (int childIdx : children.value(c->id()))
+                rows.append(childIdx);
+        }
     }
     return rows;
 }
@@ -245,7 +265,8 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
                 const QString arrow = gc->collapsed() ? "▶  " : "▼  ";
                 return arrow + (cue->name().isEmpty() ? "(gruppo)" : cue->name());
             }
-            const QString indent = cue->parentGroupId().isEmpty() ? QString{} : "  ";
+            const bool isChild = !cue->parentGroupId().isEmpty();
+            const QString indent = isChild ? "    └  " : QString{};
             return indent + (cue->name().isEmpty() ? "(senza nome)" : cue->name());
         }
         case ColPreWait:  return fmtSec(cue->preWait());
@@ -284,6 +305,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isText)  return QColor(8, 48, 58);
         if (m_visibleRows.value(idx.row(), -1) == m_list->playheadIndex())
             return QColor(200, 160, 30, 55);
+        if (!cue->parentGroupId().isEmpty()) return QColor(30, 38, 30);
     }
 
     if (idx.column() == ColTarget) {
