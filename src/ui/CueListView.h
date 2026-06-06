@@ -1,0 +1,55 @@
+#pragma once
+#include <QTableView>
+#include <QVector>
+#include <QPoint>
+
+class CueListModel;
+
+class CueListView : public QTableView {
+    Q_OBJECT
+public:
+    explicit CueListView(CueListModel *model, QWidget *parent = nullptr);
+
+signals:
+    void addAudioRequested();
+    void addVideoRequested();
+    void addStopRequested();
+    void addFadeRequested();
+    void addPauseRequested();
+    void addMicRequested();
+    void addGroupRequested();
+    void addLabelRequested();
+    void deleteRequested();
+    void cueDoubleClicked(int row);
+    void filePickRequested(int row);
+    void moveRequested(int from, int to);
+    void targetAssignRequested(int sourceCueRow, int controlCueRow);
+    void groupToggleRequested(int row);
+
+protected:
+    void contextMenuEvent(QContextMenuEvent *event)   override;
+    void keyPressEvent(QKeyEvent *event)              override;
+    void mouseDoubleClickEvent(QMouseEvent *event)    override;
+    void mousePressEvent(QMouseEvent *event)          override;
+    void mouseMoveEvent(QMouseEvent *event)           override;
+    void mouseReleaseEvent(QMouseEvent *event)        override;
+    void paintEvent(QPaintEvent *event)               override;
+    void dragEnterEvent(QDragEnterEvent *event)       override;
+    void dragMoveEvent(QDragMoveEvent *event)         override;
+    void dragLeaveEvent(QDragLeaveEvent *event)       override;
+    void dropEvent(QDropEvent *event)                 override;
+    void resizeEvent(QResizeEvent *event)             override;
+
+private:
+    void stretchFlexColumns();
+    QVector<int> validTargetRows(int srcRow) const;
+
+    static constexpr char kMime[] = "application/x-openqlab-cuerow";
+
+    CueListModel *m_model;
+    bool          m_stretchGuard     = false;
+    int           m_dragRow          = -1;
+    int           m_dropHighlightRow = -1;
+    QVector<int>  m_validTargetRows;
+    QPoint        m_dragStartPos;
+};

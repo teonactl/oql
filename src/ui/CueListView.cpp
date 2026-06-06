@@ -1,0 +1,364 @@
+#include "CueListView.h"
+#include "CueListModel.h"
+#include "engine/ControlCues.h"
+#include <QHeaderView>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QDropEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDragLeaveEvent>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QDrag>
+#include <QMimeData>
+#include <QApplication>
+#include <QDataStream>
+#include <QResizeEvent>
+
+CueListView::CueListView(CueListModel *model, QWidget *parent)
+    : QTableView(parent), m_model(model)
+{
+    setModel(model);
+    setSelectionBehavior(QAbstractItemView::SelectRows);
+    setSelectionMode(QAbstractItemView::SingleSelection);
+    setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    setAlternatingRowColors(true);
+    setShowGrid(false);
+    verticalHeader()->setVisible(false);
+    verticalHeader()->setDefaultSectionSize(28);
+
+    auto *h = horizontalHeader();
+    h->setSectionResizeMode(QHeaderView::Interactive);
+    h->setMinimumSectionSize(24);
+
+    setColumnWidth(CueListModel::ColNumber,   50);
+    setColumnWidth(CueListModel::ColType,     60);
+    setColumnWidth(CueListModel::ColName,     220);
+    setColumnWidth(CueListModel::ColTarget,   200);
+    setColumnWidth(CueListModel::ColPreWait,  70);
+    setColumnWidth(CueListModel::ColDuration, 70);
+    setColumnWidth(CueListModel::ColPostWait, 70);
+    setColumnWidth(CueListModel::ColContinue, 30);
+
+    setDragEnabled(false);
+    setAcceptDrops(true);
+    setDragDropMode(QAbstractItemView::DragDrop);
+    setDragDropOverwriteMode(false);
+
+    connect(h, &QHeaderView::sectionResized, this, [this](int, int, int) {
+        stretchFlexColumns();
+    });
+}
+
+void CueListView::resizeEvent(QResizeEvent *event) {
+    QTableView::resizeEvent(event);
+    stretchFlexColumns();
+}
+
+void CueListView::stretchFlexColumns() {
+    if (m_stretchGuard) return;
+    m_stretchGuard = true;
+
+    auto *h = horizontalHeader();
+    int fixed = 0;
+    for (int c = 0; c < CueListModel::ColCount; ++c) {
+        if (h->isSectionHidden(c)) continue;
+        if (c == CueListModel::ColName || c == CueListModel::ColTarget) continue;
+        fixed += h->sectionSize(c);
+    }
+
+    const int avail = viewport()->width() - fixed;
+    if (avail > 0) {
+        const int nameW   = h->sectionSize(CueListModel::ColName);
+        const int targetW = h->sectionSize(CueListModel::ColTarget);
+        const int total   = nameW + targetW;
+        if (total > 0) {
+            const int newName   = qMax(60, avail * nameW / total);
+            const int newTarget = qMax(60, avail - newName);
+            h->resizeSection(CueListModel::ColName,   newName);
+            h->resizeSection(CueListModel::ColTarget, newTarget);
+        }
+    }
+
+    m_stretchGuard = false;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+QVector<int> CueListView::validTargetRows(int srcRow) const {
+    QVector<int> rows;
+    Cue *srcCue = m_model->cueForRow(srcRow);
+    const bool srcIsMedia = srcCue
+        && (srcCue->type() == Cue::Type::Audio || srcCue->type() == Cue::Type::Video);
+
+    for (int row = 0; row < model()->rowCount(); ++row) {
+        if (row == srcRow) continue;
+        Cue *dstCue = m_model->cueForRow(row);
+        if (!dynamic_cast<ControlCue*>(dstCue)) continue;
+        const bool mediaOnly = (dstCue->type() == Cue::Type::Play
+                             || dstCue->type() == Cue::Type::Speed);
+        if (!mediaOnly || srcIsMedia)
+            rows.append(row);
+    }
+    return rows;
+}
+
+static bool isOnRowCenter(const QRect &rowRect, int posY) {
+    const int edge = rowRect.height() * 15 / 100;  // outer 15% = reorder zone
+    return posY >= rowRect.top() + edge && posY <= rowRect.bottom() - edge;
+}
+
+// ── Context menu / keyboard ───────────────────────────────────────────────────
+
+void CueListView::contextMenuEvent(QContextMenuEvent *event) {
+    QMenu menu(this);
+    menu.addAction("Aggiungi Audio Cue",     this, &CueListView::addAudioRequested);
+    menu.addAction("Aggiungi Video Cue",     this, &CueListView::addVideoRequested);
+    menu.addSeparator();
+    menu.addAction("Aggiungi Stop Cue",      this, &CueListView::addStopRequested);
+    menu.addAction("Aggiungi Fade Cue",      this, &CueListView::addFadeRequested);
+    menu.addAction("Aggiungi Pause Cue",     this, &CueListView::addPauseRequested);
+    menu.addAction("Aggiungi Microfono Cue", this, &CueListView::addMicRequested);
+    menu.addSeparator();
+    menu.addAction("Aggiungi Gruppo",        this, &CueListView::addGroupRequested);
+    menu.addAction("Aggiungi Etichetta",     this, &CueListView::addLabelRequested);
+    menu.addSeparator();
+    menu.addAction("Elimina cue",            this, &CueListView::deleteRequested);
+    menu.exec(event->globalPos());
+}
+
+void CueListView::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+        emit deleteRequested();
+        return;
+    }
+    if (event->key() == Qt::Key_F2) {
+        const QModelIndex cur = currentIndex();
+        if (cur.isValid()) {
+            edit(cur);
+            return;
+        }
+    }
+    QTableView::keyPressEvent(event);
+}
+
+void CueListView::mouseDoubleClickEvent(QMouseEvent *event) {
+    const QModelIndex idx = indexAt(event->pos());
+    if (!idx.isValid()) return;
+    const int col = idx.column();
+
+    // Toggle group collapse on double-click anywhere on the row
+    Cue *cue = m_model->cueForRow(idx.row());
+    if (cue && cue->type() == Cue::Type::Group) {
+        emit groupToggleRequested(idx.row());
+        return;
+    }
+
+    // Inline editing columns
+    if (col == CueListModel::ColNumber
+        || col == CueListModel::ColName
+        || col == CueListModel::ColPreWait
+        || col == CueListModel::ColDuration
+        || col == CueListModel::ColPostWait) {
+        QTableView::mouseDoubleClickEvent(event);
+        return;
+    }
+
+    // File picker for audio/video Target cell
+    if (col == CueListModel::ColTarget) {
+        Cue *cue = m_model->cueForRow(idx.row());
+        if (cue && (cue->type() == Cue::Type::Audio || cue->type() == Cue::Type::Video)) {
+            emit filePickRequested(idx.row());
+            return;
+        }
+    }
+
+    emit cueDoubleClicked(idx.row());
+}
+
+// ── Mouse: custom drag initiation ────────────────────────────────────────────
+
+void CueListView::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        const QModelIndex idx = indexAt(event->pos());
+        m_dragRow      = idx.isValid() ? idx.row() : -1;
+        m_dragStartPos = event->pos();
+    }
+    QTableView::mousePressEvent(event);
+}
+
+void CueListView::mouseMoveEvent(QMouseEvent *event) {
+    if (!(event->buttons() & Qt::LeftButton) || m_dragRow < 0) {
+        QTableView::mouseMoveEvent(event);
+        return;
+    }
+    if ((event->pos() - m_dragStartPos).manhattanLength() < QApplication::startDragDistance()) {
+        QTableView::mouseMoveEvent(event);
+        return;
+    }
+
+    m_validTargetRows = validTargetRows(m_dragRow);
+    viewport()->update();
+
+    QByteArray payload;
+    QDataStream ds(&payload, QIODevice::WriteOnly);
+    ds << m_dragRow;
+
+    auto *mime = new QMimeData;
+    mime->setData(kMime, payload);
+
+    const int  lastCol = model()->columnCount() - 1;
+    const QRect rowRect = visualRect(model()->index(m_dragRow, 0))
+                          .united(visualRect(model()->index(m_dragRow, lastCol)));
+    QPixmap px = viewport()->grab(rowRect);
+
+    auto *drag = new QDrag(this);
+    drag->setMimeData(mime);
+    if (!px.isNull()) {
+        drag->setPixmap(px);
+        drag->setHotSpot(event->pos() - rowRect.topLeft());
+    }
+
+    drag->exec(Qt::MoveAction);  // blocking — dropEvent runs inside here
+
+    m_dragRow          = -1;
+    m_dropHighlightRow = -1;
+    m_validTargetRows.clear();
+    viewport()->update();
+}
+
+void CueListView::mouseReleaseEvent(QMouseEvent *event) {
+    m_dragRow = -1;
+    QTableView::mouseReleaseEvent(event);
+}
+
+// ── Paint: highlight valid target rows during drag ────────────────────────────
+
+void CueListView::paintEvent(QPaintEvent *event) {
+    QTableView::paintEvent(event);
+    if (m_validTargetRows.isEmpty() || !model()) return;
+
+    QPainter p(viewport());
+    p.setRenderHint(QPainter::Antialiasing, false);
+    const int lastCol = model()->columnCount() - 1;
+
+    for (int row : m_validTargetRows) {
+        const QRect r = visualRect(model()->index(row, 0))
+                        .united(visualRect(model()->index(row, lastCol)));
+        if (!r.isValid()) continue;
+
+        if (row == m_dropHighlightRow) {
+            p.setPen(QPen(QColor(60, 160, 255), 2));
+            p.setBrush(QColor(60, 160, 255, 55));
+        } else {
+            p.setPen(QPen(QColor(60, 160, 255, 120), 1, Qt::DashLine));
+            p.setBrush(QColor(60, 160, 255, 18));
+        }
+        p.drawRect(r.adjusted(1, 1, -1, -1));
+    }
+}
+
+// ── Drag ─────────────────────────────────────────────────────────────────────
+
+void CueListView::dragEnterEvent(QDragEnterEvent *event) {
+    if (event->mimeData()->hasFormat(kMime))
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void CueListView::dragMoveEvent(QDragMoveEvent *event) {
+    if (!event->mimeData()->hasFormat(kMime)) {
+        event->ignore();
+        return;
+    }
+
+    const QPoint      pos  = event->position().toPoint();
+    const QModelIndex dest = indexAt(pos);
+
+    int newHighlight = -1;
+    if (dest.isValid() && dest.row() != m_dragRow) {
+        const QRect rowRect = visualRect(model()->index(dest.row(), 0));
+        if (isOnRowCenter(rowRect, pos.y()) || dest.column() == CueListModel::ColTarget) {
+            if (m_validTargetRows.contains(dest.row()))
+                newHighlight = dest.row();
+        }
+    }
+
+    if (newHighlight != m_dropHighlightRow) {
+        m_dropHighlightRow = newHighlight;
+        viewport()->update();
+    }
+
+    event->acceptProposedAction();
+}
+
+void CueListView::dragLeaveEvent(QDragLeaveEvent *event) {
+    m_dropHighlightRow = -1;
+    viewport()->update();
+    QTableView::dragLeaveEvent(event);
+}
+
+// ── Drop ─────────────────────────────────────────────────────────────────────
+
+void CueListView::dropEvent(QDropEvent *event) {
+    m_dropHighlightRow = -1;
+
+    if (!event->mimeData()->hasFormat(kMime) || m_dragRow < 0) {
+        event->ignore();
+        viewport()->update();
+        return;
+    }
+
+    const QPoint      pos  = event->position().toPoint();
+    const QModelIndex dest = indexAt(pos);
+
+    // Target assignment: centre 70% of a valid ControlCue row, or its Target cell
+    if (dest.isValid() && dest.row() != m_dragRow) {
+        const QRect rowRect  = visualRect(model()->index(dest.row(), 0));
+        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
+        const bool  onTgtCol = dest.column() == CueListModel::ColTarget;
+
+        if ((onCenter || onTgtCol) && m_validTargetRows.contains(dest.row())) {
+            const int src = m_dragRow;
+            m_dragRow = -1;
+            m_validTargetRows.clear();
+            emit targetAssignRequested(src, dest.row());
+            selectRow(dest.row());
+            event->setDropAction(Qt::IgnoreAction);
+            event->accept();
+            viewport()->update();
+            return;
+        }
+    }
+
+    // Normal reorder
+    int destRow;
+    if (!dest.isValid()) {
+        destRow = model()->rowCount();
+    } else {
+        destRow = dest.row();
+        const QRect rect = visualRect(dest);
+        if (pos.y() > rect.center().y())
+            destRow++;
+    }
+
+    int targetRow = destRow;
+    if (m_dragRow < destRow) targetRow--;
+
+    const int src = m_dragRow;
+    m_dragRow = -1;
+    m_validTargetRows.clear();
+
+    if (src != targetRow) {
+        targetRow = qBound(0, targetRow, model()->rowCount() - 1);
+        emit moveRequested(src, targetRow);
+    }
+
+    event->setDropAction(Qt::IgnoreAction);
+    event->accept();
+    viewport()->update();
+}
