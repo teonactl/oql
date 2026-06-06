@@ -106,6 +106,19 @@ QVector<int> CueListView::validTargetRows(int srcRow) const {
     return rows;
 }
 
+QVector<int> CueListView::validGroupRows(int srcRow) const {
+    Cue *srcCue = m_model->cueForRow(srcRow);
+    if (!srcCue || srcCue->type() == Cue::Type::Group) return {};
+    QVector<int> rows;
+    for (int row = 0; row < model()->rowCount(); ++row) {
+        if (row == srcRow) continue;
+        Cue *c = m_model->cueForRow(row);
+        if (c && c->type() == Cue::Type::Group)
+            rows.append(row);
+    }
+    return rows;
+}
+
 static bool isOnRowCenter(const QRect &rowRect, int posY) {
     const int edge = rowRect.height() * 15 / 100;  // outer 15% = reorder zone
     return posY >= rowRect.top() + edge && posY <= rowRect.bottom() - edge;
@@ -201,6 +214,7 @@ void CueListView::mouseMoveEvent(QMouseEvent *event) {
     }
 
     m_validTargetRows = validTargetRows(m_dragRow);
+    m_validGroupRows  = validGroupRows(m_dragRow);
     viewport()->update();
 
     QByteArray payload;
@@ -224,9 +238,11 @@ void CueListView::mouseMoveEvent(QMouseEvent *event) {
 
     drag->exec(Qt::MoveAction);  // blocking — dropEvent runs inside here
 
-    m_dragRow          = -1;
-    m_dropHighlightRow = -1;
+    m_dragRow            = -1;
+    m_dropHighlightRow   = -1;
+    m_groupDropHighlight = -1;
     m_validTargetRows.clear();
+    m_validGroupRows.clear();
     viewport()->update();
 }
 
@@ -239,23 +255,41 @@ void CueListView::mouseReleaseEvent(QMouseEvent *event) {
 
 void CueListView::paintEvent(QPaintEvent *event) {
     QTableView::paintEvent(event);
-    if (m_validTargetRows.isEmpty() || !model()) return;
+    if ((m_validTargetRows.isEmpty() && m_validGroupRows.isEmpty()) || !model()) return;
 
     QPainter p(viewport());
     p.setRenderHint(QPainter::Antialiasing, false);
     const int lastCol = model()->columnCount() - 1;
 
-    for (int row : m_validTargetRows) {
-        const QRect r = visualRect(model()->index(row, 0))
-                        .united(visualRect(model()->index(row, lastCol)));
-        if (!r.isValid()) continue;
+    auto rowRect = [&](int row) {
+        return visualRect(model()->index(row, 0))
+               .united(visualRect(model()->index(row, lastCol)));
+    };
 
+    // Blue highlight: control-cue target rows
+    for (int row : m_validTargetRows) {
+        const QRect r = rowRect(row);
+        if (!r.isValid()) continue;
         if (row == m_dropHighlightRow) {
             p.setPen(QPen(QColor(60, 160, 255), 2));
             p.setBrush(QColor(60, 160, 255, 55));
         } else {
             p.setPen(QPen(QColor(60, 160, 255, 120), 1, Qt::DashLine));
             p.setBrush(QColor(60, 160, 255, 18));
+        }
+        p.drawRect(r.adjusted(1, 1, -1, -1));
+    }
+
+    // Green highlight: group rows (drag-to-assign)
+    for (int row : m_validGroupRows) {
+        const QRect r = rowRect(row);
+        if (!r.isValid()) continue;
+        if (row == m_groupDropHighlight) {
+            p.setPen(QPen(QColor(60, 210, 110), 2));
+            p.setBrush(QColor(60, 210, 110, 60));
+        } else {
+            p.setPen(QPen(QColor(60, 210, 110, 130), 1, Qt::DashLine));
+            p.setBrush(QColor(60, 210, 110, 18));
         }
         p.drawRect(r.adjusted(1, 1, -1, -1));
     }
@@ -279,25 +313,31 @@ void CueListView::dragMoveEvent(QDragMoveEvent *event) {
     const QPoint      pos  = event->position().toPoint();
     const QModelIndex dest = indexAt(pos);
 
-    int newHighlight = -1;
+    int newHighlight      = -1;
+    int newGroupHighlight = -1;
     if (dest.isValid() && dest.row() != m_dragRow) {
         const QRect rowRect = visualRect(model()->index(dest.row(), 0));
-        if (isOnRowCenter(rowRect, pos.y()) || dest.column() == CueListModel::ColTarget) {
+        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
+        if (onCenter || dest.column() == CueListModel::ColTarget) {
             if (m_validTargetRows.contains(dest.row()))
                 newHighlight = dest.row();
         }
+        if (onCenter && m_validGroupRows.contains(dest.row()))
+            newGroupHighlight = dest.row();
     }
 
-    if (newHighlight != m_dropHighlightRow) {
-        m_dropHighlightRow = newHighlight;
-        viewport()->update();
-    }
+    bool changed = (newHighlight != m_dropHighlightRow)
+                || (newGroupHighlight != m_groupDropHighlight);
+    m_dropHighlightRow   = newHighlight;
+    m_groupDropHighlight = newGroupHighlight;
+    if (changed) viewport()->update();
 
     event->acceptProposedAction();
 }
 
 void CueListView::dragLeaveEvent(QDragLeaveEvent *event) {
-    m_dropHighlightRow = -1;
+    m_dropHighlightRow   = -1;
+    m_groupDropHighlight = -1;
     viewport()->update();
     QTableView::dragLeaveEvent(event);
 }
@@ -326,8 +366,28 @@ void CueListView::dropEvent(QDropEvent *event) {
             const int src = m_dragRow;
             m_dragRow = -1;
             m_validTargetRows.clear();
+            m_validGroupRows.clear();
+            m_dropHighlightRow   = -1;
+            m_groupDropHighlight = -1;
             emit targetAssignRequested(src, dest.row());
             selectRow(dest.row());
+            event->setDropAction(Qt::IgnoreAction);
+            event->accept();
+            viewport()->update();
+            return;
+        }
+
+        // Group assignment: centre 70% of a GroupCue row
+        if (onCenter && m_validGroupRows.contains(dest.row())) {
+            const int src = m_dragRow;
+            const int grp = dest.row();
+            m_dragRow = -1;
+            m_validTargetRows.clear();
+            m_validGroupRows.clear();
+            m_dropHighlightRow   = -1;
+            m_groupDropHighlight = -1;
+            emit groupAssignRequested(src, grp);
+            selectRow(src);
             event->setDropAction(Qt::IgnoreAction);
             event->accept();
             viewport()->update();
@@ -350,8 +410,11 @@ void CueListView::dropEvent(QDropEvent *event) {
     if (m_dragRow < destRow) targetRow--;
 
     const int src = m_dragRow;
-    m_dragRow = -1;
+    m_dragRow            = -1;
+    m_dropHighlightRow   = -1;
+    m_groupDropHighlight = -1;
     m_validTargetRows.clear();
+    m_validGroupRows.clear();
 
     if (src != targetRow) {
         targetRow = qBound(0, targetRow, model()->rowCount() - 1);

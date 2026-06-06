@@ -140,6 +140,14 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
     });
+    connect(m_cueView, &CueListView::groupAssignRequested, this, [this](int cueVis, int grpVis) {
+        Cue *cue = m_model->cueForRow(cueVis);
+        Cue *grp = m_model->cueForRow(grpVis);
+        if (!cue || !grp || grp->type() != Cue::Type::Group) return;
+        doUndoable("Assegna a gruppo", [&] {
+            cue->setParentGroupId(grp->id());
+        });
+    });
     connect(m_cueView, &CueListView::moveRequested, this, [this](int fromVis, int toVis) {
         const int from = m_model->actualRowForVisible(fromVis);
         const int to   = m_model->actualRowForVisible(toVis);
@@ -353,6 +361,12 @@ void MainWindow::buildToolBar() {
         QPolygon t; t << QPoint(7,3) << QPoint(7,17) << QPoint(17,10); p.drawPolygon(t);
     });
 
+    // Group: folder shape
+    auto groupIcon = makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
+        p.drawRect(1, 5, 7, 3);    // tab
+        p.drawRect(1, 7, 18, 11);  // body
+    });
+
     addCueBtn(audioIcon,     "+ Audio Cue",    &MainWindow::addAudioCue);
     addCueBtn(videoIcon,     "+ Video Cue",    &MainWindow::addVideoCue);
     addCueBtn(stopIcon,      "+ Stop Cue",     &MainWindow::addStopCue);
@@ -360,6 +374,7 @@ void MainWindow::buildToolBar() {
     addCueBtn(pauseIcon,     "+ Pause Cue",    &MainWindow::addPauseCue);
     addCueBtn(playCueIcon,   "+ Play Cue",     &MainWindow::addPlayCue);
     addCueBtn({},            "+ Mic Cue",      &MainWindow::addMicCue);
+    addCueBtn(groupIcon,     "+ Gruppo",       &MainWindow::addGroupCue);
     addCueBtn(speedUpIcon,   "+ Velocizza",    &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, "+ Rallenta",     &MainWindow::addSpeedDownCue);
 

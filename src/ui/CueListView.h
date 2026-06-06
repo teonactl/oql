@@ -25,6 +25,7 @@ signals:
     void moveRequested(int from, int to);
     void targetAssignRequested(int sourceCueRow, int controlCueRow);
     void groupToggleRequested(int row);
+    void groupAssignRequested(int cueRow, int groupRow);
 
 protected:
     void contextMenuEvent(QContextMenuEvent *event)   override;
@@ -43,13 +44,16 @@ protected:
 private:
     void stretchFlexColumns();
     QVector<int> validTargetRows(int srcRow) const;
+    QVector<int> validGroupRows(int srcRow)  const;
 
     static constexpr char kMime[] = "application/x-openqlab-cuerow";
 
     CueListModel *m_model;
-    bool          m_stretchGuard     = false;
-    int           m_dragRow          = -1;
-    int           m_dropHighlightRow = -1;
+    bool          m_stretchGuard       = false;
+    int           m_dragRow            = -1;
+    int           m_dropHighlightRow   = -1;
+    int           m_groupDropHighlight = -1;
     QVector<int>  m_validTargetRows;
+    QVector<int>  m_validGroupRows;
     QPoint        m_dragStartPos;
 };
