@@ -92,6 +92,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             m_textOut->clearText();
     });
 
+    // When the playhead advances (e.g. after GO on a group), move the view selection
+    // to the new playhead position so that pressing Space fires the correct next cue.
+    connect(m_workspace.cueList(), &CueList::playheadChanged, this, [this](int actualIdx) {
+        const int visRow = m_model->visibleRowForActual(actualIdx);
+        if (visRow >= 0)
+            m_cueView->selectRow(visRow);
+    });
+
     updateTitle();
 }
 

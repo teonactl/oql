@@ -67,9 +67,11 @@ void CueList::go() {
         setPlayhead(0);
     Cue *cue = m_cues[m_playhead].get();
 
-    // GroupCue: redirect to first child; skip if empty
+    // GroupCue: expand, then redirect to first child; skip if empty
     if (cue->type() == Cue::Type::Group) {
         const QString gid = cue->id();
+        if (auto *gc = dynamic_cast<GroupCue*>(cue))
+            gc->setCollapsed(false);
         for (int i = 0; i < int(m_cues.size()); ++i) {
             if (m_cues[i]->parentGroupId() == gid) {
                 setPlayhead(i);
@@ -128,6 +130,19 @@ void CueList::connectCue(Cue *cue) {
         if (it == m_cues.end()) return;
         const int idx = int(std::distance(m_cues.begin(), it));
         emit cueStateChanged(idx, s);
+
+        // Auto-collapse group when its last active child goes Idle
+        if (s == Cue::State::Idle && !cue->parentGroupId().isEmpty()) {
+            const QString gid = cue->parentGroupId();
+            const bool anyActive = std::any_of(m_cues.begin(), m_cues.end(),
+                [&gid](const auto &c) {
+                    return c->parentGroupId() == gid && c->state() != Cue::State::Idle;
+                });
+            if (!anyActive) {
+                if (auto *gc = dynamic_cast<GroupCue*>(findCueById(gid)))
+                    gc->setCollapsed(true);
+            }
+        }
     });
 
     connect(cue, &Cue::propertyChanged, this, [this, cue]() {
