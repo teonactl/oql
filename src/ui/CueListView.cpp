@@ -348,7 +348,19 @@ void CueListView::dragLeaveEvent(QDragLeaveEvent *event) {
 void CueListView::dropEvent(QDropEvent *event) {
     m_dropHighlightRow = -1;
 
-    if (!event->mimeData()->hasFormat(kMime) || m_dragRow < 0) {
+    if (!event->mimeData()->hasFormat(kMime)) {
+        event->ignore();
+        viewport()->update();
+        return;
+    }
+
+    // Always read srcRow from MIME data — on X11/Wayland mouseReleaseEvent
+    // fires before dropEvent and resets m_dragRow to -1 before we get here.
+    QByteArray payload = event->mimeData()->data(kMime);
+    QDataStream ds(&payload, QIODevice::ReadOnly);
+    int srcRow = -1;
+    ds >> srcRow;
+    if (srcRow < 0) {
         event->ignore();
         viewport()->update();
         return;
@@ -359,7 +371,7 @@ void CueListView::dropEvent(QDropEvent *event) {
 
     // Group assignment — use the highlight set during hover, not re-evaluated geometry
     if (m_groupDropHighlight >= 0) {
-        const int src = m_dragRow;
+        const int src = srcRow;
         const int grp = m_groupDropHighlight;
         m_dragRow            = -1;
         m_dropHighlightRow   = -1;
@@ -375,7 +387,7 @@ void CueListView::dropEvent(QDropEvent *event) {
     }
 
     // Target assignment — same approach: use hover highlight, fallback to Target-column drop
-    if (dest.isValid() && dest.row() != m_dragRow) {
+    if (dest.isValid() && dest.row() != srcRow) {
         const bool onTgtCol = dest.column() == CueListModel::ColTarget;
         const int  hlRow    = m_dropHighlightRow;
 
@@ -383,7 +395,7 @@ void CueListView::dropEvent(QDropEvent *event) {
         const bool byTgtCol    = onTgtCol && m_validTargetRows.contains(dest.row());
 
         if (byHighlight || byTgtCol) {
-            const int src = m_dragRow;
+            const int src = srcRow;
             const int tgt = byHighlight ? hlRow : dest.row();
             m_dragRow            = -1;
             m_dropHighlightRow   = -1;
@@ -411,9 +423,9 @@ void CueListView::dropEvent(QDropEvent *event) {
     }
 
     int targetRow = destRow;
-    if (m_dragRow < destRow) targetRow--;
+    if (srcRow < destRow) targetRow--;
 
-    const int src = m_dragRow;
+    const int src = srcRow;
     m_dragRow            = -1;
     m_dropHighlightRow   = -1;
     m_groupDropHighlight = -1;
