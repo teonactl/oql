@@ -65,7 +65,23 @@ void CueList::go() {
     if (m_cues.empty()) return;
     if (m_playhead >= int(m_cues.size()))
         setPlayhead(0);
-    Cue *cue      = m_cues[m_playhead].get();
+    Cue *cue = m_cues[m_playhead].get();
+
+    // GroupCue: redirect to first child; skip if empty
+    if (cue->type() == Cue::Type::Group) {
+        const QString gid = cue->id();
+        for (int i = 0; i < int(m_cues.size()); ++i) {
+            if (m_cues[i]->parentGroupId() == gid) {
+                setPlayhead(i);
+                go();
+                return;
+            }
+        }
+        // Empty group — advance past it
+        setPlayhead(m_playhead + 1);
+        return;
+    }
+
     const bool   ac   = cue->autoContinue();
     const double pre  = cue->preWait();
     const double post = cue->postWait();
