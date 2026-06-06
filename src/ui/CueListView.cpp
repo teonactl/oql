@@ -369,40 +369,40 @@ void CueListView::dropEvent(QDropEvent *event) {
     const QPoint      pos  = event->position().toPoint();
     const QModelIndex dest = indexAt(pos);
 
-    // Group assignment — use the highlight set during hover, not re-evaluated geometry
-    if (m_groupDropHighlight >= 0) {
-        const int src = srcRow;
-        const int grp = m_groupDropHighlight;
-        m_dragRow            = -1;
-        m_dropHighlightRow   = -1;
-        m_groupDropHighlight = -1;
-        m_validTargetRows.clear();
-        m_validGroupRows.clear();
-        emit groupAssignRequested(src, grp);
-        selectRow(src);
-        event->setDropAction(Qt::IgnoreAction);
-        event->accept();
-        viewport()->update();
-        return;
-    }
-
-    // Target assignment — same approach: use hover highlight, fallback to Target-column drop
+    // Re-evaluate at drop time using m_validGroupRows / m_validTargetRows directly.
+    // dragLeaveEvent fires just before dropEvent on X11 and clears m_groupDropHighlight
+    // and m_dropHighlightRow, so we cannot rely on those saved highlights here.
+    // m_validGroupRows and m_validTargetRows are NOT cleared by dragLeaveEvent.
     if (dest.isValid() && dest.row() != srcRow) {
-        const bool onTgtCol = dest.column() == CueListModel::ColTarget;
-        const int  hlRow    = m_dropHighlightRow;
 
-        const bool byHighlight = hlRow >= 0 && m_validTargetRows.contains(hlRow);
-        const bool byTgtCol    = onTgtCol && m_validTargetRows.contains(dest.row());
-
-        if (byHighlight || byTgtCol) {
-            const int src = srcRow;
-            const int tgt = byHighlight ? hlRow : dest.row();
+        // Group assignment — any position over a valid group row counts at drop time
+        if (m_validGroupRows.contains(dest.row())) {
+            const int grp = dest.row();
             m_dragRow            = -1;
             m_dropHighlightRow   = -1;
             m_groupDropHighlight = -1;
             m_validTargetRows.clear();
             m_validGroupRows.clear();
-            emit targetAssignRequested(src, tgt);
+            emit groupAssignRequested(srcRow, grp);
+            selectRow(srcRow);
+            event->setDropAction(Qt::IgnoreAction);
+            event->accept();
+            viewport()->update();
+            return;
+        }
+
+        // Target assignment — center zone or explicit Target column
+        const bool onTgtCol  = dest.column() == CueListModel::ColTarget;
+        const QRect rowRect  = visualRect(model()->index(dest.row(), 0));
+        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
+        if ((onCenter || onTgtCol) && m_validTargetRows.contains(dest.row())) {
+            const int tgt = dest.row();
+            m_dragRow            = -1;
+            m_dropHighlightRow   = -1;
+            m_groupDropHighlight = -1;
+            m_validTargetRows.clear();
+            m_validGroupRows.clear();
+            emit targetAssignRequested(srcRow, tgt);
             selectRow(tgt);
             event->setDropAction(Qt::IgnoreAction);
             event->accept();
