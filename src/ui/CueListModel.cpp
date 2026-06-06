@@ -5,6 +5,7 @@
 #include "engine/MicCue.h"
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
+#include "engine/TextCue.h"
 #include <QColor>
 #include <QFileInfo>
 #include <QFont>
@@ -35,6 +36,7 @@ static QIcon makeCueIcon(Cue::Type type) {
     case Cue::Type::Mic:   bg = QColor(0xcc, 0x22, 0x88); break;
     case Cue::Type::Group: bg = QColor(0x44, 0x48, 0x58); break;
     case Cue::Type::Label: bg = QColor(0x60, 0x55, 0x10); break;
+    case Cue::Type::Text:  bg = QColor(0x0a, 0x72, 0x8a); break;
     default: break;
     }
     p.setBrush(bg);
@@ -113,6 +115,14 @@ static QIcon makeCueIcon(Cue::Type type) {
         p.drawLine(3, 5,  13, 5);
         p.drawLine(3, 8,  13, 8);
         p.drawLine(3, 11, 10, 11);
+        break;
+    }
+    case Cue::Type::Text: {
+        // Bold "T"
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        p.drawRect(2, 2, 12, 3);   // top bar of T
+        p.drawRect(6, 2, 4, 12);   // stem of T
         break;
     }
     default: break;
@@ -200,6 +210,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
     const bool isPaused  = (cue->state() == Cue::State::Paused);
     const bool isGroup   = (cue->type() == Cue::Type::Group);
     const bool isLabel   = (cue->type() == Cue::Type::Label);
+    const bool isText    = (cue->type() == Cue::Type::Text);
 
     if (role == Qt::DecorationRole && idx.column() == ColType)
         return makeCueIcon(cue->type());
@@ -252,24 +263,35 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isPaused)  return QColor(240, 200, 60);
         if (isGroup)   return QColor(210, 210, 225);
         if (isLabel)   return QColor(230, 210, 100);
+        if (isText)    return QColor(130, 220, 240);
     }
 
     if (role == Qt::FontRole) {
         QFont f;
         bool modified = false;
         if (isPlaying || isPaused || isGroup) { f.setBold(true);   modified = true; }
-        if (isLabel)                          { f.setItalic(true); modified = true; }
+        if (isLabel || isText)                { f.setItalic(true); modified = true; }
         return modified ? QVariant(f) : QVariant{};
     }
 
     if (role == Qt::BackgroundRole) {
         if (isGroup) return QColor(42, 44, 56);
         if (isLabel) return QColor(52, 47, 18);
+        if (isText)  return QColor(8, 48, 58);
         if (m_visibleRows.value(idx.row(), -1) == m_list->playheadIndex())
             return QColor(200, 160, 30, 55);
     }
 
     if (idx.column() == ColTarget) {
+        if (const auto *tc = dynamic_cast<const TextCue*>(cue)) {
+            if (role == Qt::DisplayRole) {
+                const QString t = tc->text();
+                return t.isEmpty() ? QString("(nessun testo)") : t.left(40).replace('\n', ' ');
+            }
+            if (role == Qt::ForegroundRole)
+                return tc->text().isEmpty() ? QColor(200, 50, 50) : QColor(130, 220, 240);
+            return {};
+        }
         if (const auto *ac = dynamic_cast<const AudioCue*>(cue)) {
             if (role == Qt::DisplayRole)
                 return ac->filePath().isEmpty()

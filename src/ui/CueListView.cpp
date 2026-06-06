@@ -138,6 +138,7 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addSeparator();
     menu.addAction("Aggiungi Gruppo",        this, &CueListView::addGroupRequested);
     menu.addAction("Aggiungi Etichetta",     this, &CueListView::addLabelRequested);
+    menu.addAction("Aggiungi Testo",         this, &CueListView::addTextRequested);
     menu.addSeparator();
     menu.addAction("Elimina cue",            this, &CueListView::deleteRequested);
     menu.exec(event->globalPos());
@@ -356,38 +357,41 @@ void CueListView::dropEvent(QDropEvent *event) {
     const QPoint      pos  = event->position().toPoint();
     const QModelIndex dest = indexAt(pos);
 
-    // Target assignment: centre 70% of a valid ControlCue row, or its Target cell
+    // Group assignment — use the highlight set during hover, not re-evaluated geometry
+    if (m_groupDropHighlight >= 0) {
+        const int src = m_dragRow;
+        const int grp = m_groupDropHighlight;
+        m_dragRow            = -1;
+        m_dropHighlightRow   = -1;
+        m_groupDropHighlight = -1;
+        m_validTargetRows.clear();
+        m_validGroupRows.clear();
+        emit groupAssignRequested(src, grp);
+        selectRow(src);
+        event->setDropAction(Qt::IgnoreAction);
+        event->accept();
+        viewport()->update();
+        return;
+    }
+
+    // Target assignment — same approach: use hover highlight, fallback to Target-column drop
     if (dest.isValid() && dest.row() != m_dragRow) {
-        const QRect rowRect  = visualRect(model()->index(dest.row(), 0));
-        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
-        const bool  onTgtCol = dest.column() == CueListModel::ColTarget;
+        const bool onTgtCol = dest.column() == CueListModel::ColTarget;
+        const int  hlRow    = m_dropHighlightRow;
 
-        if ((onCenter || onTgtCol) && m_validTargetRows.contains(dest.row())) {
+        const bool byHighlight = hlRow >= 0 && m_validTargetRows.contains(hlRow);
+        const bool byTgtCol    = onTgtCol && m_validTargetRows.contains(dest.row());
+
+        if (byHighlight || byTgtCol) {
             const int src = m_dragRow;
-            m_dragRow = -1;
-            m_validTargetRows.clear();
-            m_validGroupRows.clear();
+            const int tgt = byHighlight ? hlRow : dest.row();
+            m_dragRow            = -1;
             m_dropHighlightRow   = -1;
             m_groupDropHighlight = -1;
-            emit targetAssignRequested(src, dest.row());
-            selectRow(dest.row());
-            event->setDropAction(Qt::IgnoreAction);
-            event->accept();
-            viewport()->update();
-            return;
-        }
-
-        // Group assignment: centre 70% of a GroupCue row
-        if (onCenter && m_validGroupRows.contains(dest.row())) {
-            const int src = m_dragRow;
-            const int grp = dest.row();
-            m_dragRow = -1;
             m_validTargetRows.clear();
             m_validGroupRows.clear();
-            m_dropHighlightRow   = -1;
-            m_groupDropHighlight = -1;
-            emit groupAssignRequested(src, grp);
-            selectRow(src);
+            emit targetAssignRequested(src, tgt);
+            selectRow(tgt);
             event->setDropAction(Qt::IgnoreAction);
             event->accept();
             viewport()->update();

@@ -4,6 +4,7 @@
 #include <functional>
 #include "engine/Workspace.h"
 #include "ui/VideoOutputWindow.h"
+#include "ui/TextOutputWindow.h"
 #include "ui/CueInfoBar.h"
 
 class CueListModel;
@@ -37,6 +38,7 @@ private slots:
     void addMicCue();
     void addGroupCue();
     void addLabelCue();
+    void addTextCue();
     void addSpeedUpCue();
     void addSpeedDownCue();
     void addPlayCue();
@@ -66,6 +68,7 @@ private:
     InspectorPanel    *m_inspector       = nullptr;
     ActiveCuesPanel   *m_activeCues      = nullptr;
     VideoOutputWindow *m_videoOut        = nullptr;
+    TextOutputWindow  *m_textOut         = nullptr;
     CueInfoBar        *m_infoBar         = nullptr;
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;

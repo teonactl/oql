@@ -4,6 +4,7 @@
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
 #include "engine/MicCue.h"
+#include "engine/TextCue.h"
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include "engine/CueList.h"
@@ -23,6 +24,8 @@
 #include <QTimer>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontComboBox>
+#include <QColorDialog>
 
 InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
     : QWidget(parent), m_cueList(cueList)
@@ -291,6 +294,70 @@ void InspectorPanel::buildUi() {
 
     propsLay->addWidget(m_audioSection, 1);
 
+    // ── Text cue section ────────────────────────────────────
+    m_textSection = new QWidget;
+    auto *textLay = new QVBoxLayout(m_textSection);
+    textLay->setContentsMargins(0, 2, 0, 0);
+    textLay->setSpacing(4);
+
+    auto *textRow = new QWidget;
+    auto *textRowLay = new QHBoxLayout(textRow);
+    textRowLay->setContentsMargins(0, 0, 0, 0);
+    textRowLay->setSpacing(6);
+
+    auto *textContentGroup = new QGroupBox("Testo");
+    auto *textContentForm = new QFormLayout(textContentGroup);
+    textContentForm->setSpacing(3);
+    m_textContent = new QTextEdit;
+    m_textContent->setMaximumHeight(70);
+    m_textContent->setPlaceholderText("Inserisci il testo...");
+    textContentForm->addRow(m_textContent);
+    textRowLay->addWidget(textContentGroup, 2);
+
+    auto *textFmtGroup = new QGroupBox("Formattazione");
+    auto *textFmtForm = new QFormLayout(textFmtGroup);
+    textFmtForm->setSpacing(3);
+
+    m_fontFamilyCombo = new QFontComboBox;
+    m_fontFamilyCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    textFmtForm->addRow("Font:", m_fontFamilyCombo);
+
+    m_fontSizeSpin = new QSpinBox;
+    m_fontSizeSpin->setRange(6, 300);
+    m_fontSizeSpin->setValue(48);
+    m_fontSizeSpin->setSuffix(" pt");
+    m_fontSizeSpin->setFixedWidth(80);
+    textFmtForm->addRow("Dimensione:", m_fontSizeSpin);
+
+    auto *styleRow = new QWidget;
+    auto *styleRowLay = new QHBoxLayout(styleRow);
+    styleRowLay->setContentsMargins(0, 0, 0, 0);
+    styleRowLay->setSpacing(4);
+    m_textBoldCheck   = new QCheckBox("Grassetto");
+    m_textItalicCheck = new QCheckBox("Corsivo");
+    styleRowLay->addWidget(m_textBoldCheck);
+    styleRowLay->addWidget(m_textItalicCheck);
+    styleRowLay->addStretch();
+    textFmtForm->addRow(styleRow);
+
+    m_textColorBtn = new QPushButton("Colore testo");
+    m_textColorBtn->setFixedHeight(24);
+    textFmtForm->addRow(m_textColorBtn);
+
+    m_textBgColorBtn = new QPushButton("Colore sfondo");
+    m_textBgColorBtn->setFixedHeight(24);
+    textFmtForm->addRow(m_textBgColorBtn);
+
+    m_textAlignCombo = new QComboBox;
+    m_textAlignCombo->addItem("Sinistra",  int(Qt::AlignLeft  | Qt::AlignVCenter));
+    m_textAlignCombo->addItem("Centro",    int(Qt::AlignCenter));
+    m_textAlignCombo->addItem("Destra",    int(Qt::AlignRight | Qt::AlignVCenter));
+    textFmtForm->addRow("Allineamento:", m_textAlignCombo);
+
+    textRowLay->addWidget(textFmtGroup, 3);
+    textLay->addWidget(textRow);
+    propsLay->addWidget(m_textSection);
+
     // ── Playhead refresh timer ───────────────────────────────
     m_playTimer = new QTimer(this);
     m_playTimer->setInterval(80);
@@ -375,6 +442,18 @@ void InspectorPanel::buildUi() {
     });
     connect(m_loopSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &InspectorPanel::onLoopCountChanged);
+
+    connect(m_textContent, &QTextEdit::textChanged, this, &InspectorPanel::onTextContentChanged);
+    connect(m_fontFamilyCombo, &QFontComboBox::currentFontChanged,
+            this, &InspectorPanel::onFontFamilyChanged);
+    connect(m_fontSizeSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &InspectorPanel::onFontSizeChanged);
+    connect(m_textBoldCheck,   &QCheckBox::toggled, this, &InspectorPanel::onBoldChanged);
+    connect(m_textItalicCheck, &QCheckBox::toggled, this, &InspectorPanel::onItalicChanged);
+    connect(m_textColorBtn,    &QPushButton::clicked, this, &InspectorPanel::onTextColorClicked);
+    connect(m_textBgColorBtn,  &QPushButton::clicked, this, &InspectorPanel::onBgColorClicked);
+    connect(m_textAlignCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorPanel::onTextAlignChanged);
 }
 
 void InspectorPanel::setCue(Cue *cue) {
@@ -429,12 +508,14 @@ void InspectorPanel::updateMediaSection() {
                          || t == Cue::Type::Play);
     const bool isSpeed   = (t == Cue::Type::Speed);
     const bool isMic     = (t == Cue::Type::Mic);
+    const bool isTextCue = (t == Cue::Type::Text);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
     m_fadeGroup->setVisible(isAudio);
     m_audioSection->setVisible(isAudio);
     m_controlSection->setVisible(isControl);
     m_micSection->setVisible(isMic);
+    m_textSection->setVisible(isTextCue);
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
@@ -504,6 +585,43 @@ void InspectorPanel::updateMediaSection() {
             m_fadeDurationSpin->blockSignals(false);
             m_fadeStopAtEndCheck->blockSignals(false);
         }
+    } else if (isTextCue) {
+        auto *tc = static_cast<TextCue*>(m_cue);
+        m_textContent->blockSignals(true);
+        m_fontFamilyCombo->blockSignals(true);
+        m_fontSizeSpin->blockSignals(true);
+        m_textBoldCheck->blockSignals(true);
+        m_textItalicCheck->blockSignals(true);
+        m_textAlignCombo->blockSignals(true);
+
+        m_textContent->setPlainText(tc->text());
+        m_fontFamilyCombo->setCurrentFont(QFont(tc->fontFamily()));
+        m_fontSizeSpin->setValue(tc->fontSize());
+        m_textBoldCheck->setChecked(tc->bold());
+        m_textItalicCheck->setChecked(tc->italic());
+
+        auto colorBtnStyle = [](const QColor &c) {
+            return QString("background:%1; color:%2;")
+                .arg(c.name(), c.lightness() > 128 ? "#000" : "#fff");
+        };
+        m_textColorBtn->setStyleSheet(colorBtnStyle(tc->textColor()));
+        m_textBgColorBtn->setStyleSheet(colorBtnStyle(tc->backgroundColor()));
+
+        // Find matching alignment index
+        const int alignVal = tc->alignment();
+        for (int i = 0; i < m_textAlignCombo->count(); ++i) {
+            if (m_textAlignCombo->itemData(i).toInt() == alignVal) {
+                m_textAlignCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+
+        m_textContent->blockSignals(false);
+        m_fontFamilyCombo->blockSignals(false);
+        m_fontSizeSpin->blockSignals(false);
+        m_textBoldCheck->blockSignals(false);
+        m_textItalicCheck->blockSignals(false);
+        m_textAlignCombo->blockSignals(false);
     }
 }
 
@@ -731,4 +849,54 @@ void InspectorPanel::onLoopCountChanged(int v) {
         static_cast<AudioCue*>(m_cue)->setLoopCount(v);
     else if (m_cue->type() == Cue::Type::Video)
         static_cast<VideoCue*>(m_cue)->setLoopCount(v);
+}
+
+void InspectorPanel::onTextContentChanged() {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setText(m_textContent->toPlainText());
+}
+
+void InspectorPanel::onFontFamilyChanged(const QFont &f) {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setFontFamily(f.family());
+}
+
+void InspectorPanel::onFontSizeChanged(int v) {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setFontSize(v);
+}
+
+void InspectorPanel::onBoldChanged(bool v) {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setBold(v);
+}
+
+void InspectorPanel::onItalicChanged(bool v) {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setItalic(v);
+}
+
+void InspectorPanel::onTextColorClicked() {
+    if (!m_cue || m_cue->type() != Cue::Type::Text) return;
+    auto *tc = static_cast<TextCue*>(m_cue);
+    const QColor c = QColorDialog::getColor(tc->textColor(), this, "Colore testo");
+    if (!c.isValid()) return;
+    tc->setTextColor(c);
+    m_textColorBtn->setStyleSheet(
+        QString("background:%1; color:%2;").arg(c.name(), c.lightness() > 128 ? "#000" : "#fff"));
+}
+
+void InspectorPanel::onBgColorClicked() {
+    if (!m_cue || m_cue->type() != Cue::Type::Text) return;
+    auto *tc = static_cast<TextCue*>(m_cue);
+    const QColor c = QColorDialog::getColor(tc->backgroundColor(), this, "Colore sfondo");
+    if (!c.isValid()) return;
+    tc->setBackgroundColor(c);
+    m_textBgColorBtn->setStyleSheet(
+        QString("background:%1; color:%2;").arg(c.name(), c.lightness() > 128 ? "#000" : "#fff"));
+}
+
+void InspectorPanel::onTextAlignChanged(int idx) {
+    if (m_cue && m_cue->type() == Cue::Type::Text)
+        static_cast<TextCue*>(m_cue)->setAlignment(m_textAlignCombo->itemData(idx).toInt());
 }

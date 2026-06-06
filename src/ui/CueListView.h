@@ -19,6 +19,7 @@ signals:
     void addMicRequested();
     void addGroupRequested();
     void addLabelRequested();
+    void addTextRequested();
     void deleteRequested();
     void cueDoubleClicked(int row);
     void filePickRequested(int row);

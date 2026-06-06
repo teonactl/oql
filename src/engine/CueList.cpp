@@ -5,6 +5,7 @@
 #include "MicCue.h"
 #include "GroupCue.h"
 #include "LabelCue.h"
+#include "TextCue.h"
 #include <QJsonObject>
 #include <QTimer>
 #include <algorithm>
@@ -196,6 +197,10 @@ void CueList::fromJson(const QJsonArray &arr) {
             cue = std::move(c);
         } else if (t == "label") {
             auto c = std::make_unique<LabelCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
+        } else if (t == "text") {
+            auto c = std::make_unique<TextCue>();
             c->fromJson(obj);
             cue = std::move(c);
         }

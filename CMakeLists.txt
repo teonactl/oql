@@ -28,6 +28,8 @@ qt_add_executable(openqlab
     src/engine/GroupCue.cpp
     src/engine/LabelCue.h
     src/engine/LabelCue.cpp
+    src/engine/TextCue.h
+    src/engine/TextCue.cpp
     src/engine/Workspace.h
     src/engine/Workspace.cpp
     src/engine/AppSettings.h
@@ -42,6 +44,8 @@ qt_add_executable(openqlab
     src/ui/InspectorPanel.cpp
     src/ui/VideoOutputWindow.h
     src/ui/VideoOutputWindow.cpp
+    src/ui/TextOutputWindow.h
+    src/ui/TextOutputWindow.cpp
     src/ui/CueInfoBar.h
     src/ui/CueInfoBar.cpp
     src/ui/ActiveCuesPanel.h

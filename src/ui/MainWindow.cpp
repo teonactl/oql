@@ -11,6 +11,8 @@
 #include "engine/MicCue.h"
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
+#include "engine/TextCue.h"
+#include "TextOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
 #include <QMenuBar>
@@ -62,6 +64,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1100, 650);
 
     m_videoOut  = new VideoOutputWindow(this);
+    m_textOut   = new TextOutputWindow(this);
     m_undoStack = new QUndoStack(this);
 
     buildUi();
@@ -78,6 +81,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_workspace.cueList(), &CueList::cueAdded, this, [this](int index) {
         if (m_workspace.cueList()->cueAt(index)->type() == Cue::Type::Video)
             setupNewVideoCue(index);
+    });
+
+    connect(m_workspace.cueList(), &CueList::cueStateChanged, this, [this](int index, Cue::State state) {
+        Cue *cue = m_workspace.cueList()->cueAt(index);
+        if (!cue || cue->type() != Cue::Type::Text) return;
+        if (state == Cue::State::Playing)
+            m_textOut->showCue(static_cast<TextCue*>(cue));
+        else if (state == Cue::State::Idle)
+            m_textOut->clearText();
     });
 
     updateTitle();
@@ -136,6 +148,7 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addMicRequested,   this, &MainWindow::addMicCue);
     connect(m_cueView, &CueListView::addGroupRequested, this, &MainWindow::addGroupCue);
     connect(m_cueView, &CueListView::addLabelRequested, this, &MainWindow::addLabelCue);
+    connect(m_cueView, &CueListView::addTextRequested,  this, &MainWindow::addTextCue);
     connect(m_cueView, &CueListView::deleteRequested,   this, &MainWindow::deleteSelectedCue);
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
@@ -258,6 +271,7 @@ void MainWindow::buildMenus() {
     edit->addSeparator();
     menuAction(edit, "Aggiungi &Gruppo",           QKeySequence("Ctrl+Shift+G"), this, &MainWindow::addGroupCue);
     menuAction(edit, "Aggiungi &Etichetta",        QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
+    menuAction(edit, "Aggiungi &Testo",            QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
     edit->addSeparator();
     menuAction(edit, "&Elimina cue", QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
@@ -367,14 +381,42 @@ void MainWindow::buildToolBar() {
         p.drawRect(1, 7, 18, 11);  // body
     });
 
+    // Label: three horizontal lines (note lines)
+    auto labelIcon = makeTbIcon(QColor(0x60, 0x55, 0x10), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(3, 6,  17, 6);
+        p.drawLine(3, 10, 17, 10);
+        p.drawLine(3, 14, 12, 14);
+    });
+
+    // Text: bold "T"
+    auto textIcon = makeTbIcon(QColor(0x0a, 0x72, 0x8a), [](QPainter &p) {
+        p.drawRect(2, 3, 16, 3);   // top bar
+        p.drawRect(8, 3, 4, 13);   // stem
+    });
+
+    // Mic: capsule + stand
+    auto micIcon = makeTbIcon(QColor(0xcc, 0x22, 0x88), [](QPainter &p) {
+        p.setBrush(Qt::white);
+        p.drawRoundedRect(7, 2, 6, 9, 3, 3);
+        p.setPen(QPen(Qt::white, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(4, 6, 12, 8, 0, -180 * 16);
+        p.drawLine(10, 14, 10, 17);
+        p.drawLine(6, 17, 14, 17);
+    });
+
     addCueBtn(audioIcon,     "+ Audio Cue",    &MainWindow::addAudioCue);
     addCueBtn(videoIcon,     "+ Video Cue",    &MainWindow::addVideoCue);
     addCueBtn(stopIcon,      "+ Stop Cue",     &MainWindow::addStopCue);
     addCueBtn(fadeIcon,      "+ Fade Cue",     &MainWindow::addFadeCue);
     addCueBtn(pauseIcon,     "+ Pause Cue",    &MainWindow::addPauseCue);
     addCueBtn(playCueIcon,   "+ Play Cue",     &MainWindow::addPlayCue);
-    addCueBtn({},            "+ Mic Cue",      &MainWindow::addMicCue);
+    addCueBtn(micIcon,       "+ Mic Cue",      &MainWindow::addMicCue);
     addCueBtn(groupIcon,     "+ Gruppo",       &MainWindow::addGroupCue);
+    addCueBtn(labelIcon,     "+ Etichetta",    &MainWindow::addLabelCue);
+    addCueBtn(textIcon,      "+ Testo",        &MainWindow::addTextCue);
     addCueBtn(speedUpIcon,   "+ Velocizza",    &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, "+ Rallenta",     &MainWindow::addSpeedDownCue);
 
@@ -382,6 +424,11 @@ void MainWindow::buildToolBar() {
 
     auto *videoWin = tb->addAction("📺 Video Out");
     connect(videoWin, &QAction::triggered, this, &MainWindow::toggleVideoOutput);
+    auto *textWin = tb->addAction("📝 Text Out");
+    connect(textWin, &QAction::triggered, this, [this]() {
+        if (m_textOut->isVisible()) m_textOut->hide();
+        else                        m_textOut->show();
+    });
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
@@ -519,6 +566,20 @@ void MainWindow::addLabelCue() {
         auto cue = std::make_unique<LabelCue>();
         cue->setNumber(nextCueNumber());
         cue->setName("Etichetta");
+        m_workspace.cueList()->addCue(std::move(cue), idx);
+    });
+    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
+    m_cueView->selectRow(m_model->visibleRowForActual(actual));
+    m_cueView->setFocus();
+}
+
+void MainWindow::addTextCue() {
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
+    doUndoable("Aggiungi Testo Cue", [&] {
+        auto cue = std::make_unique<TextCue>();
+        cue->setNumber(nextCueNumber());
+        cue->setName("Testo");
         m_workspace.cueList()->addCue(std::move(cue), idx);
     });
     const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;

@@ -15,6 +15,7 @@ class QComboBox;
 class QSpinBox;
 class QTimer;
 class WaveformView;
+class QFontComboBox;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -51,6 +52,14 @@ private slots:
     void onLoopCountChanged(int v);
     void refreshPlayhead();
     void populateTargetCombo();
+    void onTextContentChanged();
+    void onFontFamilyChanged(const QFont &f);
+    void onFontSizeChanged(int v);
+    void onBoldChanged(bool v);
+    void onItalicChanged(bool v);
+    void onTextColorClicked();
+    void onBgColorClicked();
+    void onTextAlignChanged(int idx);
 
 private:
     void buildUi();
@@ -107,6 +116,17 @@ private:
     QWidget        *m_micSection     = nullptr;
     QComboBox      *m_micDeviceCombo = nullptr;
     QDoubleSpinBox *m_micVolumeSpin  = nullptr;
+
+    // Text cue
+    QWidget        *m_textSection    = nullptr;
+    QTextEdit      *m_textContent    = nullptr;
+    QFontComboBox  *m_fontFamilyCombo = nullptr;
+    QSpinBox       *m_fontSizeSpin   = nullptr;
+    QCheckBox      *m_textBoldCheck  = nullptr;
+    QCheckBox      *m_textItalicCheck = nullptr;
+    QPushButton    *m_textColorBtn   = nullptr;
+    QPushButton    *m_textBgColorBtn = nullptr;
+    QComboBox      *m_textAlignCombo = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

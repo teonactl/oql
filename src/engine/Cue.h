@@ -7,7 +7,7 @@
 class Cue : public QObject {
     Q_OBJECT
 public:
-    enum class Type  { Audio, Video, Stop, Fade, Pause, Speed, Play, Mic, Group, Label };
+    enum class Type  { Audio, Video, Stop, Fade, Pause, Speed, Play, Mic, Group, Label, Text };
     enum class State { Idle, Waiting, Playing, Paused };
 
     explicit Cue(QObject *parent = nullptr);
