@@ -18,8 +18,72 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QTimer>
 #include <lilv/lilv.h>
 #include <memory>
+
+// ── VST2 native editor dialog ─────────────────────────────────────────────────
+
+class VstEditorDialog : public QDialog {
+    Q_OBJECT
+public:
+    VstEditorDialog(VstPlugin *plugin, QWidget *parent = nullptr)
+        : QDialog(parent, Qt::Window), m_plugin(plugin)
+    {
+        setWindowTitle(QString::fromStdString(plugin->name()));
+        setAttribute(Qt::WA_DeleteOnClose);
+
+        auto *lay = new QVBoxLayout(this);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+
+        // Native container: VST2 embeds its X11 child window here
+        m_container = new QWidget(this);
+        m_container->setAttribute(Qt::WA_NativeWindow, true);
+        m_container->setAttribute(Qt::WA_PaintOnScreen, true);
+        m_container->setMinimumSize(100, 100);
+        lay->addWidget(m_container);
+
+        // Force creation of the native (X11) window before passing handle to plugin
+        m_container->winId();
+
+        // Query rect BEFORE open (some plugins report it then)
+        applyEditorRect(plugin);
+
+        plugin->openEditor(reinterpret_cast<void*>(m_container->winId()));
+
+        // Re-query rect AFTER open (most plugins report it then)
+        applyEditorRect(plugin);
+
+        adjustSize();
+
+        // Drive the plugin's UI refresh loop (~30 fps)
+        m_idleTimer = new QTimer(this);
+        m_idleTimer->setInterval(33);
+        connect(m_idleTimer, &QTimer::timeout, this, [this]() {
+            if (m_plugin) m_plugin->editorIdle();
+        });
+        m_idleTimer->start();
+    }
+
+    ~VstEditorDialog() override {
+        m_idleTimer->stop();
+        if (m_plugin) m_plugin->closeEditor();
+    }
+
+private:
+    void applyEditorRect(VstPlugin *plugin) {
+        ERect *rect = nullptr;
+        if (!plugin->getEditorRect(&rect) || !rect) return;
+        const int w = rect->right  - rect->left;
+        const int h = rect->bottom - rect->top;
+        if (w > 0 && h > 0) m_container->setFixedSize(w, h);
+    }
+
+    VstPlugin *m_plugin;
+    QWidget   *m_container;
+    QTimer    *m_idleTimer;
+};
 
 // ── Plugin browser dialog ─────────────────────────────────────────────────────
 
@@ -119,11 +183,14 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     auto *toolLay = new QHBoxLayout(toolRow);
     toolLay->setContentsMargins(0, 0, 0, 0);
     toolLay->setSpacing(4);
-    m_addBtn    = new QPushButton("+");    m_addBtn->setFixedWidth(28);
-    m_removeBtn = new QPushButton("−");    m_removeBtn->setFixedWidth(28);
-    m_upBtn     = new QPushButton("▲");    m_upBtn->setFixedWidth(28);
-    m_downBtn   = new QPushButton("▼");    m_downBtn->setFixedWidth(28);
+    m_addBtn        = new QPushButton("+");         m_addBtn->setFixedWidth(28);
+    m_removeBtn     = new QPushButton("−");         m_removeBtn->setFixedWidth(28);
+    m_upBtn         = new QPushButton("▲");         m_upBtn->setFixedWidth(28);
+    m_downBtn       = new QPushButton("▼");         m_downBtn->setFixedWidth(28);
+    m_openEditorBtn = new QPushButton("Apri Editor");
+    m_openEditorBtn->setEnabled(false);
     toolLay->addWidget(new QLabel("Effetti:"));
+    toolLay->addWidget(m_openEditorBtn);
     toolLay->addStretch();
     toolLay->addWidget(m_upBtn);
     toolLay->addWidget(m_downBtn);
@@ -144,10 +211,11 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     new QVBoxLayout(m_paramContent); // empty initial layout
     lay->addWidget(m_paramScroll, 1);
 
-    connect(m_addBtn,    &QPushButton::clicked, this, &PluginChainWidget::onAddPlugin);
-    connect(m_removeBtn, &QPushButton::clicked, this, &PluginChainWidget::onRemovePlugin);
-    connect(m_upBtn,     &QPushButton::clicked, this, &PluginChainWidget::onMoveUp);
-    connect(m_downBtn,   &QPushButton::clicked, this, &PluginChainWidget::onMoveDown);
+    connect(m_addBtn,        &QPushButton::clicked, this, &PluginChainWidget::onAddPlugin);
+    connect(m_removeBtn,     &QPushButton::clicked, this, &PluginChainWidget::onRemovePlugin);
+    connect(m_upBtn,         &QPushButton::clicked, this, &PluginChainWidget::onMoveUp);
+    connect(m_downBtn,       &QPushButton::clicked, this, &PluginChainWidget::onMoveDown);
+    connect(m_openEditorBtn, &QPushButton::clicked, this, &PluginChainWidget::onOpenEditor);
     connect(m_list, &QListWidget::currentRowChanged,
             this,   &PluginChainWidget::onSelectionChanged);
 
@@ -218,10 +286,33 @@ void PluginChainWidget::onMoveDown() {
 
 void PluginChainWidget::onSelectionChanged() {
     clearParamArea();
+    m_openEditorBtn->setEnabled(false);
     if (!m_chain) return;
     const int row = m_list->currentRow();
     if (row < 0 || row >= m_chain->count()) return;
-    buildParamArea(m_chain->plugin(row), row);
+    AudioPlugin *plug = m_chain->plugin(row);
+    m_openEditorBtn->setEnabled(plug->hasEditor());
+    buildParamArea(plug, row);
+}
+
+void PluginChainWidget::onOpenEditor() {
+    if (!m_chain) return;
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_chain->count()) return;
+
+    VstPlugin *vst = dynamic_cast<VstPlugin*>(m_chain->plugin(row));
+    if (!vst || !vst->hasEditor()) return;
+
+    // Bring existing editor to front instead of opening a second one
+    if (m_editorDlg) {
+        m_editorDlg->raise();
+        m_editorDlg->activateWindow();
+        return;
+    }
+
+    auto *dlg = new VstEditorDialog(vst, this);
+    m_editorDlg = dlg;
+    dlg->show();
 }
 
 void PluginChainWidget::buildParamArea(AudioPlugin *plugin, int pluginIdx) {
@@ -296,3 +387,7 @@ void PluginChainWidget::onPluginToggled(int pluginIdx, bool active) {
         m_list->item(pluginIdx)->setCheckState(active ? Qt::Checked : Qt::Unchecked);
     emit chainModified();
 }
+
+// VstEditorDialog has Q_OBJECT but is defined in this .cpp, not a header.
+// AUTOMOC generates a .moc file that must be included here.
+#include "PluginChainWidget.moc"

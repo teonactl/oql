@@ -38,6 +38,9 @@ struct AEffect {
     char      future[56];
 };
 
+// VST2 editor rectangle (returned by effEditGetRect)
+struct ERect { short top, left, bottom, right; };
+
 // VST2 dispatcher opcodes
 enum {
     effOpen = 0, effClose = 1,
@@ -45,7 +48,7 @@ enum {
     effGetParamName = 8, effGetParamLabel = 6, effGetParamDisplay = 7,
     effSetSampleRate = 10, effSetBlockSize = 11,
     effMainsChanged = 12,
-    effEditGetRect = 13, effEditOpen = 14, effEditClose = 15,
+    effEditGetRect = 13, effEditOpen = 14, effEditClose = 15, effEditIdle = 19,
     effGetEffectName = 45, effGetVendorString = 47, effGetProductString = 48,
     effCanDo = 51
 };
@@ -72,6 +75,8 @@ public:
     bool        hasEditor()                const override;
     bool        openEditor(void* parentWinId)    override;
     void        closeEditor()                    override;
+    bool        getEditorRect(ERect **rect) const;
+    void        editorIdle();
 
     const std::string& path() const { return m_path; }
 

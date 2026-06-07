@@ -131,6 +131,15 @@ void VstPlugin::closeEditor() {
     if (m_effect) m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
 }
 
+bool VstPlugin::getEditorRect(ERect **rect) const {
+    if (!m_effect || !hasEditor() || !rect) return false;
+    return m_effect->dispatcher(m_effect, effEditGetRect, 0, 0, rect, 0.0f) != 0;
+}
+
+void VstPlugin::editorIdle() {
+    if (m_effect) m_effect->dispatcher(m_effect, effEditIdle, 0, 0, nullptr, 0.0f);
+}
+
 QJsonObject VstPlugin::toJson() const {
     auto obj = AudioPlugin::toJson();
     obj["path"] = QString::fromStdString(m_path);

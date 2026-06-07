@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QPointer>
 
 class PluginChain;
 class AudioPlugin;
@@ -7,10 +8,7 @@ class QListWidget;
 class QListWidgetItem;
 class QPushButton;
 class QScrollArea;
-class QFormLayout;
-class QSlider;
-class QCheckBox;
-class QLabel;
+class QDialog;
 
 class PluginChainWidget : public QWidget {
     Q_OBJECT
@@ -31,6 +29,7 @@ private slots:
     void onSelectionChanged();
     void onParamChanged(int pluginIdx, int paramIdx, int sliderVal);
     void onPluginToggled(int pluginIdx, bool active);
+    void onOpenEditor();
 
 private:
     void buildParamArea(AudioPlugin *plugin, int pluginIdx);
@@ -43,7 +42,10 @@ private:
     QPushButton   *m_removeBtn;
     QPushButton   *m_upBtn;
     QPushButton   *m_downBtn;
+    QPushButton   *m_openEditorBtn = nullptr;
 
     QScrollArea   *m_paramScroll;
     QWidget       *m_paramContent;
+
+    QPointer<QDialog> m_editorDlg;
 };
