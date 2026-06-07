@@ -225,6 +225,14 @@ void CueList::connectCue(Cue *cue) {
         emit cuePropertyChanged(int(std::distance(m_cues.begin(), it)));
     });
 
+    // displayChanged: UI-only refresh (e.g. duration becoming available) — must NOT mark workspace modified
+    connect(cue, &Cue::displayChanged, this, [this, cue]() {
+        auto it = std::find_if(m_cues.begin(), m_cues.end(),
+                               [cue](const auto &c){ return c.get() == cue; });
+        if (it == m_cues.end()) return;
+        emit cueLayoutChanged(int(std::distance(m_cues.begin(), it)));
+    });
+
     // Group collapse/expand: triggers view rebuild but must NOT mark workspace modified
     if (auto *gc = dynamic_cast<GroupCue*>(cue)) {
         connect(gc, &GroupCue::layoutChanged, this, [this, cue]() {

@@ -66,6 +66,7 @@ signals:
     void stateChanged(Cue::State state);
     void finished();
     void propertyChanged();
+    void displayChanged(); // UI refresh only — does NOT mark workspace as modified
 
 protected:
     void setState(State s);

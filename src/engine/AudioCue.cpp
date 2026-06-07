@@ -21,7 +21,7 @@ AudioCue::AudioCue(QObject *parent) : Cue(parent) {
     connect(m_automationTimer, &QTimer::timeout,
             this,               &AudioCue::onAutomationTick);
     connect(m_player, &QMediaPlayer::durationChanged,
-            this,     [this](qint64) { emit propertyChanged(); });
+            this,     [this](qint64) { emit displayChanged(); });
 }
 
 void AudioCue::setFilePath(const QString &path) {
