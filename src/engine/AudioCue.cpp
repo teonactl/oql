@@ -1,195 +1,293 @@
 #include "AudioCue.h"
+#include "miniaudio.h"
 #include <QFileInfo>
-#include <QUrl>
 #include <QJsonArray>
+#include <QMetaObject>
+#include <algorithm>
+#include <cmath>
+
+// ── Constructor / Destructor ──────────────────────────────────────────────────
 
 AudioCue::AudioCue(QObject *parent) : Cue(parent) {
-    m_player          = new QMediaPlayer(this);
-    m_audioOutput     = new QAudioOutput(this);
-    m_fadeTimer       = new QTimer(this);
-    m_automationTimer = new QTimer(this);
-
-    m_player->setAudioOutput(m_audioOutput);
-    m_audioOutput->setVolume(float(m_volume));
-    m_fadeTimer->setInterval(20);
-    m_automationTimer->setInterval(50);
-
-    connect(m_player,    &QMediaPlayer::playbackStateChanged,
-            this,        &AudioCue::onPlaybackStateChanged);
-    connect(m_fadeTimer, &QTimer::timeout,
-            this,        &AudioCue::onFadeTick);
-    connect(m_automationTimer, &QTimer::timeout,
-            this,               &AudioCue::onAutomationTick);
-    connect(m_player, &QMediaPlayer::durationChanged,
-            this,     [this](qint64) { emit displayChanged(); });
+    m_decoder = new ma_decoder();
 }
 
+AudioCue::~AudioCue() {
+    // Unregister from the audio engine first
+    if (m_playing.load()) {
+        m_playing.store(false);
+        AudioEngine::instance().removeRenderer(this);
+    }
+    std::lock_guard<std::mutex> lock(m_decoderMtx);
+    if (m_decoderOk) {
+        ma_decoder_uninit(m_decoder);
+        m_decoderOk = false;
+    }
+    delete m_decoder;
+}
+
+// ── File loading ──────────────────────────────────────────────────────────────
+
 void AudioCue::setFilePath(const QString &path) {
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, 0);
+        if (ma_decoder_init_file(path.toUtf8().constData(), &cfg, m_decoder) == MA_SUCCESS) {
+            m_decoderOk = true;
+            ma_uint64 total = 0;
+            ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
+            m_totalFrames = total;
+            m_fileDuration = total > 0
+                ? double(total) / double(m_decoder->outputSampleRate)
+                : 0.0;
+        }
+    }
     m_filePath = path;
-    m_player->setSource(QUrl::fromLocalFile(path));
-    if (m_name.isEmpty())
-        m_name = QFileInfo(path).completeBaseName();
+    if (m_name.isEmpty()) m_name = QFileInfo(path).completeBaseName();
+    emit displayChanged();
     emit propertyChanged();
 }
 
+// ── Volume helpers ────────────────────────────────────────────────────────────
+
 void AudioCue::setVolume(double v) {
-    m_volume = qBound(0.0, v, 1.0);
-    if (!m_fadingOut)
-        m_audioOutput->setVolume(float(m_volume * m_playbackScale));
+    m_targetVolume = qBound(0.0, v, 1.0);
     emit propertyChanged();
 }
 
 void AudioCue::setPlaybackVolume(double v) {
-    const double clamped = qBound(0.0, v, 1.0);
-    m_playbackScale = (m_volume > 0.001) ? clamped / m_volume : (clamped > 0.001 ? 1.0 : 0.0);
-    m_audioOutput->setVolume(float(clamped));
+    m_playbackScale = qBound(0.0, v, 2.0);
 }
+
+void AudioCue::setPlaybackRate(double /*r*/) {
+    // TODO: implement via miniaudio resampler
+}
+
+// ── Playback ──────────────────────────────────────────────────────────────────
 
 void AudioCue::go() {
     if (m_state == State::Paused) {
-        m_player->play();
-        m_automationTimer->start();
+        m_paused.store(false);
         setState(State::Playing);
         return;
     }
-    m_fadeTimer->stop();
-    m_automationTimer->stop();
-    m_fadingOut     = false;
-    m_playbackScale = 1.0;
-    m_loopsRemaining = m_loopCount;
 
-    m_restarting = true;
-    m_player->stop();
-    m_restarting = false;
-    m_player->setPlaybackRate(1.0);
-
-    if (!m_volumePoints.isEmpty()) {
-        m_currentVol = float(m_volume * computeFadeVol(0.0));
-        m_audioOutput->setVolume(float(m_currentVol));
-    } else {
-        m_currentVol = (m_fadeIn > 0.01) ? 0.0f : float(m_volume);
-        m_audioOutput->setVolume(float(m_currentVol));
-        if (m_fadeIn > 0.01) {
-            m_fadeStep = m_volume / (m_fadeIn * 50.0);
-            m_fadeTimer->start();
-        }
+    // Stop any currently playing stream
+    if (m_playing.load()) {
+        m_playing.store(false);
+        AudioEngine::instance().removeRenderer(this);
     }
 
-    m_automationTimer->start();
+    if (!m_decoderOk) return;
 
-    if (m_trimStart > 0.001)
-        m_player->setPosition(qint64(m_trimStart * 1000.0));
+    // Reset decoder to trim-start position
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        const int sr = int(m_decoder->outputSampleRate) > 0
+                       ? int(m_decoder->outputSampleRate)
+                       : AudioEngine::instance().sampleRate();
+        const ma_uint64 startFrame = ma_uint64(m_trimStart * sr);
+        ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
+        m_framePos.store(startFrame);
+    }
 
-    m_player->play();
+    m_loopsRemaining.store(m_loopCount > 0 ? m_loopCount : INT_MAX);
+    m_renderVol    = (m_fadeIn > 0.01) ? 0.0f : float(m_targetVolume * m_playbackScale);
+    m_paused.store(false);
+    m_seekTarget.store(-1);
+
+    // Preallocate working buffers
+    const int block = AudioEngine::instance().blockSize();
+    m_decodeBuf.resize(block * 2);
+    m_plugL.resize(block);
+    m_plugR.resize(block);
+
+    // Prepare plugin chain
+    m_chain.prepare(AudioEngine::instance().sampleRate(), block);
+
+    m_playing.store(true);
+    AudioEngine::instance().addRenderer(this);
     setState(State::Playing);
 }
 
 void AudioCue::stop() {
-    m_fadeTimer->stop();
-    m_automationTimer->stop();
-    m_fadingOut     = false;
-    m_playbackScale = 1.0;
-    m_restarting    = true;
-    m_player->stop();
-    m_restarting = false;
-    m_audioOutput->setVolume(float(m_volume));
+    if (!m_playing.load() && m_state == State::Idle) return;
+    m_playing.store(false);
+    m_paused.store(false);
+    AudioEngine::instance().removeRenderer(this);
+
+    // Seek back to start so position() returns 0
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (m_decoderOk) {
+            ma_decoder_seek_to_pcm_frame(m_decoder, 0);
+            m_framePos.store(0);
+        }
+    }
     setState(State::Idle);
 }
 
 void AudioCue::pause() {
-    m_fadeTimer->stop();
-    m_automationTimer->stop();
-    m_player->pause();
+    if (m_state != State::Playing) return;
+    m_paused.store(true);
     setState(State::Paused);
 }
 
-double AudioCue::duration() const { return m_player->duration() / 1000.0; }
-double AudioCue::position() const { return m_player->position() / 1000.0; }
+double AudioCue::duration() const {
+    return m_fileDuration;
+}
 
-void AudioCue::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
-    if (state == QMediaPlayer::StoppedState && m_state == State::Playing && !m_restarting) {
-        if (shouldLoop()) {
-            if (m_loopCount > 0) --m_loopsRemaining;
-            restartForLoop();
-            return;
+double AudioCue::position() const {
+    if (!m_decoderOk) return 0.0;
+    const int sr = m_decoder->outputSampleRate > 0
+                   ? int(m_decoder->outputSampleRate)
+                   : AudioEngine::instance().sampleRate();
+    return double(m_framePos.load()) / double(sr);
+}
+
+// ── Audio rendering (audio thread) ───────────────────────────────────────────
+
+bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
+    if (m_paused.load()) {
+        // Silence, but stay active
+        return true;
+    }
+
+    // Handle pending seek (from main thread: not currently triggered, reserved for future)
+    const int64_t seekTo = m_seekTarget.exchange(-1);
+    if (seekTo >= 0) {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (m_decoderOk)
+            ma_decoder_seek_to_pcm_frame(m_decoder, ma_uint64(seekTo));
+        m_framePos.store(ma_uint64(seekTo));
+    }
+
+    // Ensure working buffers are large enough
+    if (int(m_decodeBuf.size()) < frames * 2) {
+        m_decodeBuf.resize(frames * 2);
+        m_plugL.resize(frames);
+        m_plugR.resize(frames);
+    }
+
+    ma_uint64 framesRead = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (!m_decoderOk) return false;
+        ma_decoder_read_pcm_frames(m_decoder, m_decodeBuf.data(),
+                                   ma_uint64(frames), &framesRead);
+    }
+
+    if (framesRead == 0) {
+        // End of file
+        if (m_loopsRemaining.load() > 1) {
+            m_loopsRemaining.fetch_sub(1);
+            const ma_uint64 startFrame = ma_uint64(m_trimStart * sampleRate);
+            std::lock_guard<std::mutex> lock(m_decoderMtx);
+            if (m_decoderOk) {
+                ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
+                m_framePos.store(startFrame);
+            }
+        } else {
+            return false;  // done → engine will call onRenderFinished
         }
-        m_fadeTimer->stop();
-        m_automationTimer->stop();
-        m_fadingOut     = false;
-        m_playbackScale = 1.0;
-        m_audioOutput->setVolume(float(m_volume));
-        setState(State::Idle);
-        emit finished();
+        return true;
     }
-}
 
-void AudioCue::onAutomationTick() {
-    if (m_state != State::Playing) return;
-    const double durMs = m_player->duration();
-    if (durMs <= 0) return;
-    const double t   = qBound(0.0, m_player->position() / durMs, 1.0);
-    const double pos = m_player->position() / 1000.0;
+    const ma_uint64 curPos = ma_uint64(m_framePos.load());
+    const ma_uint64 newPos = curPos + framesRead;
+    m_framePos.store(newPos);
 
-    // Trim end: stop or loop when position reaches m_trimEnd
-    if (m_trimEnd > 0.001 && pos >= m_trimEnd) {
-        if (shouldLoop()) {
-            if (m_loopCount > 0) --m_loopsRemaining;
-            restartForLoop();
-            return;
+    // Trim end check
+    if (m_trimEnd > 0.001) {
+        const ma_uint64 trimEndFrame = ma_uint64(m_trimEnd * sampleRate);
+        if (newPos >= trimEndFrame) {
+            if (m_loopsRemaining.load() > 1) {
+                m_loopsRemaining.fetch_sub(1);
+                const ma_uint64 startFrame = ma_uint64(m_trimStart * sampleRate);
+                std::lock_guard<std::mutex> lock(m_decoderMtx);
+                if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
+                m_framePos.store(startFrame);
+                return true;
+            }
+            return false;
         }
-        m_automationTimer->stop();
-        m_fadeTimer->stop();
-        m_fadingOut     = false;
-        m_playbackScale = 1.0;
-        m_restarting    = true;
-        m_player->stop();
-        m_restarting = false;
-        m_audioOutput->setVolume(float(m_volume));
-        setState(State::Idle);
-        emit finished();
-        return;
     }
 
-    // Volume automation — always multiplied by m_playbackScale so FadeCue's effect is preserved
+    // Compute volume envelope for this block
+    const double durS  = m_fileDuration > 0.001 ? m_fileDuration : 1.0;
+    const double posS  = double(curPos) / double(sampleRate > 0 ? sampleRate : 48000);
+    const double normT = qBound(0.0, posS / durS, 1.0);
+
+    double volEnv = 1.0;
     if (!m_volumePoints.isEmpty()) {
-        const double vol = m_volume * m_playbackScale * interpolateVolume(t) * computeFadeVol(t);
-        m_audioOutput->setVolume(float(vol));
-    } else if (m_fadeOut > 0.01) {
-        const double durS = m_player->duration() / 1000.0;
-        const double remaining = durS > 0 ? durS * (1.0 - t) : 1.0;
-        const double fadeOutFactor = qMin(1.0, remaining / m_fadeOut);
-        m_audioOutput->setVolume(float(m_currentVol * m_playbackScale * fadeOutFactor));
-    }
-}
-
-bool AudioCue::shouldLoop() const {
-    return m_loopCount == 0 || m_loopsRemaining > 1;
-}
-
-void AudioCue::restartForLoop() {
-    m_fadeTimer->stop();
-    m_fadingOut     = false;
-    m_playbackScale = 1.0;
-    m_restarting    = true;
-    m_player->stop();
-    m_restarting = false;
-
-    if (!m_volumePoints.isEmpty()) {
-        m_currentVol = float(m_volume * computeFadeVol(0.0));
-        m_audioOutput->setVolume(float(m_currentVol));
+        volEnv = interpolateVolume(normT);
     } else {
-        m_currentVol = (m_fadeIn > 0.01) ? 0.0f : float(m_volume);
-        m_audioOutput->setVolume(float(m_currentVol));
-        if (m_fadeIn > 0.01) {
-            m_fadeStep = m_volume / (m_fadeIn * 50.0);
-            m_fadeTimer->start();
+        if (m_fadeIn > 0.01)
+            volEnv *= qMin(1.0, posS / m_fadeIn);
+        if (m_fadeOut > 0.01) {
+            const double remaining = durS - posS;
+            volEnv *= qMin(1.0, remaining / m_fadeOut);
         }
     }
-    if (m_trimStart > 0.001)
-        m_player->setPosition(qint64(m_trimStart * 1000.0));
-    m_automationTimer->start();
-    m_player->play();
+    const float vol = float(m_targetVolume * m_playbackScale * volEnv);
+
+    // Deinterleave decoded PCM → plugin chain → interleave to output
+    const int n = int(framesRead);
+    for (int i = 0; i < n; ++i) {
+        m_plugL[i] = m_decodeBuf[i * 2]     * vol;
+        m_plugR[i] = m_decodeBuf[i * 2 + 1] * vol;
+    }
+
+    // Apply channel routing
+    if (m_channel == ChannelRoute::Left) {
+        std::fill(m_plugR.begin(), m_plugR.begin() + n, 0.0f);
+    } else if (m_channel == ChannelRoute::Right) {
+        std::fill(m_plugL.begin(), m_plugL.begin() + n, 0.0f);
+    }
+
+    // Plugin chain (processes m_plugL/m_plugR in-place)
+    float *ch[2] = { m_plugL.data(), m_plugR.data() };
+    m_chain.process(ch, n);
+
+    // Mix into output (stereo interleaved)
+    for (int i = 0; i < n; ++i) {
+        out[i * 2]     += m_plugL[i];
+        out[i * 2 + 1] += m_plugR[i];
+    }
+
+    // Zero-fill if decoder returned fewer frames than requested (end of file)
+    for (int i = n; i < frames; ++i) {
+        out[i * 2] = out[i * 2 + 1] = 0.0f;
+    }
+
+    return true;
 }
+
+void AudioCue::onRenderFinished() {
+    // Called from the audio thread — post to main thread via queued connection
+    QMetaObject::invokeMethod(this, &AudioCue::handleStreamFinished,
+                              Qt::QueuedConnection);
+}
+
+void AudioCue::handleStreamFinished() {
+    // Main thread: clean up playing state and emit finished
+    m_playing.store(false);
+    m_loopsRemaining.store(1);
+    // Seek back to start
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (m_decoderOk) {
+            ma_decoder_seek_to_pcm_frame(m_decoder, 0);
+            m_framePos.store(0);
+        }
+    }
+    setState(State::Idle);
+    emit finished();
+}
+
+// ── Volume automation ─────────────────────────────────────────────────────────
 
 double AudioCue::interpolateVolume(double t) const {
     if (m_volumePoints.isEmpty()) return 1.0;
@@ -205,52 +303,25 @@ double AudioCue::interpolateVolume(double t) const {
     return 1.0;
 }
 
-double AudioCue::computeFadeVol(double t) const {
-    const double durS = m_player->duration() / 1000.0;
-    if (durS <= 0) return 1.0;
-    double v = 1.0;
-    if (m_fadeIn  > 0.01) v *= qMin(1.0, t * durS / m_fadeIn);
-    if (m_fadeOut > 0.01) v *= qMin(1.0, (1.0 - t) * durS / m_fadeOut);
-    return v;
-}
-
-void AudioCue::onFadeTick() {
-    if (m_fadingOut) {
-        m_currentVol -= m_fadeStep;
-        if (m_currentVol <= 0.0) {
-            m_currentVol = 0.0;
-            m_audioOutput->setVolume(0.0f);
-            m_fadeTimer->stop();
-            m_player->stop();   // triggers onPlaybackStateChanged → sets Idle + emits finished
-            return;
-        }
-    } else {
-        m_currentVol += m_fadeStep;
-        if (m_currentVol >= m_volume) {
-            m_currentVol = m_volume;
-            m_fadeTimer->stop();
-        }
-    }
-    m_audioOutput->setVolume(float(m_currentVol * m_playbackScale));
-}
+// ── JSON ──────────────────────────────────────────────────────────────────────
 
 QJsonObject AudioCue::toJson() const {
     auto obj        = Cue::toJson();
     obj["cueType"]  = "audio";
     obj["filePath"] = m_filePath;
-    obj["volume"]   = m_volume;
+    obj["volume"]   = m_targetVolume;
     obj["fadeIn"]   = m_fadeIn;
     obj["fadeOut"]  = m_fadeOut;
     obj["trimStart"] = m_trimStart;
     obj["trimEnd"]   = m_trimEnd;
     obj["channel"]   = int(m_channel);
     obj["loopCount"] = m_loopCount;
+    obj["plugins"]   = m_chain.toJson();
 
     QJsonArray pts;
     for (const auto &p : m_volumePoints)
         pts.append(QJsonArray{p.x(), p.y()});
     obj["volumePoints"] = pts;
-
     return obj;
 }
 
@@ -258,7 +329,7 @@ void AudioCue::fromJson(const QJsonObject &o) {
     Cue::fromJson(o);
     const QString path = o["filePath"].toString();
     if (!path.isEmpty()) setFilePath(path);
-    setVolume(o["volume"].toDouble(1.0));
+    m_targetVolume = o["volume"].toDouble(1.0);
     m_fadeIn    = o["fadeIn"].toDouble(3.0);
     m_fadeOut   = o["fadeOut"].toDouble(3.0);
     m_trimStart = o["trimStart"].toDouble(0.0);
@@ -272,4 +343,5 @@ void AudioCue::fromJson(const QJsonObject &o) {
         if (arr.size() == 2)
             m_volumePoints.append(QPointF(arr[0].toDouble(), arr[1].toDouble()));
     }
+    m_chain.fromJson(o["plugins"].toArray());
 }
