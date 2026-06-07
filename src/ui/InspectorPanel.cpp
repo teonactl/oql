@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QFontComboBox>
 #include <QColorDialog>
+#include <QSplitter>
 
 InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
     : QWidget(parent), m_cueList(cueList)
@@ -290,8 +291,7 @@ void InspectorPanel::buildUi() {
     audioLay->addWidget(chanRow);
 
     m_waveformView = new WaveformView;
-    m_waveformView->setMinimumHeight(110);
-    audioLay->addWidget(m_waveformView, 1);
+    m_waveformView->setMinimumHeight(80);
 
     // Plugin chain
     auto *pluginGroup = new QGroupBox("Effetti");
@@ -299,7 +299,15 @@ void InspectorPanel::buildUi() {
     pluginGrpLay->setContentsMargins(6, 6, 6, 6);
     m_pluginChainWidget = new PluginChainWidget;
     pluginGrpLay->addWidget(m_pluginChainWidget);
-    audioLay->addWidget(pluginGroup);
+
+    // Splitter verticale: l'utente può ridimensionare waveform vs plugin chain
+    auto *waveSplitter = new QSplitter(Qt::Vertical);
+    waveSplitter->addWidget(m_waveformView);
+    waveSplitter->addWidget(pluginGroup);
+    waveSplitter->setStretchFactor(0, 1);
+    waveSplitter->setStretchFactor(1, 2);
+    waveSplitter->setSizes({110, 220});
+    audioLay->addWidget(waveSplitter, 1);
 
     connect(m_pluginChainWidget, &PluginChainWidget::chainModified,
             this, [this]() {
