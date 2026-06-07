@@ -66,6 +66,39 @@ void AudioCue::setPlaybackVolume(double v) {
 
 void AudioCue::setPlaybackRate(double r) {
     m_playbackRate = qBound(0.1, r, 4.0);
+    if (!m_playing.load()) return;
+
+    // Cue is already playing: preserve position, reinit decoder at new rate
+    const double posSeconds = double(m_framePos.load())
+                              / double(m_currentDecoderSR > 0 ? m_currentDecoderSR : 48000);
+
+    m_playing.store(false);
+    AudioEngine::instance().removeRenderer(this);
+
+    {
+        std::lock_guard<std::mutex> lock(m_decoderMtx);
+        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
+
+        const int engineSR = AudioEngine::instance().sampleRate();
+        const uint32_t outSR = uint32_t(double(engineSR) / m_playbackRate);
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
+        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
+            return;
+        m_decoderOk = true;
+        m_currentDecoderSR = int(outSR);
+
+        const ma_uint64 seekFrame = ma_uint64(posSeconds * outSR);
+        ma_decoder_seek_to_pcm_frame(m_decoder, seekFrame);
+        m_framePos.store(seekFrame);
+
+        ma_uint64 total = 0;
+        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
+        m_totalFrames = total;
+    }
+
+    m_playing.store(true);
+    AudioEngine::instance().addRenderer(this);
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
