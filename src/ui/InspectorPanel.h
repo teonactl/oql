@@ -16,6 +16,7 @@ class QSpinBox;
 class QTimer;
 class WaveformView;
 class QFontComboBox;
+class PluginChainWidget;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -127,6 +128,8 @@ private:
     QPushButton    *m_textColorBtn   = nullptr;
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
+
+    PluginChainWidget *m_pluginChainWidget = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

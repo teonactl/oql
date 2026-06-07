@@ -66,6 +66,8 @@ qt_add_executable(openqlab
     src/ui/SettingsDialog.cpp
     src/ui/WaveformView.h
     src/ui/WaveformView.cpp
+    src/ui/PluginChainWidget.h
+    src/ui/PluginChainWidget.cpp
 )
 
 target_link_libraries(openqlab PRIVATE

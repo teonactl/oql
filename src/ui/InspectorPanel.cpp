@@ -1,5 +1,6 @@
 #include "InspectorPanel.h"
 #include "WaveformView.h"
+#include "PluginChainWidget.h"
 #include "engine/AudioCue.h"
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
@@ -292,6 +293,19 @@ void InspectorPanel::buildUi() {
     m_waveformView->setMinimumHeight(110);
     audioLay->addWidget(m_waveformView, 1);
 
+    // Plugin chain
+    auto *pluginGroup = new QGroupBox("Effetti");
+    auto *pluginGrpLay = new QVBoxLayout(pluginGroup);
+    pluginGrpLay->setContentsMargins(6, 6, 6, 6);
+    m_pluginChainWidget = new PluginChainWidget;
+    pluginGrpLay->addWidget(m_pluginChainWidget);
+    audioLay->addWidget(pluginGroup);
+
+    connect(m_pluginChainWidget, &PluginChainWidget::chainModified,
+            this, [this]() {
+        if (m_cue) emit m_cue->propertyChanged();
+    });
+
     propsLay->addWidget(m_audioSection, 1);
 
     // ── Text cue section ────────────────────────────────────
@@ -467,6 +481,7 @@ void InspectorPanel::setCue(Cue *cue) {
     if (!m_cue) {
         m_stack->setCurrentIndex(0);
         m_waveformView->setPlayPosition(0);
+        m_pluginChainWidget->setChain(nullptr);
         return;
     }
 
@@ -538,6 +553,7 @@ void InspectorPanel::updateMediaSection() {
         m_waveformView->setVolumePoints(a->volumePoints());
         m_waveformView->setTrimStart(a->trimStart());
         m_waveformView->setTrimEnd(a->trimEnd());
+        m_pluginChainWidget->setChain(a->pluginChain());
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
