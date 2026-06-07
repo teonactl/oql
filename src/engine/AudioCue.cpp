@@ -170,6 +170,7 @@ void AudioCue::stop() {
     m_playing.store(false);
     m_paused.store(false);
     m_playbackScale = 1.0;  // reset fade scale
+    m_playbackRate  = 1.0;  // reset speed change
     AudioEngine::instance().removeRenderer(this);
 
     // Seek back to start so position() returns 0
@@ -329,6 +330,8 @@ void AudioCue::onRenderFinished() {
 void AudioCue::handleStreamFinished() {
     // Main thread: clean up playing state and emit finished
     m_playing.store(false);
+    m_playbackScale = 1.0;
+    m_playbackRate  = 1.0;
     m_loopsRemaining.store(1);
     // Seek back to start
     {
