@@ -145,6 +145,7 @@ CueListModel::CueListModel(CueList *list, QObject *parent)
     connect(list, &CueList::cueMoved,           this, &CueListModel::onCueMoved);
     connect(list, &CueList::cueStateChanged,    this, &CueListModel::onCueStateChanged);
     connect(list, &CueList::cuePropertyChanged, this, &CueListModel::onCuePropertyChanged);
+    connect(list, &CueList::cueLayoutChanged,   this, &CueListModel::onCuePropertyChanged);
     connect(list, &CueList::playheadChanged,    this, &CueListModel::onPlayheadChanged);
     rebuildVisibleRows();
 }

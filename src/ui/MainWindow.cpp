@@ -93,23 +93,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             m_textOut->clearText();
     });
 
-    // When the playhead advances, move the view selection to match.
-    // Deferred so any pending model expand/collapse resets fire first.
-    // m_programmaticSelect prevents onSelectionChanged from treating the
-    // engine-driven select as user input and feeding it back to setPlayhead.
     connect(m_workspace.cueList(), &CueList::playheadChanged, this, [this](int actualIdx) {
-        QTimer::singleShot(0, this, [this, actualIdx]() {
-            const int visRow = m_model->visibleRowForActual(actualIdx);
-            if (visRow >= 0) {
-                m_programmaticSelect = true;
-                m_cueView->selectRow(visRow);
-                m_programmaticSelect = false;
-            }
-        });
+        const int visRow = m_model->visibleRowForActual(actualIdx);
+        if (visRow >= 0) {
+            m_programmaticSelect = true;
+            m_cueView->selectRow(visRow);
+            m_programmaticSelect = false;
+        }
     });
 
-    // After any model reset (group collapse/expand, undo, load…), re-sync selection
-    // to the current playhead so the highlight is never left stale.
     connect(m_model, &QAbstractTableModel::modelReset, this, [this]() {
         QTimer::singleShot(0, this, [this]() {
             const int visRow = m_model->visibleRowForActual(
@@ -484,6 +476,16 @@ void MainWindow::go() {
             m_workspace.cueList()->setPlayhead(actual >= 0 ? actual : 0);
     }
     m_workspace.cueList()->go();
+
+    // Safety net: select the new playhead row immediately if visible.
+    // Covers cases where playheadChanged fired but the row was not yet visible.
+    const int ph    = m_workspace.cueList()->playheadIndex();
+    const int phVis = m_model->visibleRowForActual(ph);
+    if (phVis >= 0) {
+        m_programmaticSelect = true;
+        m_cueView->selectRow(phVis);
+        m_programmaticSelect = false;
+    }
 }
 
 void MainWindow::stopAll() {

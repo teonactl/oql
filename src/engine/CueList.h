@@ -36,10 +36,12 @@ signals:
     void playheadChanged(int index);
     void cueStateChanged(int index, Cue::State state);
     void cuePropertyChanged(int index);
+    void cueLayoutChanged(int index); // group collapse: view rebuild only, not workspace modified
 
 private:
     void connectCue(Cue *cue);
     int  nextNonLabel(int from) const;
+    int  nextInSequence(int from) const; // respects group membership
 
     std::vector<std::unique_ptr<Cue>> m_cues;
     int m_playhead = 0;

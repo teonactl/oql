@@ -67,6 +67,38 @@ int CueList::nextNonLabel(int from) const {
     return from;
 }
 
+int CueList::nextInSequence(int from) const {
+    if (from < 0 || from >= int(m_cues.size()))
+        return int(m_cues.size());
+
+    const QString pgid = m_cues[from]->parentGroupId();
+
+    if (pgid.isEmpty()) {
+        // Root cue: simple linear advance
+        return nextNonLabel(from + 1);
+    }
+
+    // Child cue: scan forward for the next sibling (higher actual index, same group).
+    // We do NOT wrap around — children are played in ascending actual-index order.
+    for (int i = from + 1; i < int(m_cues.size()); ++i) {
+        if (m_cues[i]->parentGroupId() == pgid)
+            return m_cues[i]->type() == Cue::Type::Label ? nextNonLabel(i) : i;
+    }
+
+    // No next sibling: we're at the last child. Jump past the parent group.
+    for (int i = 0; i < int(m_cues.size()); ++i) {
+        if (m_cues[i]->id() == pgid) {
+            int next = i + 1;
+            // Skip any children that immediately follow the group in actual order
+            while (next < int(m_cues.size()) && m_cues[next]->parentGroupId() == pgid)
+                ++next;
+            return nextNonLabel(next);
+        }
+    }
+
+    return nextNonLabel(from + 1); // unreachable fallback
+}
+
 void CueList::go() {
     if (m_cues.empty()) return;
     if (m_playhead >= int(m_cues.size()))
@@ -98,15 +130,15 @@ void CueList::go() {
                 return;
             }
         }
-        // Empty group — advance past it, skipping labels
-        setPlayhead(nextNonLabel(m_playhead + 1));
+        // Empty group — advance past it
+        setPlayhead(nextInSequence(m_playhead));
         return;
     }
 
     const bool   ac   = cue->autoContinue();
     const double pre  = cue->preWait();
     const double post = cue->postWait();
-    setPlayhead(nextNonLabel(m_playhead + 1));
+    setPlayhead(nextInSequence(m_playhead));
     if (auto *cc = dynamic_cast<ControlCue*>(cue))
         cc->setTarget(findCueById(cc->targetId()));
 
@@ -163,10 +195,23 @@ void CueList::connectCue(Cue *cue) {
                                              m_cues[m_playhead]->parentGroupId() == gid;
                 if (!playheadInGroup) {
                     QTimer::singleShot(0, this, [this, gid]() {
+                        int groupIdx = -1;
+                        for (int i = 0; i < int(m_cues.size()); ++i) {
+                            if (m_cues[i]->id() == gid) { groupIdx = i; break; }
+                        }
+                        int nextIdx = groupIdx + 1;
+                        while (nextIdx < int(m_cues.size()) &&
+                               m_cues[nextIdx]->parentGroupId() == gid)
+                            ++nextIdx;
+                        nextIdx = nextNonLabel(nextIdx);
+
                         if (auto *gc = dynamic_cast<GroupCue*>(findCueById(gid)))
                             gc->setCollapsed(true);
-                        // Re-sync view selection after the model reset caused by setCollapsed
-                        emit playheadChanged(m_playhead);
+
+                        if (nextIdx < int(m_cues.size()))
+                            setPlayhead(nextIdx);
+                        else if (groupIdx >= 0)
+                            setPlayhead(groupIdx);
                     });
                 }
             }
@@ -180,18 +225,26 @@ void CueList::connectCue(Cue *cue) {
         emit cuePropertyChanged(int(std::distance(m_cues.begin(), it)));
     });
 
+    // Group collapse/expand: triggers view rebuild but must NOT mark workspace modified
+    if (auto *gc = dynamic_cast<GroupCue*>(cue)) {
+        connect(gc, &GroupCue::layoutChanged, this, [this, cue]() {
+            auto it = std::find_if(m_cues.begin(), m_cues.end(),
+                                   [cue](const auto &c){ return c.get() == cue; });
+            if (it == m_cues.end()) return;
+            emit cueLayoutChanged(int(std::distance(m_cues.begin(), it)));
+        });
+    }
+
     connect(cue, &Cue::finished, this, [this, cue]() {
         if (!cue->autoFollow()) return;
         auto it = std::find_if(m_cues.begin(), m_cues.end(),
                                [cue](const auto &c){ return c.get() == cue; });
         if (it == m_cues.end()) return;
-        const int next = int(std::distance(m_cues.begin(), it)) + 1;
-        if (next >= int(m_cues.size())) return;
+        const int actualIdx = int(std::distance(m_cues.begin(), it));
 
         const double post = cue->postWait();
-        // Route through go() so the next cue's preWait and autoContinue/autoFollow are respected
-        auto fireNext = [this, next]() {
-            const int ph = nextNonLabel(next);
+        auto fireNext = [this, actualIdx]() {
+            const int ph = nextInSequence(actualIdx);
             if (ph >= int(m_cues.size())) return;
             setPlayhead(ph);
             go();
