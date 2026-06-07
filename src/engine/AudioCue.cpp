@@ -118,8 +118,9 @@ void AudioCue::go() {
 
     if (m_filePath.isEmpty()) return;
 
-    // Reset playback scale that may have been left by a FadeCue
+    // Reset transient overrides left by FadeCue / SpeedCue
     m_playbackScale = 1.0;
+    m_playbackRate  = 1.0;
 
     // Reinitialize decoder with rate-adjusted output SR so SpeedCue works
     {
