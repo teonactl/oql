@@ -290,12 +290,12 @@ void InspectorPanel::buildUi() {
     audioLay->addWidget(chanRow);
 
     m_waveformView = new WaveformView;
-    m_waveformView->setMinimumHeight(80);
-    m_waveformView->setMaximumHeight(160);
+    m_waveformView->setFixedHeight(120);
     audioLay->addWidget(m_waveformView);
 
     // Plugin chain
     auto *pluginGroup = new QGroupBox("Effetti");
+    pluginGroup->setMinimumHeight(220);
     auto *pluginGrpLay = new QVBoxLayout(pluginGroup);
     pluginGrpLay->setContentsMargins(6, 6, 6, 6);
     m_pluginChainWidget = new PluginChainWidget;
