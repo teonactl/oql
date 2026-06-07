@@ -183,14 +183,11 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     auto *toolLay = new QHBoxLayout(toolRow);
     toolLay->setContentsMargins(0, 0, 0, 0);
     toolLay->setSpacing(4);
-    m_addBtn        = new QPushButton("+");         m_addBtn->setFixedWidth(28);
-    m_removeBtn     = new QPushButton("−");         m_removeBtn->setFixedWidth(28);
-    m_upBtn         = new QPushButton("▲");         m_upBtn->setFixedWidth(28);
-    m_downBtn       = new QPushButton("▼");         m_downBtn->setFixedWidth(28);
-    m_openEditorBtn = new QPushButton("Apri Editor");
-    m_openEditorBtn->setEnabled(false);
+    m_addBtn    = new QPushButton("+");  m_addBtn->setFixedWidth(28);
+    m_removeBtn = new QPushButton("−");  m_removeBtn->setFixedWidth(28);
+    m_upBtn     = new QPushButton("▲");  m_upBtn->setFixedWidth(28);
+    m_downBtn   = new QPushButton("▼");  m_downBtn->setFixedWidth(28);
     toolLay->addWidget(new QLabel("Effetti:"));
-    toolLay->addWidget(m_openEditorBtn);
     toolLay->addStretch();
     toolLay->addWidget(m_upBtn);
     toolLay->addWidget(m_downBtn);
@@ -199,8 +196,14 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     lay->addWidget(toolRow);
 
     m_list = new QListWidget;
-    m_list->setMaximumHeight(100);
+    m_list->setMaximumHeight(90);
     lay->addWidget(m_list);
+
+    // "Apri Editor" on its own row, below the list
+    m_openEditorBtn = new QPushButton("Apri editor nativo");
+    m_openEditorBtn->setEnabled(false);
+    m_openEditorBtn->setVisible(false);
+    lay->addWidget(m_openEditorBtn);
 
     // Parameter area
     m_paramScroll  = new QScrollArea;
@@ -291,7 +294,9 @@ void PluginChainWidget::onSelectionChanged() {
     const int row = m_list->currentRow();
     if (row < 0 || row >= m_chain->count()) return;
     AudioPlugin *plug = m_chain->plugin(row);
-    m_openEditorBtn->setEnabled(plug->hasEditor());
+    const bool hasEd = plug->hasEditor();
+    m_openEditorBtn->setEnabled(hasEd);
+    m_openEditorBtn->setVisible(hasEd);
     buildParamArea(plug, row);
 }
 
