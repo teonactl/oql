@@ -85,9 +85,11 @@ private:
 
     // Set once in go(), read in renderAudio() — safe because audio thread
     // starts only after go() returns.
-    double   m_targetVolume  = 1.0;
-    double   m_playbackScale = 1.0;   // from FadeCue::setPlaybackVolume
-    double   m_fadeIn        = 3.0;
+    double   m_targetVolume   = 1.0;
+    double   m_playbackScale  = 1.0;   // from FadeCue::setPlaybackVolume
+    double   m_playbackRate   = 1.0;   // from SpeedCue::setPlaybackRate
+    int      m_currentDecoderSR = 48000; // decoder output SR (engineSR / rate), set in go()
+    double   m_fadeIn         = 3.0;
     double   m_fadeOut       = 3.0;
     double   m_trimStart     = 0.0;
     double   m_trimEnd       = 0.0;

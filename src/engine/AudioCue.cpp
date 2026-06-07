@@ -58,11 +58,14 @@ void AudioCue::setVolume(double v) {
 }
 
 void AudioCue::setPlaybackVolume(double v) {
-    m_playbackScale = qBound(0.0, v, 2.0);
+    const double clamped = qBound(0.0, v, 1.0);
+    m_playbackScale = (m_targetVolume > 0.001)
+        ? clamped / m_targetVolume
+        : (clamped > 0.001 ? 1.0 : 0.0);
 }
 
-void AudioCue::setPlaybackRate(double /*r*/) {
-    // TODO: implement via miniaudio resampler
+void AudioCue::setPlaybackRate(double r) {
+    m_playbackRate = qBound(0.1, r, 4.0);
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -80,21 +83,38 @@ void AudioCue::go() {
         AudioEngine::instance().removeRenderer(this);
     }
 
-    if (!m_decoderOk) return;
+    if (m_filePath.isEmpty()) return;
 
-    // Reset decoder to trim-start position
+    // Reset playback scale that may have been left by a FadeCue
+    m_playbackScale = 1.0;
+
+    // Reinitialize decoder with rate-adjusted output SR so SpeedCue works
     {
         std::lock_guard<std::mutex> lock(m_decoderMtx);
-        const int sr = int(m_decoder->outputSampleRate) > 0
-                       ? int(m_decoder->outputSampleRate)
-                       : AudioEngine::instance().sampleRate();
-        const ma_uint64 startFrame = ma_uint64(m_trimStart * sr);
+        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
+
+        const int engineSR = AudioEngine::instance().sampleRate();
+        const uint32_t outSR = (m_playbackRate > 0.001)
+            ? uint32_t(double(engineSR) / m_playbackRate)
+            : uint32_t(engineSR);
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
+        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
+            return;
+        m_decoderOk = true;
+        m_currentDecoderSR = int(outSR);
+
+        const ma_uint64 startFrame = ma_uint64(m_trimStart * outSR);
         ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
         m_framePos.store(startFrame);
+
+        ma_uint64 total = 0;
+        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
+        m_totalFrames = total;
     }
 
     m_loopsRemaining.store(m_loopCount > 0 ? m_loopCount : INT_MAX);
-    m_renderVol    = (m_fadeIn > 0.01) ? 0.0f : float(m_targetVolume * m_playbackScale);
+    m_renderVol    = (m_fadeIn > 0.01) ? 0.0f : float(m_targetVolume);
     m_paused.store(false);
     m_seekTarget.store(-1);
 
@@ -116,6 +136,7 @@ void AudioCue::stop() {
     if (!m_playing.load() && m_state == State::Idle) return;
     m_playing.store(false);
     m_paused.store(false);
+    m_playbackScale = 1.0;  // reset fade scale
     AudioEngine::instance().removeRenderer(this);
 
     // Seek back to start so position() returns 0
@@ -183,7 +204,7 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
         // End of file
         if (m_loopsRemaining.load() > 1) {
             m_loopsRemaining.fetch_sub(1);
-            const ma_uint64 startFrame = ma_uint64(m_trimStart * sampleRate);
+            const ma_uint64 startFrame = ma_uint64(m_trimStart * m_currentDecoderSR);
             std::lock_guard<std::mutex> lock(m_decoderMtx);
             if (m_decoderOk) {
                 ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
@@ -199,13 +220,13 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
     const ma_uint64 newPos = curPos + framesRead;
     m_framePos.store(newPos);
 
-    // Trim end check
+    // Trim end check (frame positions are in decoder-SR space)
     if (m_trimEnd > 0.001) {
-        const ma_uint64 trimEndFrame = ma_uint64(m_trimEnd * sampleRate);
+        const ma_uint64 trimEndFrame = ma_uint64(m_trimEnd * m_currentDecoderSR);
         if (newPos >= trimEndFrame) {
             if (m_loopsRemaining.load() > 1) {
                 m_loopsRemaining.fetch_sub(1);
-                const ma_uint64 startFrame = ma_uint64(m_trimStart * sampleRate);
+                const ma_uint64 startFrame = ma_uint64(m_trimStart * m_currentDecoderSR);
                 std::lock_guard<std::mutex> lock(m_decoderMtx);
                 if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
                 m_framePos.store(startFrame);
@@ -216,8 +237,9 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
     }
 
     // Compute volume envelope for this block
+    // posS is in real seconds: decoder frames / decoderSR = real elapsed time
     const double durS  = m_fileDuration > 0.001 ? m_fileDuration : 1.0;
-    const double posS  = double(curPos) / double(sampleRate > 0 ? sampleRate : 48000);
+    const double posS  = double(curPos) / double(m_currentDecoderSR > 0 ? m_currentDecoderSR : 48000);
     const double normT = qBound(0.0, posS / durS, 1.0);
 
     double volEnv = 1.0;
