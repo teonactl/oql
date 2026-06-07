@@ -89,18 +89,22 @@ void WaveformView::startDecode(const QString &path) {
 
     if (path.isEmpty()) return;
 
-    m_decoder = new QAudioDecoder(this);
+    auto *dec = new QAudioDecoder(this);
+    m_decoder = dec;
 
     QAudioFormat fmt;
     fmt.setSampleRate(4000);
     fmt.setChannelCount(1);
     fmt.setSampleFormat(QAudioFormat::Float);
-    m_decoder->setAudioFormat(fmt);
-    m_decoder->setSource(QUrl::fromLocalFile(path));
+    dec->setAudioFormat(fmt);
+    dec->setSource(QUrl::fromLocalFile(path));
 
-    connect(m_decoder, &QAudioDecoder::bufferReady, this, [this]() {
-        while (m_decoder && m_decoder->bufferAvailable()) {
-            const auto buf = m_decoder->read();
+    // Capture dec by value so callbacks belong to this specific instance,
+    // not to whatever m_decoder points to at the time the signal fires.
+    connect(dec, &QAudioDecoder::bufferReady, this, [this, dec]() {
+        if (dec != m_decoder) return;  // stale — a new file was set
+        while (dec->bufferAvailable()) {
+            const auto buf = dec->read();
             if (!buf.isValid()) continue;
             const QAudioFormat f = buf.format();
             if (f.sampleFormat() == QAudioFormat::Float) {
@@ -115,7 +119,8 @@ void WaveformView::startDecode(const QString &path) {
         }
     });
 
-    connect(m_decoder, &QAudioDecoder::finished, this, [this]() {
+    connect(dec, &QAudioDecoder::finished, this, [this, dec]() {
+        if (dec != m_decoder) return;  // stale — already deleteLater'd by startDecode
         const int N = m_rawSamples.size();
         if (N > 0) {
             const int buckets = 2000;
@@ -131,17 +136,20 @@ void WaveformView::startDecode(const QString &path) {
         }
         m_rawSamples.clear();
         m_rawSamples.squeeze();
-        if (m_decoder) { m_decoder->deleteLater(); m_decoder = nullptr; }
+        m_decoder->deleteLater();
+        m_decoder = nullptr;
         update();
     });
 
-    connect(m_decoder,
+    connect(dec,
             QOverload<QAudioDecoder::Error>::of(&QAudioDecoder::error),
-            this, [this](QAudioDecoder::Error) {
-        if (m_decoder) { m_decoder->deleteLater(); m_decoder = nullptr; }
+            this, [this, dec](QAudioDecoder::Error) {
+        if (dec != m_decoder) return;
+        m_decoder->deleteLater();
+        m_decoder = nullptr;
     });
 
-    m_decoder->start();
+    dec->start();
 }
 
 // ── Paint ─────────────────────────────────────────────────────────────────────

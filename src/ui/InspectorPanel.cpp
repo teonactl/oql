@@ -687,6 +687,11 @@ void InspectorPanel::onBrowseFile() {
         : "File video (*.mp4 *.mkv *.avi *.mov *.webm *.m4v)";
     const QString path = QFileDialog::getOpenFileName(this, "Scegli file", {}, filter);
     if (path.isEmpty()) return;
+    // Deferred timers (e.g. group collapse) can fire inside the dialog's nested event loop,
+    // resetting the model and clearing the selection → setCue(nullptr). Re-check before use.
+    if (!m_cue) return;
+    const Cue::Type expectedType = isAudio ? Cue::Type::Audio : Cue::Type::Video;
+    if (m_cue->type() != expectedType) return;
     if (isAudio) static_cast<AudioCue*>(m_cue)->setFilePath(path);
     else         static_cast<VideoCue*>(m_cue)->setFilePath(path);
     updateMediaSection();

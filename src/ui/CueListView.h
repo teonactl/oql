@@ -27,6 +27,7 @@ signals:
     void targetAssignRequested(int sourceCueRow, int controlCueRow);
     void groupToggleRequested(int row);
     void groupAssignRequested(int cueRow, int groupRow);
+    void ungroupRequested(int cueVisRow, int destVisRow);
 
 protected:
     void contextMenuEvent(QContextMenuEvent *event)   override;

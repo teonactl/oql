@@ -39,6 +39,7 @@ signals:
 
 private:
     void connectCue(Cue *cue);
+    int  nextNonLabel(int from) const;
 
     std::vector<std::unique_ptr<Cue>> m_cues;
     int m_playhead = 0;

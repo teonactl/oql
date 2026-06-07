@@ -61,17 +61,36 @@ void CueList::setPlayhead(int index) {
     }
 }
 
+int CueList::nextNonLabel(int from) const {
+    while (from < int(m_cues.size()) && m_cues[from]->type() == Cue::Type::Label)
+        ++from;
+    return from;
+}
+
 void CueList::go() {
     if (m_cues.empty()) return;
     if (m_playhead >= int(m_cues.size()))
         setPlayhead(0);
+
+    // Skip labels: if the user manually selected a label and pressed GO, jump past it
+    {
+        const int ph = nextNonLabel(m_playhead);
+        if (ph != m_playhead) setPlayhead(ph);
+    }
+    if (m_playhead >= int(m_cues.size())) return;
+
     Cue *cue = m_cues[m_playhead].get();
 
-    // GroupCue: expand, then redirect to first child; skip if empty
+    // GroupCue: expand (deferred), then redirect to first child; skip if empty
     if (cue->type() == Cue::Type::Group) {
         const QString gid = cue->id();
-        if (auto *gc = dynamic_cast<GroupCue*>(cue))
-            gc->setCollapsed(false);
+        // Defer setCollapsed so the model reset doesn't fire inside go()
+        if (auto *gc = dynamic_cast<GroupCue*>(cue); gc && gc->collapsed()) {
+            QTimer::singleShot(0, this, [this, gid]() {
+                if (auto *g = dynamic_cast<GroupCue*>(findCueById(gid)))
+                    g->setCollapsed(false);
+            });
+        }
         for (int i = 0; i < int(m_cues.size()); ++i) {
             if (m_cues[i]->parentGroupId() == gid) {
                 setPlayhead(i);
@@ -79,15 +98,15 @@ void CueList::go() {
                 return;
             }
         }
-        // Empty group — advance past it
-        setPlayhead(m_playhead + 1);
+        // Empty group — advance past it, skipping labels
+        setPlayhead(nextNonLabel(m_playhead + 1));
         return;
     }
 
     const bool   ac   = cue->autoContinue();
     const double pre  = cue->preWait();
     const double post = cue->postWait();
-    setPlayhead(m_playhead + 1);
+    setPlayhead(nextNonLabel(m_playhead + 1));
     if (auto *cc = dynamic_cast<ControlCue*>(cue))
         cc->setTarget(findCueById(cc->targetId()));
 
@@ -139,8 +158,17 @@ void CueList::connectCue(Cue *cue) {
                     return c->parentGroupId() == gid && c->state() != Cue::State::Idle;
                 });
             if (!anyActive) {
-                if (auto *gc = dynamic_cast<GroupCue*>(findCueById(gid)))
-                    gc->setCollapsed(true);
+                // Keep open while the playhead is still inside the group (more children to fire)
+                const bool playheadInGroup = m_playhead < int(m_cues.size()) &&
+                                             m_cues[m_playhead]->parentGroupId() == gid;
+                if (!playheadInGroup) {
+                    QTimer::singleShot(0, this, [this, gid]() {
+                        if (auto *gc = dynamic_cast<GroupCue*>(findCueById(gid)))
+                            gc->setCollapsed(true);
+                        // Re-sync view selection after the model reset caused by setCollapsed
+                        emit playheadChanged(m_playhead);
+                    });
+                }
             }
         }
     });
@@ -163,8 +191,9 @@ void CueList::connectCue(Cue *cue) {
         const double post = cue->postWait();
         // Route through go() so the next cue's preWait and autoContinue/autoFollow are respected
         auto fireNext = [this, next]() {
-            if (next >= int(m_cues.size())) return;
-            setPlayhead(next);
+            const int ph = nextNonLabel(next);
+            if (ph >= int(m_cues.size())) return;
+            setPlayhead(ph);
             go();
         };
 

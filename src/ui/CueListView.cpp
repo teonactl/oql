@@ -411,7 +411,7 @@ void CueListView::dropEvent(QDropEvent *event) {
         }
     }
 
-    // Normal reorder
+    // Normal reorder (or ungroup if dragging a child outside its group)
     int destRow;
     if (!dest.isValid()) {
         destRow = model()->rowCount();
@@ -432,8 +432,24 @@ void CueListView::dropEvent(QDropEvent *event) {
     m_validTargetRows.clear();
     m_validGroupRows.clear();
 
-    if (src != targetRow) {
-        targetRow = qBound(0, targetRow, model()->rowCount() - 1);
+    targetRow = qBound(0, targetRow, model()->rowCount() - 1);
+
+    Cue *srcCue = m_model->cueForRow(src);
+    const bool isChild = srcCue && !srcCue->parentGroupId().isEmpty();
+
+    if (isChild) {
+        Cue *dstCue = m_model->cueForRow(targetRow);
+        // Stay in group only when dropping on own group header or a sibling
+        const bool staysInGroup = dstCue && (
+            (dstCue->type() == Cue::Type::Group && dstCue->id() == srcCue->parentGroupId()) ||
+            (dstCue->parentGroupId() == srcCue->parentGroupId())
+        );
+        if (staysInGroup) {
+            if (src != targetRow) emit moveRequested(src, targetRow);
+        } else {
+            emit ungroupRequested(src, targetRow);
+        }
+    } else if (src != targetRow) {
         emit moveRequested(src, targetRow);
     }
 

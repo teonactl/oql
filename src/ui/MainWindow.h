@@ -79,4 +79,6 @@ private:
     static constexpr int kMaxRecent = 8;
 
     void doUndoable(const QString &desc, std::function<void()> fn);
+
+    bool m_programmaticSelect = false;
 };

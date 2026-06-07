@@ -34,6 +34,7 @@
 #include <QPainter>
 #include <QToolButton>
 #include <QUndoStack>
+#include <QTimer>
 
 // ── Undo/redo ─────────────────────────────────────────────────────────────────
 
@@ -92,12 +93,33 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             m_textOut->clearText();
     });
 
-    // When the playhead advances (e.g. after GO on a group), move the view selection
-    // to the new playhead position so that pressing Space fires the correct next cue.
+    // When the playhead advances, move the view selection to match.
+    // Deferred so any pending model expand/collapse resets fire first.
+    // m_programmaticSelect prevents onSelectionChanged from treating the
+    // engine-driven select as user input and feeding it back to setPlayhead.
     connect(m_workspace.cueList(), &CueList::playheadChanged, this, [this](int actualIdx) {
-        const int visRow = m_model->visibleRowForActual(actualIdx);
-        if (visRow >= 0)
-            m_cueView->selectRow(visRow);
+        QTimer::singleShot(0, this, [this, actualIdx]() {
+            const int visRow = m_model->visibleRowForActual(actualIdx);
+            if (visRow >= 0) {
+                m_programmaticSelect = true;
+                m_cueView->selectRow(visRow);
+                m_programmaticSelect = false;
+            }
+        });
+    });
+
+    // After any model reset (group collapse/expand, undo, load…), re-sync selection
+    // to the current playhead so the highlight is never left stale.
+    connect(m_model, &QAbstractTableModel::modelReset, this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
+            const int visRow = m_model->visibleRowForActual(
+                m_workspace.cueList()->playheadIndex());
+            if (visRow >= 0) {
+                m_programmaticSelect = true;
+                m_cueView->selectRow(visRow);
+                m_programmaticSelect = false;
+            }
+        });
     });
 
     updateTitle();
@@ -167,6 +189,18 @@ void MainWindow::buildUi() {
         if (!cue || !grp || grp->type() != Cue::Type::Group) return;
         doUndoable("Assegna a gruppo", [&] {
             cue->setParentGroupId(grp->id());
+        });
+    });
+    connect(m_cueView, &CueListView::ungroupRequested, this, [this](int srcVis, int dstVis) {
+        Cue *cue = m_model->cueForRow(srcVis);
+        if (!cue || cue->parentGroupId().isEmpty()) return;
+        const int from = m_model->actualRowForVisible(srcVis);
+        const int to   = m_model->actualRowForVisible(dstVis);
+        if (from < 0) return;
+        doUndoable("Rimuovi da gruppo", [&] {
+            cue->setParentGroupId({});
+            if (to >= 0 && from != to)
+                m_workspace.cueList()->moveCue(from, to);
         });
     });
     connect(m_cueView, &CueListView::moveRequested, this, [this](int fromVis, int toVis) {
@@ -674,6 +708,7 @@ void MainWindow::deleteSelectedCue() {
 // ── Selection ─────────────────────────────────────────────────────────────────
 
 void MainWindow::onSelectionChanged() {
+    if (m_programmaticSelect) return;
     const auto sel = m_cueView->selectionModel()->selectedRows();
     if (!sel.isEmpty()) {
         const int actual = m_model->actualRowForVisible(sel.first().row());
