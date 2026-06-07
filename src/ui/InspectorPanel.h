@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QDialog>
 #include "engine/Cue.h"
 
 class CueList;
@@ -102,6 +103,8 @@ private:
     WaveformView   *m_waveformView;
     QTimer         *m_playTimer;
     QWidget        *m_audioSection;
+    QPushButton    *m_fxBtn        = nullptr;
+    QDialog        *m_fxDialog     = nullptr;
 
     // Control cues (Stop / Fade / Pause / Speed)
     QWidget        *m_controlSection;

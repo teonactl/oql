@@ -290,21 +290,39 @@ void InspectorPanel::buildUi() {
     audioLay->addWidget(chanRow);
 
     m_waveformView = new WaveformView;
-    m_waveformView->setFixedHeight(120);
-    audioLay->addWidget(m_waveformView);
+    m_waveformView->setMinimumHeight(110);
+    audioLay->addWidget(m_waveformView, 1);
 
-    // Plugin chain
-    auto *pluginGroup = new QGroupBox("Effetti");
-    pluginGroup->setMinimumHeight(220);
-    auto *pluginGrpLay = new QVBoxLayout(pluginGroup);
-    pluginGrpLay->setContentsMargins(6, 6, 6, 6);
+    // Plugin chain — opens in a separate window to avoid inspector height constraints
     m_pluginChainWidget = new PluginChainWidget;
-    pluginGrpLay->addWidget(m_pluginChainWidget);
-    audioLay->addWidget(pluginGroup, 1);
-
     connect(m_pluginChainWidget, &PluginChainWidget::chainModified,
             this, [this]() {
         if (m_cue) emit m_cue->propertyChanged();
+    });
+
+    auto *fxRow    = new QWidget;
+    auto *fxRowLay = new QHBoxLayout(fxRow);
+    fxRowLay->setContentsMargins(0, 2, 0, 0);
+    fxRowLay->setSpacing(6);
+    m_fxBtn = new QPushButton("⚙ Effetti...");
+    m_fxBtn->setToolTip("Apri catena effetti per questa cue");
+    fxRowLay->addWidget(m_fxBtn);
+    fxRowLay->addStretch();
+    audioLay->addWidget(fxRow);
+
+    connect(m_fxBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_fxDialog) {
+            m_fxDialog = new QDialog(this, Qt::Window);
+            m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+            m_fxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_fxDialog->resize(480, 400);
+            auto *lay = new QVBoxLayout(m_fxDialog);
+            lay->addWidget(m_pluginChainWidget);
+        }
+        m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+        m_fxDialog->show();
+        m_fxDialog->raise();
+        m_fxDialog->activateWindow();
     });
 
     propsLay->addWidget(m_audioSection, 1);
