@@ -19,6 +19,7 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QTimer>
+#include <QStackedWidget>
 #include <lilv/lilv.h>
 #include <memory>
 
@@ -183,35 +184,52 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     auto *toolLay = new QHBoxLayout(toolRow);
     toolLay->setContentsMargins(0, 0, 0, 0);
     toolLay->setSpacing(4);
-    m_addBtn    = new QPushButton("+");  m_addBtn->setFixedWidth(28);
-    m_removeBtn = new QPushButton("−");  m_removeBtn->setFixedWidth(28);
-    m_upBtn     = new QPushButton("▲");  m_upBtn->setFixedWidth(28);
-    m_downBtn   = new QPushButton("▼");  m_downBtn->setFixedWidth(28);
-    toolLay->addWidget(new QLabel("Effetti:"));
+    m_addBtn    = new QPushButton("+ Aggiungi effetto");
+    m_removeBtn = new QPushButton("−"); m_removeBtn->setFixedWidth(28);
+    m_upBtn     = new QPushButton("▲"); m_upBtn->setFixedWidth(28);
+    m_downBtn   = new QPushButton("▼"); m_downBtn->setFixedWidth(28);
+    m_addBtn->setToolTip("Aggiungi un plugin VST2 o LV2 alla catena");
+    m_removeBtn->setToolTip("Rimuovi l'effetto selezionato");
+    m_upBtn->setToolTip("Sposta su");
+    m_downBtn->setToolTip("Sposta giù");
+    toolLay->addWidget(m_addBtn);
     toolLay->addStretch();
     toolLay->addWidget(m_upBtn);
     toolLay->addWidget(m_downBtn);
     toolLay->addWidget(m_removeBtn);
-    toolLay->addWidget(m_addBtn);
     lay->addWidget(toolRow);
 
+    // List + placeholder
+    auto *listStack = new QStackedWidget;
     m_list = new QListWidget;
-    m_list->setMaximumHeight(90);
-    lay->addWidget(m_list);
+    listStack->addWidget(m_list);                          // index 0: normal list
+    m_listPlaceholder = new QLabel(
+        "Nessun effetto.\nPremi \"+ Aggiungi effetto\" per inserire\nun plugin VST2 o LV2.");
+    m_listPlaceholder->setAlignment(Qt::AlignCenter);
+    m_listPlaceholder->setStyleSheet("color: #888; font-style: italic;");
+    m_listPlaceholder->setWordWrap(true);
+    listStack->addWidget(m_listPlaceholder);               // index 1: placeholder
+    listStack->setCurrentIndex(1);
+    m_listStack = listStack;
+    lay->addWidget(listStack);
 
     // "Apri Editor" on its own row, below the list
-    m_openEditorBtn = new QPushButton("Apri editor nativo");
+    m_openEditorBtn = new QPushButton("Apri editor grafico del plugin");
     m_openEditorBtn->setEnabled(false);
     m_openEditorBtn->setVisible(false);
     lay->addWidget(m_openEditorBtn);
 
-    // Parameter area
+    // Parameter area with placeholder
     m_paramScroll  = new QScrollArea;
     m_paramContent = new QWidget;
     m_paramScroll->setWidget(m_paramContent);
     m_paramScroll->setWidgetResizable(true);
-    m_paramScroll->setMinimumHeight(100);
-    new QVBoxLayout(m_paramContent); // empty initial layout
+    m_paramScroll->setMinimumHeight(160);
+    auto *initLay = new QVBoxLayout(m_paramContent);
+    auto *paramPlaceholder = new QLabel("Seleziona un effetto\nper vederne i parametri.");
+    paramPlaceholder->setAlignment(Qt::AlignCenter);
+    paramPlaceholder->setStyleSheet("color: #888; font-style: italic;");
+    initLay->addWidget(paramPlaceholder);
     lay->addWidget(m_paramScroll, 1);
 
     connect(m_addBtn,        &QPushButton::clicked, this, &PluginChainWidget::onAddPlugin);
@@ -234,14 +252,19 @@ void PluginChainWidget::setChain(PluginChain *chain) {
 void PluginChainWidget::refresh() {
     m_list->clear();
     clearParamArea();
-    if (!m_chain) return;
+    if (!m_chain) {
+        if (m_listStack) m_listStack->setCurrentIndex(1); // placeholder
+        return;
+    }
     for (int i = 0; i < m_chain->count(); ++i) {
         auto *p = m_chain->plugin(i);
         auto *item = new QListWidgetItem(QString::fromStdString(p->name()));
         item->setCheckState(p->isActive() ? Qt::Checked : Qt::Unchecked);
         m_list->addItem(item);
     }
-    if (m_chain->count() > 0)
+    const bool empty = (m_chain->count() == 0);
+    if (m_listStack) m_listStack->setCurrentIndex(empty ? 1 : 0);
+    if (!empty)
         m_list->setCurrentRow(0);
 }
 

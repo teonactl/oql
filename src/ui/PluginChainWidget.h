@@ -8,6 +8,8 @@ class QListWidget;
 class QListWidgetItem;
 class QPushButton;
 class QScrollArea;
+class QStackedWidget;
+class QLabel;
 class QDialog;
 
 class PluginChainWidget : public QWidget {
@@ -37,12 +39,14 @@ private:
 
     PluginChain *m_chain = nullptr;
 
-    QListWidget   *m_list;
-    QPushButton   *m_addBtn;
-    QPushButton   *m_removeBtn;
-    QPushButton   *m_upBtn;
-    QPushButton   *m_downBtn;
-    QPushButton   *m_openEditorBtn = nullptr;
+    QStackedWidget *m_listStack        = nullptr;
+    QListWidget    *m_list;
+    QLabel         *m_listPlaceholder  = nullptr;
+    QPushButton    *m_addBtn;
+    QPushButton    *m_removeBtn;
+    QPushButton    *m_upBtn;
+    QPushButton    *m_downBtn;
+    QPushButton    *m_openEditorBtn    = nullptr;
 
     QScrollArea   *m_paramScroll;
     QWidget       *m_paramContent;
