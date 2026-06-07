@@ -139,7 +139,6 @@ void MainWindow::buildUi() {
     inspScroll->setFrameShape(QFrame::NoFrame);
     inspScroll->setWidget(m_inspector);
     inspScroll->setMinimumHeight(260);
-    inspScroll->setMaximumHeight(400);
 
     // Vertical split: content area (top) + inspector (bottom)
     auto *mainSplit = new QSplitter(Qt::Vertical);
