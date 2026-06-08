@@ -134,6 +134,11 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
 //                  calls edit() on the new cell.  edit() is called AFTER the
 //                  base has fully settled (state=NoState, selection updated),
 //                  so the editor opens and keeps focus reliably every iteration.
+// Tab/Shift+Tab: use NoUpdate when setting current to avoid selectionChanged,
+// which triggers onSelectionChanged → setPlayhead → playheadChanged → selectRow,
+// a chain that internally calls setCurrentIndex with the wrong column before
+// our currentChanged slot fires.  With NoUpdate only currentChanged fires,
+// keeping the column intact.  edit() in currentChanged then updates the selection.
 void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
     if (hint == QAbstractItemDelegate::EditNextItem
      || hint == QAbstractItemDelegate::EditPreviousItem) {
@@ -143,7 +148,9 @@ void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHin
                             ? cur.row() + 1 : cur.row() - 1;
         if (nextRow >= 0 && nextRow < model()->rowCount()) {
             m_editOnCurrentChange = true;
-            setCurrentIndex(model()->index(nextRow, cur.column()));
+            selectionModel()->setCurrentIndex(
+                model()->index(nextRow, cur.column()),
+                QItemSelectionModel::NoUpdate);
         }
         return;
     }
@@ -154,7 +161,7 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
     QTableView::currentChanged(current, previous);
     if (m_editOnCurrentChange) {
         m_editOnCurrentChange = false;
-        edit(current);
+        edit(current);  // edit() calls select() internally, updating the row highlight
     }
 }
 
