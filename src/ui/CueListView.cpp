@@ -128,18 +128,27 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
 // ── Editor navigation ─────────────────────────────────────────────────────────
 
 QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
-    // While editing, Tab/Shift+Tab (MoveNext/MovePrevious) navigate row-by-row
-    // (same column) instead of column-by-column.  Qt's own EditNextItem handler
-    // calls moveCursor → setCurrentIndex → edit() in sequence, so redirecting
-    // the cursor here is the only change needed and works with Qt's machinery.
-    if (state() == EditingState) {
-        const QModelIndex cur = currentIndex();
-        if (action == MoveNext && cur.row() + 1 < model()->rowCount())
-            return model()->index(cur.row() + 1, cur.column());
-        if (action == MovePrevious && cur.row() > 0)
-            return model()->index(cur.row() - 1, cur.column());
-    }
     return QTableView::moveCursor(action, mods);
+}
+
+// Tab/Shift+Tab from an open editor: move to same column of next/prev row and
+// start editing immediately.  We intercept here because by the time moveCursor
+// is called the state is already NoState, so checking EditingState there is too late.
+void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
+    if (hint == QAbstractItemDelegate::EditNextItem
+     || hint == QAbstractItemDelegate::EditPreviousItem) {
+        QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
+        const QModelIndex cur = currentIndex();
+        const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
+                            ? cur.row() + 1 : cur.row() - 1;
+        if (nextRow >= 0 && nextRow < model()->rowCount()) {
+            const QModelIndex next = model()->index(nextRow, cur.column());
+            setCurrentIndex(next);
+            edit(next);
+        }
+        return;
+    }
+    QAbstractItemView::closeEditor(editor, hint);
 }
 
 // ── Context menu / keyboard ───────────────────────────────────────────────────

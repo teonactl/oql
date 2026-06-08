@@ -33,6 +33,7 @@ signals:
 
 protected:
     QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override;
+    void closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) override;
     void contextMenuEvent(QContextMenuEvent *event)   override;
     void keyPressEvent(QKeyEvent *event)              override;
     void mouseDoubleClickEvent(QMouseEvent *event)    override;
