@@ -137,14 +137,14 @@ QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers m
 void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
     if (hint == QAbstractItemDelegate::EditNextItem
      || hint == QAbstractItemDelegate::EditPreviousItem) {
+        const QModelIndex cur = currentIndex();  // capture before base resets state
         QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
-        const QModelIndex cur = currentIndex();
         const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
                             ? cur.row() + 1 : cur.row() - 1;
         if (nextRow >= 0 && nextRow < model()->rowCount()) {
             const QModelIndex next = model()->index(nextRow, cur.column());
             setCurrentIndex(next);
-            edit(next);
+            QTimer::singleShot(0, this, [this, next]() { edit(next); });
         }
         return;
     }

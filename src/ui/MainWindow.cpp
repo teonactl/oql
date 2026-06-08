@@ -382,15 +382,9 @@ void MainWindow::buildToolBar() {
     m_stopAction->setToolTip("Ferma tutto");
     connect(m_stopAction, &QAction::triggered, this, &MainWindow::stopAll);
 
-    m_firstCueAction = tb->addAction("⏮");
-    m_firstCueAction->setFont(bigFont);
+    m_firstCueAction = tb->addAction("");
     m_firstCueAction->setToolTip("Torna alla prima cue");
     connect(m_firstCueAction, &QAction::triggered, this, &MainWindow::goToFirstCue);
-    // ⏮ (U+23EE) sits near the top of its bounding box in most fonts.
-    // setContentsMargins (unlike stylesheet padding) is not overridden by platform
-    // styles: top > bottom shifts the content-rect centre downward, aligning the glyph.
-    if (auto *btn = qobject_cast<QToolButton*>(tb->widgetForAction(m_firstCueAction)))
-        btn->setContentsMargins(4, 4, 4, 0);
 
     tb->addSeparator();
 
@@ -406,6 +400,15 @@ void MainWindow::buildToolBar() {
         drawFn(p);
         return QIcon(px);
     };
+
+    // ⏮ drawn as pixel icon: left bar + two left-pointing triangles
+    m_firstCueAction->setIcon(makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
+        p.drawRect(2, 3, 2, 14);                                          // left bar
+        QPolygon t1; t1 << QPoint(11, 3) << QPoint(11, 17) << QPoint(5, 10);
+        QPolygon t2; t2 << QPoint(18, 3) << QPoint(18, 17) << QPoint(12, 10);
+        p.drawPolygon(t1);
+        p.drawPolygon(t2);
+    }));
 
     // Audio: play triangle
     auto audioIcon = makeTbIcon(QColor(0x2a, 0x6d, 0xcc), [](QPainter &p) {
