@@ -20,8 +20,48 @@
 #include <QMessageBox>
 #include <QTimer>
 #include <QStackedWidget>
-#include <lilv/lilv.h>
+#include <QLineEdit>
+#include <QProxyStyle>
+#include <QGuiApplication>
+#include <X11/Xlib.h>
+#include <cstdlib>
 #include <memory>
+
+// Makes sliders jump to the clicked position instead of moving by pageStep
+class AbsoluteSliderStyle : public QProxyStyle {
+public:
+    using QProxyStyle::QProxyStyle;
+    int styleHint(StyleHint hint, const QStyleOption *opt,
+                  const QWidget *widget, QStyleHintReturn *ret) const override {
+        if (hint == QStyle::SH_Slider_AbsoluteSetButtons)
+            return Qt::LeftButton | Qt::MiddleButton;
+        return QProxyStyle::styleHint(hint, opt, widget, ret);
+    }
+};
+
+static AbsoluteSliderStyle *s_sliderStyle = nullptr;
+
+// VST2 native editor UIs use their own X11 connections and may trigger X11
+// errors (e.g. BadWindow on XCreateColormap) before our window is fully synced.
+// The default handler aborts the process; ours just logs and continues.
+// s_vstGlxErrors counts GLX-specific errors (opcode 150) so we can detect when
+// a plugin's OpenGL context creation has failed and abort before the plugin
+// segfaults trying to render with null GL state.
+static int s_vstGlxErrors = 0;
+
+static int vstX11ErrorHandler(Display *dpy, XErrorEvent *ev) {
+    char msg[256] = {};
+    XGetErrorText(dpy, ev->error_code, msg, sizeof(msg));
+    qWarning("VST2 editor X11 error (suppressed): %s  opcode=%d  resource=0x%lx",
+             msg, int(ev->request_code), ulong(ev->resourceid));
+    if (ev->request_code == 150)  // GLX major opcode (universally 150 on Linux)
+        ++s_vstGlxErrors;
+    return 0;
+}
+static void ensureVstX11Handler() {
+    static bool installed = false;
+    if (!installed) { XSetErrorHandler(vstX11ErrorHandler); installed = true; }
+}
 
 // ── VST2 native editor dialog ─────────────────────────────────────────────────
 
@@ -31,59 +71,104 @@ public:
     VstEditorDialog(VstPlugin *plugin, QWidget *parent = nullptr)
         : QDialog(parent, Qt::Window), m_plugin(plugin)
     {
+        ensureVstX11Handler();
         setWindowTitle(QString::fromStdString(plugin->name()));
         setAttribute(Qt::WA_DeleteOnClose);
+        setMinimumSize(100, 100);
 
-        auto *lay = new QVBoxLayout(this);
-        lay->setContentsMargins(0, 0, 0, 0);
-        lay->setSpacing(0);
-
-        // Native container: VST2 embeds its X11 child window here
-        m_container = new QWidget(this);
-        m_container->setAttribute(Qt::WA_NativeWindow, true);
-        m_container->setAttribute(Qt::WA_PaintOnScreen, true);
-        m_container->setMinimumSize(100, 100);
-        lay->addWidget(m_container);
-
-        // Force creation of the native (X11) window before passing handle to plugin
-        m_container->winId();
-
-        // Query rect BEFORE open (some plugins report it then)
-        applyEditorRect(plugin);
-
-        plugin->openEditor(reinterpret_cast<void*>(m_container->winId()));
-
-        // Re-query rect AFTER open (most plugins report it then)
-        applyEditorRect(plugin);
-
-        adjustSize();
-
-        // Drive the plugin's UI refresh loop (~30 fps)
         m_idleTimer = new QTimer(this);
         m_idleTimer->setInterval(33);
         connect(m_idleTimer, &QTimer::timeout, this, [this]() {
-            if (m_plugin) m_plugin->editorIdle();
+            if (!m_plugin || !m_plugin->hasEditor()) {
+                m_idleTimer->stop();
+                close();
+                return;
+            }
+            m_plugin->editorIdle();
         });
-        m_idleTimer->start();
     }
 
     ~VstEditorDialog() override {
-        m_idleTimer->stop();
-        if (m_plugin) m_plugin->closeEditor();
+        if (m_idleTimer) m_idleTimer->stop();
+        if (m_plugin && m_editorOpened) m_plugin->closeEditor();
+    }
+
+protected:
+    void showEvent(QShowEvent *ev) override {
+        QDialog::showEvent(ev);
+        if (!m_openAttempted) {
+            m_openAttempted = true;
+            // Defer to after Qt has processed the show event and flushed its
+            // XCB buffer. The dialog's native X11 window is then mapped and
+            // visible server-side, so we can safely pass its ID to the plugin.
+            QTimer::singleShot(0, this, [this]() { tryOpenEditor(); });
+        }
     }
 
 private:
-    void applyEditorRect(VstPlugin *plugin) {
-        ERect *rect = nullptr;
-        if (!plugin->getEditorRect(&rect) || !rect) return;
-        const int w = rect->right  - rect->left;
-        const int h = rect->bottom - rect->top;
-        if (w > 0 && h > 0) m_container->setFixedSize(w, h);
+    void tryOpenEditor() {
+        // Force Mesa software GL so NVIDIA's broken XWayland GLX is bypassed.
+        // Mesa reads LIBGL_ALWAYS_SOFTWARE at glXCreateContext time.
+        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0);
+
+        // Flush Qt's XCB output buffer and wait for X server ack.
+        if (auto *x11 = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
+            XSync(x11->display(), False);
+
+        // Use the DIALOG's own native window as the plugin parent.
+        // This window is the Qt top-level window, already mapped by the time
+        // showEvent fired. Unlike a child QWidget container, its X11 window
+        // is created and flushed as part of the dialog's show() path and is
+        // guaranteed to exist server-side by the time we arrive here.
+        const WId parentId = this->winId();
+
+        // Resize dialog to match plugin's reported size
+        {
+            ERect *rect = nullptr;
+            if (m_plugin->getEditorRect(&rect) && rect) {
+                const int w = rect->right  - rect->left;
+                const int h = rect->bottom - rect->top;
+                if (w > 0 && h > 0) resize(w, h);
+            }
+        }
+
+        s_vstGlxErrors = 0;
+        if (!m_plugin->openEditor(reinterpret_cast<void*>(parentId))) {
+            QMessageBox::warning(this, "Editor non disponibile",
+                "Il plugin non supporta un editor grafico su Linux,\n"
+                "oppure l'editor ha crashato durante l'apertura.");
+            reject();
+            return;
+        }
+
+        if (s_vstGlxErrors > 0) {
+            m_plugin->closeEditor();
+            QMessageBox::warning(this, "Editor non disponibile",
+                "Questo plugin richiede OpenGL, che non è disponibile sul display corrente.\n\n"
+                "Assicurati di avere Mesa installato:\n"
+                "    sudo pacman -S mesa");
+            reject();
+            return;
+        }
+
+        // Re-apply rect: some plugins report correct size only after effEditOpen
+        {
+            ERect *rect = nullptr;
+            if (m_plugin->getEditorRect(&rect) && rect) {
+                const int w = rect->right  - rect->left;
+                const int h = rect->bottom - rect->top;
+                if (w > 0 && h > 0) resize(w, h);
+            }
+        }
+
+        m_editorOpened = true;
+        m_idleTimer->start();
     }
 
-    VstPlugin *m_plugin;
-    QWidget   *m_container;
-    QTimer    *m_idleTimer;
+    VstPlugin *m_plugin        = nullptr;
+    QTimer    *m_idleTimer     = nullptr;
+    bool       m_editorOpened  = false;
+    bool       m_openAttempted = false;
 };
 
 // ── Plugin browser dialog ─────────────────────────────────────────────────────
@@ -98,10 +183,14 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     lay->addWidget(tabs);
 
     // ── VST2 tab ──────────────────────────────────────────────────────────────
-    auto *vstTab  = new QWidget;
-    auto *vstLay  = new QVBoxLayout(vstTab);
+    auto *vstTab    = new QWidget;
+    auto *vstLay    = new QVBoxLayout(vstTab);
+    auto *vstSearch = new QLineEdit;
+    vstSearch->setPlaceholderText("Cerca plugin...");
+    vstSearch->setClearButtonEnabled(true);
     auto *vstList = new QListWidget;
     vstLay->addWidget(new QLabel("Plugin VST2 in /usr/lib/vst/"));
+    vstLay->addWidget(vstSearch);
     vstLay->addWidget(vstList, 1);
     tabs->addTab(vstTab, "VST2");
 
@@ -118,29 +207,38 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     }
 
     // ── LV2 tab ───────────────────────────────────────────────────────────────
-    auto *lv2Tab  = new QWidget;
-    auto *lv2Lay  = new QVBoxLayout(lv2Tab);
+    auto *lv2Tab    = new QWidget;
+    auto *lv2Lay    = new QVBoxLayout(lv2Tab);
+    auto *lv2Search = new QLineEdit;
+    lv2Search->setPlaceholderText("Cerca plugin...");
+    lv2Search->setClearButtonEnabled(true);
     auto *lv2List = new QListWidget;
     lv2Lay->addWidget(new QLabel("Plugin LV2 installati:"));
+    lv2Lay->addWidget(lv2Search);
     lv2Lay->addWidget(lv2List, 1);
     tabs->addTab(lv2Tab, "LV2");
 
-    // Enumerate via lilv
-    LilvWorld       *w    = Lv2Plugin::world();
-    const LilvPlugins *all = lilv_world_get_all_plugins(w);
-    LILV_FOREACH(plugins, it, all) {
-        const LilvPlugin *p = lilv_plugins_get(all, it);
-        LilvNode *nameNode  = lilv_plugin_get_name(p);
-        const LilvNode *uriNode = lilv_plugin_get_uri(p);
-        const QString name = nameNode ? lilv_node_as_string(nameNode) : "?";
-        const QString uri  = uriNode  ? lilv_node_as_uri(uriNode)     : "";
-        lilv_node_free(nameNode);
-        // Only audio effect plugins (skip instruments/MIDI)
+    // Enumerate via lilv (crash-safe wrapper)
+    for (const auto &info : Lv2Plugin::enumerate()) {
+        const QString uri  = QString::fromStdString(info.uri);
+        const QString name = QString::fromStdString(info.name);
         auto *item = new QListWidgetItem(name);
         item->setData(Qt::UserRole, uri);
         item->setData(Qt::UserRole + 1, "lv2");
         lv2List->addItem(item);
     }
+
+    auto filterList = [](QLineEdit *search, QListWidget *list) {
+        QObject::connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
+            const QString lower = text.toLower();
+            for (int i = 0; i < list->count(); ++i) {
+                auto *item = list->item(i);
+                item->setHidden(!lower.isEmpty() && !item->text().toLower().contains(lower));
+            }
+        });
+    };
+    filterList(vstSearch, vstList);
+    filterList(lv2Search, lv2List);
 
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     lay->addWidget(btns);
@@ -149,14 +247,13 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
 
     if (dlg->exec() != QDialog::Accepted) { delete dlg; return nullptr; }
 
-    // Pick the selected item from the active tab
+    // Read data before deleting the dialog — sel becomes dangling after delete dlg
     QListWidget *active = (tabs->currentIndex() == 0) ? vstList : lv2List;
     QListWidgetItem *sel = active->currentItem();
-    delete dlg;
-    if (!sel) return nullptr;
-
+    if (!sel) { delete dlg; return nullptr; }
     const QString type = sel->data(Qt::UserRole + 1).toString();
     const QString key  = sel->data(Qt::UserRole).toString();
+    delete dlg;
 
     std::unique_ptr<AudioPlugin> plug;
     if (type == "vst2") {
@@ -239,21 +336,32 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     connect(m_openEditorBtn, &QPushButton::clicked, this, &PluginChainWidget::onOpenEditor);
     connect(m_list, &QListWidget::currentRowChanged,
             this,   &PluginChainWidget::onSelectionChanged);
+    connect(m_list, &QListWidget::itemChanged, this, [this](QListWidgetItem *item) {
+        const int row = m_list->row(item);
+        if (row < 0 || !m_chain || row >= m_chain->count()) return;
+        const bool active = (item->checkState() == Qt::Checked);
+        m_chain->plugin(row)->setActive(active);
+        emit chainModified();
+    });
 
     setChain(nullptr);
 }
 
 void PluginChainWidget::setChain(PluginChain *chain) {
+    if (m_chain == chain) return;  // same chain — don't rebuild, preserves selection + drag
     m_chain = chain;
     setEnabled(chain != nullptr);
     refresh();
 }
 
 void PluginChainWidget::refresh() {
+    // Block itemChanged so the active-toggle handler doesn't fire while we rebuild the list
+    m_list->blockSignals(true);
     m_list->clear();
     clearParamArea();
     if (!m_chain) {
-        if (m_listStack) m_listStack->setCurrentIndex(1); // placeholder
+        m_list->blockSignals(false);
+        if (m_listStack) m_listStack->setCurrentIndex(1);
         return;
     }
     for (int i = 0; i < m_chain->count(); ++i) {
@@ -262,6 +370,8 @@ void PluginChainWidget::refresh() {
         item->setCheckState(p->isActive() ? Qt::Checked : Qt::Unchecked);
         m_list->addItem(item);
     }
+    m_list->blockSignals(false);
+
     const bool empty = (m_chain->count() == 0);
     if (m_listStack) m_listStack->setCurrentIndex(empty ? 1 : 0);
     if (!empty)
@@ -365,18 +475,35 @@ void PluginChainWidget::buildParamArea(AudioPlugin *plugin, int pluginIdx) {
         for (int i = 0; i < showMax; ++i) {
             PluginParam p = plugin->param(i);
             const float range = (p.maxVal > p.minVal) ? (p.maxVal - p.minVal) : 1.0f;
-            const int   sliderVal = int((p.value - p.minVal) / range * 1000.0f);
+            const int   sliderVal = qBound(0, int((p.value - p.minVal) / range * 1000.0f), 1000);
 
-            auto *slider = new QSlider(Qt::Horizontal);
+            auto *slider   = new QSlider(Qt::Horizontal);
+            if (!s_sliderStyle) s_sliderStyle = new AbsoluteSliderStyle;
+            slider->setStyle(s_sliderStyle);
+            auto *valLabel = new QLabel(QString::number(double(p.value), 'g', 4));
+            valLabel->setFixedWidth(48);
+            valLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
             slider->setRange(0, 1000);
             slider->setValue(sliderVal);
 
+            auto *row = new QWidget;
+            auto *rowLay = new QHBoxLayout(row);
+            rowLay->setContentsMargins(0, 0, 0, 0);
+            rowLay->setSpacing(4);
+            rowLay->addWidget(slider, 1);
+            rowLay->addWidget(valLabel);
+
             const QString lbl = QString::fromStdString(p.name)
                               + (p.unit.empty() ? "" : " [" + QString::fromStdString(p.unit) + "]");
-            form->addRow(lbl, slider);
+            form->addRow(lbl, row);
 
-            const int idx = i; // capture by value
-            connect(slider, &QSlider::valueChanged, this, [this, pluginIdx, idx](int v) {
+            const int   idx      = i;
+            const float minVal   = p.minVal;
+            const float paramRange = range;
+            connect(slider, &QSlider::valueChanged, this,
+                    [this, pluginIdx, idx, valLabel, minVal, paramRange](int v) {
+                const float newVal = minVal + float(v) / 1000.0f * paramRange;
+                valLabel->setText(QString::number(double(newVal), 'g', 4));
                 onParamChanged(pluginIdx, idx, v);
             });
         }
@@ -411,8 +538,11 @@ void PluginChainWidget::onParamChanged(int pluginIdx, int paramIdx, int sliderVa
 void PluginChainWidget::onPluginToggled(int pluginIdx, bool active) {
     if (!m_chain || pluginIdx >= m_chain->count()) return;
     m_chain->plugin(pluginIdx)->setActive(active);
-    if (pluginIdx < m_list->count())
+    if (pluginIdx < m_list->count()) {
+        // Block itemChanged so our lambda doesn't re-fire setActive
+        QSignalBlocker blocker(m_list);
         m_list->item(pluginIdx)->setCheckState(active ? Qt::Checked : Qt::Unchecked);
+    }
     emit chainModified();
 }
 

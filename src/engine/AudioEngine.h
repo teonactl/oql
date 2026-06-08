@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <vector>
 #include <mutex>
 #include <memory>
@@ -29,6 +30,9 @@ public:
     void addRenderer(AudioRenderer *r);
     void removeRenderer(AudioRenderer *r);
 
+    float peakL() const { return m_peakL.load(std::memory_order_relaxed); }
+    float peakR() const { return m_peakR.load(std::memory_order_relaxed); }
+
     AudioEngine(const AudioEngine &) = delete;
     AudioEngine &operator=(const AudioEngine &) = delete;
 
@@ -46,6 +50,9 @@ private:
 
     mutable std::mutex         m_mutex;
     std::vector<AudioRenderer*> m_renderers;
+
+    std::atomic<float> m_peakL{0.0f};
+    std::atomic<float> m_peakR{0.0f};
 
     static void maDeviceCallback(void* device, void* pOut,
                                  const void*, unsigned int frames);

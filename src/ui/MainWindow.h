@@ -1,8 +1,10 @@
 #pragma once
 #include <QMainWindow>
 #include <QUndoStack>
+#include <QVector>
 #include <functional>
 #include "engine/Workspace.h"
+#include "engine/Cue.h"
 #include "ui/VideoOutputWindow.h"
 #include "ui/TextOutputWindow.h"
 #include "ui/CueInfoBar.h"
@@ -43,8 +45,11 @@ private slots:
     void addSpeedDownCue();
     void addPlayCue();
     void deleteSelectedCue();
+    void groupSelectedCues(const QVector<int> &visRows);
     void go();
     void stopAll();
+    void goToFirstCue();
+    void applyShortcuts();
     void toggleVideoOutput();
     void openSettings();
     void onSelectionChanged();
@@ -73,12 +78,15 @@ private:
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;
     QAction           *m_stopAction      = nullptr;
+    QAction           *m_firstCueAction  = nullptr;
     QMenu             *m_recentMenu      = nullptr;
     QUndoStack        *m_undoStack       = nullptr;
 
     static constexpr int kMaxRecent = 8;
 
     void doUndoable(const QString &desc, std::function<void()> fn);
+    void addControlCueImpl(Cue::Type type, double extra = 0.0);
+    void showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra = 0.0);
 
     bool m_programmaticSelect = false;
 };

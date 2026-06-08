@@ -18,6 +18,7 @@ class QTimer;
 class WaveformView;
 class QFontComboBox;
 class PluginChainWidget;
+class VuMeter;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -101,7 +102,10 @@ private:
     QDoubleSpinBox *m_fadeOutSpin;
     QComboBox      *m_channelCombo;
     WaveformView   *m_waveformView;
+    VuMeter        *m_vuL          = nullptr;
+    VuMeter        *m_vuR          = nullptr;
     QTimer         *m_playTimer;
+    QTimer         *m_vuTimer      = nullptr;
     QWidget        *m_audioSection;
     QPushButton    *m_fxBtn        = nullptr;
     QDialog        *m_fxDialog     = nullptr;

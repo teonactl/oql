@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="#111420"/>
+
+  <!-- Q ring -->
+  <circle cx="230" cy="230" r="140" fill="none" stroke="#e88020" stroke-width="50"/>
+
+  <!-- Q tail (diagonal slash from bottom-right of ring) -->
+  <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
+
+  <!-- Play triangle inside Q -->
+  <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
+</svg>

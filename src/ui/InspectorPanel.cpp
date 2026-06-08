@@ -2,6 +2,7 @@
 #include "WaveformView.h"
 #include "PluginChainWidget.h"
 #include "engine/AudioCue.h"
+#include "engine/AudioEngine.h"
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
 #include "engine/MicCue.h"
@@ -25,8 +26,77 @@
 #include <QTimer>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QPainter>
+#include <cmath>
+#include <algorithm>
 #include <QFontComboBox>
 #include <QColorDialog>
+
+// ── VU meter widget ───────────────────────────────────────────────────────────
+
+class VuMeter : public QWidget {
+public:
+    explicit VuMeter(QWidget *parent = nullptr) : QWidget(parent) {
+        setFixedWidth(14);
+        setMinimumHeight(80);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    }
+    void setLevel(float linear) {
+        const float db = (linear <= 1e-7f) ? -60.0f
+                       : std::max(-60.0f, 20.0f * std::log10f(linear));
+        m_env = (db > m_env) ? db : m_env + (db - m_env) * 0.25f;
+        if (db >= m_peak) { m_peak = db; m_holdTicks = 50; }
+        else if (m_holdTicks > 0) --m_holdTicks;
+        else if (m_peak > -60.0f) m_peak -= 0.8f;
+        update();
+    }
+private:
+    float m_env   = -60.0f;
+    float m_peak  = -60.0f;
+    int   m_holdTicks = 0;
+
+    static float frac(float db) { return (db + 60.0f) / 66.0f; }
+
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        const int W = width(), H = height();
+        p.fillRect(0, 0, W, H, QColor(18, 18, 18));
+
+        const float f = std::clamp(frac(m_env), 0.0f, 1.0f);
+        if (f < 0.001f) return;
+        const int bY = H - int(f * H);
+
+        const int yRed    = H - int(frac(-6.0f)  * H);
+        const int yYellow = H - int(frac(-18.0f) * H);
+
+        if (bY < yRed)
+            p.fillRect(0, bY, W, yRed - bY, QColor(220, 40, 40));
+        const int yT = std::max(bY, yRed);
+        if (yT < yYellow)
+            p.fillRect(0, yT, W, yYellow - yT, QColor(200, 170, 20));
+        const int gT = std::max(bY, yYellow);
+        if (gT < H)
+            p.fillRect(0, gT, W, H - gT, QColor(40, 180, 40));
+
+        const float fp = std::clamp(frac(m_peak), 0.0f, 1.0f);
+        if (fp > 0.01f) {
+            const int pY = std::clamp(H - int(fp * H) - 1, 0, H - 2);
+            p.fillRect(0, pY, W, 2,
+                       fp > frac(-6.0f) ? QColor(255, 100, 100) : QColor(220, 220, 60));
+        }
+    }
+};
+
+// ── dB helpers ────────────────────────────────────────────────────────────────
+
+static double linearToDb(double v) {
+    return v <= 0.0 ? -60.0 : std::max(-60.0, 20.0 * std::log10(v));
+}
+static double dbToLinear(double db) {
+    return db <= -60.0 ? 0.0 : std::pow(10.0, db / 20.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
     : QWidget(parent), m_cueList(cueList)
@@ -148,10 +218,11 @@ void InspectorPanel::buildUi() {
     fileRLay->addWidget(m_fileEdit);
     fileRLay->addWidget(m_browseBtn);
 
-    m_volumeSpin = makeSpin(1.0);
-    m_volumeSpin->setRange(0.0, 1.0);
-    m_volumeSpin->setSingleStep(0.05);
-    m_volumeSpin->setSuffix({});
+    m_volumeSpin = new QDoubleSpinBox;
+    m_volumeSpin->setRange(-60.0, 0.0);
+    m_volumeSpin->setSingleStep(0.5);
+    m_volumeSpin->setDecimals(1);
+    m_volumeSpin->setSuffix(" dB");
 
     m_loopSpin = new QSpinBox;
     m_loopSpin->setRange(0, 99);
@@ -213,9 +284,10 @@ void InspectorPanel::buildUi() {
     auto *fadeParamsForm = new QFormLayout(m_fadeParamsGroup);
     fadeParamsForm->setSpacing(3);
     m_fadeTargetVolSpin = new QDoubleSpinBox;
-    m_fadeTargetVolSpin->setRange(0.0, 1.0);
-    m_fadeTargetVolSpin->setSingleStep(0.05);
-    m_fadeTargetVolSpin->setDecimals(2);
+    m_fadeTargetVolSpin->setRange(-60.0, 0.0);
+    m_fadeTargetVolSpin->setSingleStep(0.5);
+    m_fadeTargetVolSpin->setDecimals(1);
+    m_fadeTargetVolSpin->setSuffix(" dB");
     m_fadeDurationSpin = new QDoubleSpinBox;
     m_fadeDurationSpin->setRange(0.01, 999.0);
     m_fadeDurationSpin->setSingleStep(0.1);
@@ -262,9 +334,10 @@ void InspectorPanel::buildUi() {
     micForm->addRow("Dispositivo:", m_micDeviceCombo);
 
     m_micVolumeSpin = new QDoubleSpinBox;
-    m_micVolumeSpin->setRange(0.0, 1.0);
-    m_micVolumeSpin->setSingleStep(0.05);
-    m_micVolumeSpin->setDecimals(2);
+    m_micVolumeSpin->setRange(-60.0, 0.0);
+    m_micVolumeSpin->setSingleStep(0.5);
+    m_micVolumeSpin->setDecimals(1);
+    m_micVolumeSpin->setSuffix(" dB");
     micForm->addRow("Volume:", m_micVolumeSpin);
     micRowLay->addWidget(micGroup);
     micRowLay->addStretch();
@@ -291,7 +364,20 @@ void InspectorPanel::buildUi() {
 
     m_waveformView = new WaveformView;
     m_waveformView->setMinimumHeight(110);
-    audioLay->addWidget(m_waveformView, 1);
+
+    m_vuL = new VuMeter;
+    m_vuR = new VuMeter;
+    m_vuL->setToolTip("L");
+    m_vuR->setToolTip("R");
+
+    auto *waveRow = new QWidget;
+    auto *waveRowLay = new QHBoxLayout(waveRow);
+    waveRowLay->setContentsMargins(0, 0, 0, 0);
+    waveRowLay->setSpacing(3);
+    waveRowLay->addWidget(m_waveformView, 1);
+    waveRowLay->addWidget(m_vuL);
+    waveRowLay->addWidget(m_vuR);
+    audioLay->addWidget(waveRow, 1);
 
     // Plugin chain — opens in a separate window to avoid inspector height constraints
     m_pluginChainWidget = new PluginChainWidget;
@@ -395,6 +481,15 @@ void InspectorPanel::buildUi() {
     m_playTimer = new QTimer(this);
     m_playTimer->setInterval(80);
     connect(m_playTimer, &QTimer::timeout, this, &InspectorPanel::refreshPlayhead);
+
+    // ── VU meter refresh timer ───────────────────────────────
+    m_vuTimer = new QTimer(this);
+    m_vuTimer->setInterval(50);
+    connect(m_vuTimer, &QTimer::timeout, this, [this]() {
+        m_vuL->setLevel(AudioEngine::instance().peakL());
+        m_vuR->setLevel(AudioEngine::instance().peakR());
+    });
+    m_vuTimer->start();
 
     // ── Stack ────────────────────────────────────────────────
     m_stack = new QStackedWidget;
@@ -554,7 +649,7 @@ void InspectorPanel::updateMediaSection() {
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(a->filePath()).fileName());
-        m_volumeSpin->setValue(a->volume());
+        m_volumeSpin->setValue(linearToDb(a->volume()));
         m_loopSpin->setValue(a->loopCount());
         m_fadeInSpin->setValue(a->fadeInDuration());
         m_fadeOutSpin->setValue(a->fadeOutDuration());
@@ -576,7 +671,7 @@ void InspectorPanel::updateMediaSection() {
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
-        m_volumeSpin->setValue(v->volume());
+        m_volumeSpin->setValue(linearToDb(v->volume()));
         m_loopSpin->setValue(v->loopCount());
     } else if (isMic) {
         auto *mc = static_cast<MicCue*>(m_cue);
@@ -589,7 +684,7 @@ void InspectorPanel::updateMediaSection() {
         m_micDeviceCombo->setCurrentIndex(devIdx >= 0 ? devIdx : 0);
         m_micDeviceCombo->blockSignals(false);
         m_micVolumeSpin->blockSignals(true);
-        m_micVolumeSpin->setValue(mc->volume());
+        m_micVolumeSpin->setValue(linearToDb(mc->volume()));
         m_micVolumeSpin->blockSignals(false);
     } else if (isControl) {
         populateTargetCombo();
@@ -613,7 +708,7 @@ void InspectorPanel::updateMediaSection() {
             m_fadeTargetVolSpin->blockSignals(true);
             m_fadeDurationSpin->blockSignals(true);
             m_fadeStopAtEndCheck->blockSignals(true);
-            m_fadeTargetVolSpin->setValue(fc->targetVolume());
+            m_fadeTargetVolSpin->setValue(linearToDb(fc->targetVolume()));
             m_fadeDurationSpin->setValue(fc->fadeDuration());
             m_fadeStopAtEndCheck->setChecked(fc->stopAtEnd());
             m_fadeTargetVolSpin->blockSignals(false);
@@ -737,8 +832,9 @@ void InspectorPanel::onFilePathChanged() {}
 
 void InspectorPanel::onVolumeChanged(double v) {
     if (!m_cue) return;
-    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue)->setVolume(v);
-    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue)->setVolume(v);
+    const double linear = dbToLinear(v);
+    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue)->setVolume(linear);
+    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue)->setVolume(linear);
 }
 
 void InspectorPanel::onFadeInChanged(double v) {
@@ -855,7 +951,7 @@ void InspectorPanel::onTargetChanged(int) {
 
 void InspectorPanel::onFadeTargetVolChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
-        static_cast<FadeCue*>(m_cue)->setTargetVolume(v);
+        static_cast<FadeCue*>(m_cue)->setTargetVolume(dbToLinear(v));
 }
 
 void InspectorPanel::onFadeDurationChanged(double v) {
@@ -875,7 +971,7 @@ void InspectorPanel::onMicDeviceChanged(int) {
 
 void InspectorPanel::onMicVolumeChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Mic)
-        static_cast<MicCue*>(m_cue)->setVolume(v);
+        static_cast<MicCue*>(m_cue)->setVolume(dbToLinear(v));
 }
 
 void InspectorPanel::onSpeedRateChanged(double v) {

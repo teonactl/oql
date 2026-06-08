@@ -5,6 +5,7 @@ class Workspace;
 class QDoubleSpinBox;
 class QCheckBox;
 class QLineEdit;
+class QKeySequenceEdit;
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -27,4 +28,9 @@ private:
     QLineEdit *m_projectNameEdit;
     QCheckBox *m_showCueNumbersCheck;
     QCheckBox *m_autoFadeOnStopCheck;
+
+    // Scorciatoie
+    QKeySequenceEdit *m_keyGoEdit;
+    QKeySequenceEdit *m_keyStopAllEdit;
+    QKeySequenceEdit *m_keyFirstCueEdit;
 };

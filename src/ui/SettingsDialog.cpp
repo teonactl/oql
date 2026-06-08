@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QGroupBox>
 #include <QLabel>
+#include <QKeySequenceEdit>
 
 SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
     : QDialog(parent), m_workspace(workspace)
@@ -80,6 +81,26 @@ SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
 
     tabs->addTab(prjWidget, "Progetto");
 
+    // ── Tab 3: Scorciatoie ────────────────────────────────────────────────────
+    auto *keyWidget = new QWidget;
+    auto *keyForm   = new QFormLayout(keyWidget);
+    keyForm->setSpacing(10);
+    keyForm->setContentsMargins(12, 12, 12, 12);
+
+    m_keyGoEdit = new QKeySequenceEdit(AppSettings::instance().keyGo());
+    keyForm->addRow("GO:", m_keyGoEdit);
+
+    m_keyStopAllEdit = new QKeySequenceEdit(AppSettings::instance().keyStopAll());
+    keyForm->addRow("Stop All:", m_keyStopAllEdit);
+
+    m_keyFirstCueEdit = new QKeySequenceEdit(AppSettings::instance().keyFirstCue());
+    keyForm->addRow("Prima cue:", m_keyFirstCueEdit);
+
+    keyForm->addRow(new QLabel(
+        "<small style='color:#888'>Fare clic sul campo e premere la combinazione desiderata.</small>"));
+
+    tabs->addTab(keyWidget, "Scorciatoie");
+
     // ── Buttons ───────────────────────────────────────────────────────────────
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     mainLay->addWidget(btns);
@@ -99,6 +120,11 @@ void SettingsDialog::apply() {
     m_workspace->setName(m_projectNameEdit->text().trimmed());
     m_workspace->setShowCueNumbers(m_showCueNumbersCheck->isChecked());
     m_workspace->setAutoFadeOnStop(m_autoFadeOnStopCheck->isChecked());
+
+    // Shortcuts
+    AppSettings::instance().setKeyGo(m_keyGoEdit->keySequence());
+    AppSettings::instance().setKeyStopAll(m_keyStopAllEdit->keySequence());
+    AppSettings::instance().setKeyFirstCue(m_keyFirstCueEdit->keySequence());
 
     accept();
 }

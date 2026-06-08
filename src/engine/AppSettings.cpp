@@ -1,4 +1,5 @@
 #include "AppSettings.h"
+#include <QKeySequence>
 
 AppSettings &AppSettings::instance() {
     static AppSettings inst;
@@ -34,3 +35,21 @@ bool AppSettings::autoNumberNewCues() const {
 void AppSettings::setAutoNumberNewCues(bool v) {
     m_s.setValue("autoNumberNewCues", v);
 }
+
+QKeySequence AppSettings::keyGo() const {
+    const QString s = m_s.value("keyGo").toString();
+    return s.isEmpty() ? QKeySequence(Qt::Key_Space) : QKeySequence(s);
+}
+void AppSettings::setKeyGo(const QKeySequence &k) { m_s.setValue("keyGo", k.toString()); }
+
+QKeySequence AppSettings::keyStopAll() const {
+    const QString s = m_s.value("keyStopAll").toString();
+    return s.isEmpty() ? QKeySequence(Qt::Key_Escape) : QKeySequence(s);
+}
+void AppSettings::setKeyStopAll(const QKeySequence &k) { m_s.setValue("keyStopAll", k.toString()); }
+
+QKeySequence AppSettings::keyFirstCue() const {
+    const QString s = m_s.value("keyFirstCue").toString();
+    return s.isEmpty() ? QKeySequence(Qt::Key_Home) : QKeySequence(s);
+}
+void AppSettings::setKeyFirstCue(const QKeySequence &k) { m_s.setValue("keyFirstCue", k.toString()); }

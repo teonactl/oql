@@ -8,11 +8,12 @@ set(CMAKE_AUTORCC ON)
 
 list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
 
 qt_add_executable(openqlab
+    resources/resources.qrc
     src/main.cpp
     src/engine/Cue.h
     src/engine/Cue.cpp
@@ -75,9 +76,11 @@ target_link_libraries(openqlab PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::MultimediaWidgets
+    Qt6::Svg
     ${LILV_LIBRARIES}
     dl          # for dlopen/dlsym (VST2 loading)
     pthread     # for std::mutex/thread used in AudioEngine
+    X11         # for XSetErrorHandler (suppress VST native UI X11 errors)
 )
 
 target_include_directories(openqlab PRIVATE

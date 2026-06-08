@@ -28,8 +28,11 @@ signals:
     void groupToggleRequested(int row);
     void groupAssignRequested(int cueRow, int groupRow);
     void ungroupRequested(int cueVisRow, int destVisRow);
+    void groupSelectionRequested(QVector<int> visRows);
+    void multiGroupAssignRequested(QVector<int> visRows, int groupVisRow);
 
 protected:
+    QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override;
     void contextMenuEvent(QContextMenuEvent *event)   override;
     void keyPressEvent(QKeyEvent *event)              override;
     void mouseDoubleClickEvent(QMouseEvent *event)    override;

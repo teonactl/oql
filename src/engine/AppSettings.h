@@ -1,4 +1,5 @@
 #pragma once
+#include <QKeySequence>
 #include <QSettings>
 
 class AppSettings {
@@ -16,6 +17,13 @@ public:
 
     bool   autoNumberNewCues() const;
     void   setAutoNumberNewCues(bool v);
+
+    QKeySequence keyGo()       const;
+    void         setKeyGo(const QKeySequence &k);
+    QKeySequence keyStopAll()  const;
+    void         setKeyStopAll(const QKeySequence &k);
+    QKeySequence keyFirstCue() const;
+    void         setKeyFirstCue(const QKeySequence &k);
 
 private:
     AppSettings();

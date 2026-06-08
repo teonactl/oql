@@ -7,8 +7,11 @@
 
 class Lv2Plugin : public AudioPlugin {
 public:
-    static LilvWorld *world();
-    static void       freeWorld();
+    struct Info { std::string uri; std::string name; };
+
+    static LilvWorld            *world();
+    static void                  freeWorld();
+    static std::vector<Info>     enumerate(); // crash-safe plugin list
 
     explicit Lv2Plugin(const std::string &uri);
     ~Lv2Plugin() override;
@@ -47,5 +50,7 @@ private:
     int      m_numAudioIn = 0, m_numAudioOut = 0;
 
     std::vector<PortInfo> m_controls;
+    std::vector<uint32_t> m_ctrlOutPorts;  // output control port indices (e.g. latency)
+    float                 m_ctrlOutScratch = 0.0f;  // dummy write target for ctrl-out ports
     std::vector<float>    m_inL, m_inR, m_outL, m_outR;
 };

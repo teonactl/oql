@@ -52,6 +52,16 @@ void AudioEngine::maDeviceCallback(void* pUserData, void* pOutput,
         }
     }
 
+    // Capture output peak per channel (stereo interleaved: even=L, odd=R)
+    float pkL = 0.0f, pkR = 0.0f;
+    for (int i = 0; i < n; i += 2) {
+        const float l = std::abs(out[i]),   r = std::abs(out[i + 1]);
+        if (l > pkL) pkL = l;
+        if (r > pkR) pkR = r;
+    }
+    engine->m_peakL.store(pkL, std::memory_order_relaxed);
+    engine->m_peakR.store(pkR, std::memory_order_relaxed);
+
     // Remove finished renderers while still holding the lock
     for (auto *r : toFinish) {
         auto it = std::find(engine->m_renderers.begin(), engine->m_renderers.end(), r);

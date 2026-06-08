@@ -17,13 +17,14 @@
 #include <QApplication>
 #include <QDataStream>
 #include <QResizeEvent>
+#include <QTimer>
 
 CueListView::CueListView(CueListModel *model, QWidget *parent)
     : QTableView(parent), m_model(model)
 {
     setModel(model);
     setSelectionBehavior(QAbstractItemView::SelectRows);
-    setSelectionMode(QAbstractItemView::SingleSelection);
+    setSelectionMode(QAbstractItemView::ExtendedSelection);
     setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
     setAlternatingRowColors(true);
     setShowGrid(false);
@@ -124,10 +125,38 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
     return posY >= rowRect.top() + edge && posY <= rowRect.bottom() - edge;
 }
 
+// ── Editor navigation ─────────────────────────────────────────────────────────
+
+QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
+    // While editing, Tab/Shift+Tab (MoveNext/MovePrevious) navigate row-by-row
+    // (same column) instead of column-by-column.  Qt's own EditNextItem handler
+    // calls moveCursor → setCurrentIndex → edit() in sequence, so redirecting
+    // the cursor here is the only change needed and works with Qt's machinery.
+    if (state() == EditingState) {
+        const QModelIndex cur = currentIndex();
+        if (action == MoveNext && cur.row() + 1 < model()->rowCount())
+            return model()->index(cur.row() + 1, cur.column());
+        if (action == MovePrevious && cur.row() > 0)
+            return model()->index(cur.row() - 1, cur.column());
+    }
+    return QTableView::moveCursor(action, mods);
+}
+
 // ── Context menu / keyboard ───────────────────────────────────────────────────
 
 void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     QMenu menu(this);
+
+    const auto selIdxs = selectionModel()->selectedRows();
+    if (selIdxs.size() >= 2) {
+        QVector<int> rows;
+        for (const auto &idx : selIdxs) rows.append(idx.row());
+        std::sort(rows.begin(), rows.end());
+        menu.addAction(QString("Raggruppa %1 selezionate").arg(rows.size()),
+                       this, [this, rows]() { emit groupSelectionRequested(rows); });
+        menu.addSeparator();
+    }
+
     menu.addAction("Aggiungi Audio Cue",     this, &CueListView::addAudioRequested);
     menu.addAction("Aggiungi Video Cue",     this, &CueListView::addVideoRequested);
     menu.addSeparator();
@@ -151,8 +180,15 @@ void CueListView::keyPressEvent(QKeyEvent *event) {
     }
     if (event->key() == Qt::Key_F2) {
         const QModelIndex cur = currentIndex();
-        if (cur.isValid()) {
-            edit(cur);
+        if (cur.isValid()) { edit(cur); return; }
+    }
+    if (event->key() == Qt::Key_G && (event->modifiers() & Qt::ControlModifier)) {
+        const auto selIdxs = selectionModel()->selectedRows();
+        if (selIdxs.size() >= 2) {
+            QVector<int> rows;
+            for (const auto &idx : selIdxs) rows.append(idx.row());
+            std::sort(rows.begin(), rows.end());
+            emit groupSelectionRequested(rows);
             return;
         }
     }
@@ -214,13 +250,33 @@ void CueListView::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
-    m_validTargetRows = validTargetRows(m_dragRow);
-    m_validGroupRows  = validGroupRows(m_dragRow);
+    // Collect all selected rows; if dragRow is among them use them all, else drag just dragRow
+    const auto selIdxs = selectionModel()->selectedRows();
+    QVector<int> dragRows;
+    for (const auto &idx : selIdxs) dragRows.append(idx.row());
+    if (!dragRows.contains(m_dragRow)) dragRows = { m_dragRow };
+    std::sort(dragRows.begin(), dragRows.end());
+
+    const bool isMulti = dragRows.size() > 1;
+    if (isMulti) {
+        // Multi-drag: only group rows are valid targets
+        m_validTargetRows.clear();
+        m_validGroupRows.clear();
+        for (int row = 0; row < model()->rowCount(); ++row) {
+            if (dragRows.contains(row)) continue;
+            Cue *c = m_model->cueForRow(row);
+            if (c && c->type() == Cue::Type::Group)
+                m_validGroupRows.append(row);
+        }
+    } else {
+        m_validTargetRows = validTargetRows(m_dragRow);
+        m_validGroupRows  = validGroupRows(m_dragRow);
+    }
     viewport()->update();
 
     QByteArray payload;
     QDataStream ds(&payload, QIODevice::WriteOnly);
-    ds << m_dragRow;
+    ds << dragRows;
 
     auto *mime = new QMimeData;
     mime->setData(kMime, payload);
@@ -354,13 +410,11 @@ void CueListView::dropEvent(QDropEvent *event) {
         return;
     }
 
-    // Always read srcRow from MIME data — on X11/Wayland mouseReleaseEvent
-    // fires before dropEvent and resets m_dragRow to -1 before we get here.
     QByteArray payload = event->mimeData()->data(kMime);
     QDataStream ds(&payload, QIODevice::ReadOnly);
-    int srcRow = -1;
-    ds >> srcRow;
-    if (srcRow < 0) {
+    QVector<int> srcRows;
+    ds >> srcRows;
+    if (srcRows.isEmpty()) {
         event->ignore();
         viewport()->update();
         return;
@@ -369,20 +423,38 @@ void CueListView::dropEvent(QDropEvent *event) {
     const QPoint      pos  = event->position().toPoint();
     const QModelIndex dest = indexAt(pos);
 
-    // Re-evaluate at drop time using m_validGroupRows / m_validTargetRows directly.
-    // dragLeaveEvent fires just before dropEvent on X11 and clears m_groupDropHighlight
-    // and m_dropHighlightRow, so we cannot rely on those saved highlights here.
-    // m_validGroupRows and m_validTargetRows are NOT cleared by dragLeaveEvent.
-    if (dest.isValid() && dest.row() != srcRow) {
+    auto clearDragState = [this]() {
+        m_dragRow = -1; m_dropHighlightRow = -1; m_groupDropHighlight = -1;
+        m_validTargetRows.clear(); m_validGroupRows.clear();
+    };
 
-        // Group assignment — any position over a valid group row counts at drop time
+    // ── Multi-row drop ────────────────────────────────────────────────────────
+    if (srcRows.size() > 1) {
+        if (dest.isValid() && m_validGroupRows.contains(dest.row())) {
+            const int grp = dest.row();
+            clearDragState();
+            emit multiGroupAssignRequested(srcRows, grp);
+            event->setDropAction(Qt::IgnoreAction);
+            event->accept();
+            viewport()->update();
+            return;
+        }
+        // Multi-drag not over a valid group: abort
+        clearDragState();
+        event->setDropAction(Qt::IgnoreAction);
+        event->accept();
+        viewport()->update();
+        return;
+    }
+
+    // ── Single-row drop ───────────────────────────────────────────────────────
+    const int srcRow = srcRows.first();
+
+    if (dest.isValid() && dest.row() != srcRow) {
+        // Group assignment
         if (m_validGroupRows.contains(dest.row())) {
             const int grp = dest.row();
-            m_dragRow            = -1;
-            m_dropHighlightRow   = -1;
-            m_groupDropHighlight = -1;
-            m_validTargetRows.clear();
-            m_validGroupRows.clear();
+            clearDragState();
             emit groupAssignRequested(srcRow, grp);
             selectRow(srcRow);
             event->setDropAction(Qt::IgnoreAction);
@@ -392,16 +464,12 @@ void CueListView::dropEvent(QDropEvent *event) {
         }
 
         // Target assignment — center zone or explicit Target column
-        const bool onTgtCol  = dest.column() == CueListModel::ColTarget;
-        const QRect rowRect  = visualRect(model()->index(dest.row(), 0));
-        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
+        const bool onTgtCol = dest.column() == CueListModel::ColTarget;
+        const QRect rowRect = visualRect(model()->index(dest.row(), 0));
+        const bool onCenter = isOnRowCenter(rowRect, pos.y());
         if ((onCenter || onTgtCol) && m_validTargetRows.contains(dest.row())) {
             const int tgt = dest.row();
-            m_dragRow            = -1;
-            m_dropHighlightRow   = -1;
-            m_groupDropHighlight = -1;
-            m_validTargetRows.clear();
-            m_validGroupRows.clear();
+            clearDragState();
             emit targetAssignRequested(srcRow, tgt);
             selectRow(tgt);
             event->setDropAction(Qt::IgnoreAction);
@@ -424,33 +492,25 @@ void CueListView::dropEvent(QDropEvent *event) {
 
     int targetRow = destRow;
     if (srcRow < destRow) targetRow--;
-
-    const int src = srcRow;
-    m_dragRow            = -1;
-    m_dropHighlightRow   = -1;
-    m_groupDropHighlight = -1;
-    m_validTargetRows.clear();
-    m_validGroupRows.clear();
-
+    clearDragState();
     targetRow = qBound(0, targetRow, model()->rowCount() - 1);
 
-    Cue *srcCue = m_model->cueForRow(src);
+    Cue *srcCue = m_model->cueForRow(srcRow);
     const bool isChild = srcCue && !srcCue->parentGroupId().isEmpty();
 
     if (isChild) {
         Cue *dstCue = m_model->cueForRow(targetRow);
-        // Stay in group only when dropping on own group header or a sibling
         const bool staysInGroup = dstCue && (
             (dstCue->type() == Cue::Type::Group && dstCue->id() == srcCue->parentGroupId()) ||
             (dstCue->parentGroupId() == srcCue->parentGroupId())
         );
         if (staysInGroup) {
-            if (src != targetRow) emit moveRequested(src, targetRow);
+            if (srcRow != targetRow) emit moveRequested(srcRow, targetRow);
         } else {
-            emit ungroupRequested(src, targetRow);
+            emit ungroupRequested(srcRow, targetRow);
         }
-    } else if (src != targetRow) {
-        emit moveRequested(src, targetRow);
+    } else if (srcRow != targetRow) {
+        emit moveRequested(srcRow, targetRow);
     }
 
     event->setDropAction(Qt::IgnoreAction);

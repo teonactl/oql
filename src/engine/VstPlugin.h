@@ -73,7 +73,7 @@ public:
     void        setParam(int idx, float v)       override;
 
     bool        hasEditor()                const override;
-    bool        openEditor(void* parentWinId)    override;
+    bool        openEditor(void* parentWinId)    override; // returns false if crash
     void        closeEditor()                    override;
     bool        getEditorRect(ERect **rect) const;
     void        editorIdle();
@@ -88,11 +88,12 @@ private:
 
     std::string m_path;
     std::string m_name;
-    void       *m_lib     = nullptr;
-    AEffect    *m_effect  = nullptr;
-    int         m_sr      = 44100;
-    int         m_block   = 512;
-    bool        m_active  = false;  // mains on?
+    void       *m_lib            = nullptr;
+    AEffect    *m_effect         = nullptr;
+    int         m_sr             = 44100;
+    int         m_block          = 512;
+    bool        m_active         = false;  // mains on?
+    bool        m_editorCrashed  = false;  // set if effEditOpen/Idle crashed
 
     // Temp buffers for plugin processing (deinterleaved)
     std::vector<float> m_inL, m_inR, m_outL, m_outR;
