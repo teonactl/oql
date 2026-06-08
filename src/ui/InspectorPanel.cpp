@@ -314,16 +314,22 @@ void InspectorPanel::buildUi() {
 
     ctrlLay->addWidget(ctrlRow);
 
-    // Effect cue: button to open the plugin chain editor
-    auto *effectFxRow = new QWidget;
-    auto *effectFxLay = new QHBoxLayout(effectFxRow);
-    effectFxLay->setContentsMargins(0, 0, 0, 0);
-    effectFxLay->setSpacing(6);
+    // Effect cue: duration + button to open the plugin chain editor
+    m_effectGroup = new QGroupBox("Parametri Effetto");
+    auto *effectForm = new QFormLayout(m_effectGroup);
+    effectForm->setSpacing(3);
+    m_effectDurSpin = new QDoubleSpinBox;
+    m_effectDurSpin->setRange(0.0, 9999.0);
+    m_effectDurSpin->setSingleStep(0.1);
+    m_effectDurSpin->setDecimals(2);
+    m_effectDurSpin->setSuffix(" s");
+    m_effectDurSpin->setSpecialValueText("∞ (nessun reset auto)");
+    m_effectDurSpin->setToolTip("0 = effetto permanente fino a Reset Effetti; > 0 = reset automatico dopo N secondi");
     m_effectFxBtn = new QPushButton("⚙ Catena Effetti...");
     m_effectFxBtn->setToolTip("Apri la catena di plugin da applicare al target");
-    effectFxLay->addWidget(m_effectFxBtn);
-    effectFxLay->addStretch();
-    ctrlLay->addWidget(effectFxRow);
+    effectForm->addRow("Durata:", m_effectDurSpin);
+    effectForm->addRow(m_effectFxBtn);
+    ctrlLay->addWidget(m_effectGroup);
     propsLay->addWidget(m_controlSection);
 
     // ── Mic cue section ──────────────────────────────────────
@@ -564,6 +570,8 @@ void InspectorPanel::buildUi() {
             this, &InspectorPanel::onFadeStopAtEndChanged);
     connect(m_speedRateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &InspectorPanel::onSpeedRateChanged);
+    connect(m_effectDurSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &InspectorPanel::onEffectDurationChanged);
     connect(m_effectFxBtn, &QPushButton::clicked, this, [this]() {
         if (!m_fxDialog) {
             m_fxDialog = new QDialog(this, Qt::Window);
@@ -723,11 +731,16 @@ void InspectorPanel::updateMediaSection() {
         const bool isFade = (t == Cue::Type::Fade);
         m_fadeParamsGroup->setVisible(isFade);
         m_speedGroup->setVisible(isSpeed);
-        m_effectFxBtn->setVisible(isEffect);
-        if (isEffect)
-            m_pluginChainWidget->setChain(static_cast<EffectCue*>(m_cue)->pluginChain());
-        else
+        m_effectGroup->setVisible(isEffect);
+        if (isEffect) {
+            auto *ec = static_cast<EffectCue*>(m_cue);
+            m_effectDurSpin->blockSignals(true);
+            m_effectDurSpin->setValue(ec->effectDuration());
+            m_effectDurSpin->blockSignals(false);
+            m_pluginChainWidget->setChain(ec->pluginChain());
+        } else {
             m_pluginChainWidget->setChain(nullptr);
+        }
         if (isSpeed) {
             auto *sc = static_cast<SpeedCue*>(m_cue);
             m_speedRateSpin->blockSignals(true);
@@ -802,6 +815,7 @@ void InspectorPanel::blockSignals(bool block) {
     m_fadeOutSpin->blockSignals(block);
     m_channelCombo->blockSignals(block);
     if (m_fadeStopAtEndCheck) m_fadeStopAtEndCheck->blockSignals(block);
+    if (m_effectDurSpin)      m_effectDurSpin->blockSignals(block);
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────────
@@ -1009,6 +1023,11 @@ void InspectorPanel::onMicDeviceChanged(int) {
 void InspectorPanel::onMicVolumeChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Mic)
         static_cast<MicCue*>(m_cue)->setVolume(dbToLinear(v));
+}
+
+void InspectorPanel::onEffectDurationChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Effect)
+        static_cast<EffectCue*>(m_cue)->setEffectDuration(v);
 }
 
 void InspectorPanel::onSpeedRateChanged(double v) {

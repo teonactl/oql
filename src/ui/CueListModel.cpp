@@ -275,6 +275,8 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
                 return QString::number(ac->trimEnd() > 0.001 ? ac->trimEnd() : ac->duration(), 'f', 2);
             if (const auto *fc = dynamic_cast<const FadeCue*>(cue))
                 return QString::number(fc->fadeDuration(), 'f', 2);
+            if (const auto *ec = dynamic_cast<const EffectCue*>(cue))
+                return ec->effectDuration() > 0.0 ? QString::number(ec->effectDuration(), 'f', 2) : QString{};
             return {};
         }
         }
@@ -474,6 +476,10 @@ bool CueListModel::setData(const QModelIndex &idx, const QVariant &value, int ro
         }
         if (auto *fc = dynamic_cast<FadeCue*>(cue)) {
             fc->setFadeDuration(v);
+            return true;
+        }
+        if (auto *ec = dynamic_cast<EffectCue*>(cue)) {
+            ec->setEffectDuration(v);
             return true;
         }
         return false;

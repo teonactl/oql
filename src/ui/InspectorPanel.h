@@ -50,6 +50,7 @@ private slots:
     void onMicDeviceChanged(int idx);
     void onMicVolumeChanged(double v);
     void onSpeedRateChanged(double v);
+    void onEffectDurationChanged(double v);
     void onCuePropertyChanged();
     void onCueStateChanged(Cue::State state);
     void onLoopCountChanged(int v);
@@ -119,7 +120,9 @@ private:
     QCheckBox      *m_fadeStopAtEndCheck = nullptr;
     QGroupBox      *m_speedGroup     = nullptr;
     QDoubleSpinBox *m_speedRateSpin  = nullptr;
-    QPushButton    *m_effectFxBtn    = nullptr;
+    QPushButton    *m_effectFxBtn      = nullptr;
+    QGroupBox      *m_effectGroup      = nullptr;
+    QDoubleSpinBox *m_effectDurSpin    = nullptr;
 
     // Mic cue
     QWidget        *m_micSection     = nullptr;

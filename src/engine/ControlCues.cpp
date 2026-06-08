@@ -133,27 +133,62 @@ void SpeedCue::fromJson(const QJsonObject &o) {
 
 // ── EffectCue ─────────────────────────────────────────────────────────────────
 
+EffectCue::EffectCue(QObject *parent) : ControlCue(parent) {
+    m_timer = new QTimer(this);
+    m_timer->setSingleShot(true);
+    connect(m_timer, &QTimer::timeout, this, &EffectCue::onTimeout);
+}
+
 void EffectCue::go() {
     auto *ac = dynamic_cast<AudioCue*>(m_target);
     if (!ac) { setState(State::Idle); emit finished(); return; }
-    // Save the original chain the first time an effect is applied
+
+    m_timer->stop();  // cancel any pending auto-reset from a previous go()
+
     if (!ac->hasPluginSnapshot())
         ac->savePluginSnapshot();
     ac->applyPluginChain(m_chain.toJson());
+
+    if (m_duration > 0.001) {
+        m_activeTarget = m_target;
+        setState(State::Playing);
+        m_timer->start(int(m_duration * 1000));
+    } else {
+        setState(State::Idle);
+        emit finished();
+    }
+}
+
+void EffectCue::stop() {
+    m_timer->stop();
+    if (m_state == State::Playing && m_activeTarget) {
+        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+            ac->restorePluginSnapshot();
+        m_activeTarget = nullptr;
+    }
+    setState(State::Idle);
+}
+
+void EffectCue::onTimeout() {
+    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+        ac->restorePluginSnapshot();
+    m_activeTarget = nullptr;
     setState(State::Idle);
     emit finished();
 }
 
 QJsonObject EffectCue::toJson() const {
-    auto obj       = ControlCue::toJson();
-    obj["cueType"] = "effect";
-    obj["chain"]   = m_chain.toJson();
+    auto obj          = ControlCue::toJson();
+    obj["cueType"]    = "effect";
+    obj["chain"]      = m_chain.toJson();
+    obj["duration"]   = m_duration;
     return obj;
 }
 
 void EffectCue::fromJson(const QJsonObject &o) {
     ControlCue::fromJson(o);
     m_chain.fromJson(o["chain"].toArray());
+    m_duration = o["duration"].toDouble(0.0);
 }
 
 // ── ResetEffectCue ────────────────────────────────────────────────────────────

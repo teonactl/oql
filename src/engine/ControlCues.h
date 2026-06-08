@@ -130,13 +130,16 @@ private:
 class EffectCue : public ControlCue {
     Q_OBJECT
 public:
-    explicit EffectCue(QObject *parent = nullptr) : ControlCue(parent) {}
+    explicit EffectCue(QObject *parent = nullptr);
 
     Type    type()     const override { return Type::Effect; }
     QString typeName() const override { return "Effetto"; }
     void    go()             override;
-    void    stop()           override { setState(State::Idle); }
-    double  duration() const override { return 0.0; }
+    void    stop()           override;
+    double  duration() const override { return m_duration; }
+
+    double effectDuration()   const { return m_duration; }
+    void setEffectDuration(double s){ m_duration = qMax(0.0, s); emit propertyChanged(); }
 
     PluginChain       *pluginChain()       { return &m_chain; }
     const PluginChain *pluginChain() const { return &m_chain; }
@@ -144,8 +147,14 @@ public:
     QJsonObject toJson()                  const override;
     void        fromJson(const QJsonObject &o)  override;
 
+private slots:
+    void onTimeout();
+
 private:
     PluginChain m_chain;
+    QTimer     *m_timer        = nullptr;
+    double      m_duration     = 0.0;
+    Cue        *m_activeTarget = nullptr;
 };
 
 // ── ResetEffectCue: ripristina il plugin chain originale del target AudioCue ──
