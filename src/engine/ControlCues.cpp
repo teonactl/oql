@@ -151,6 +151,7 @@ void EffectCue::go() {
 
     if (m_duration > 0.001) {
         m_activeTarget = m_target;
+        m_startTimer.start();
         setState(State::Playing);
         m_timer->start(int(m_duration * 1000));
     } else {
@@ -161,6 +162,7 @@ void EffectCue::go() {
 
 void EffectCue::stop() {
     m_timer->stop();
+    m_startTimer.invalidate();
     if (m_state == State::Playing && m_activeTarget) {
         if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
             ac->restorePluginSnapshot();
@@ -170,11 +172,17 @@ void EffectCue::stop() {
 }
 
 void EffectCue::onTimeout() {
+    m_startTimer.invalidate();
     if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
         ac->restorePluginSnapshot();
     m_activeTarget = nullptr;
     setState(State::Idle);
     emit finished();
+}
+
+double EffectCue::position() const {
+    if (m_duration <= 0.001 || !m_startTimer.isValid()) return 0.0;
+    return qMin(m_startTimer.elapsed() / 1000.0, m_duration);
 }
 
 QJsonObject EffectCue::toJson() const {

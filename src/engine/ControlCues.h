@@ -137,6 +137,7 @@ public:
     void    go()             override;
     void    stop()           override;
     double  duration() const override { return m_duration; }
+    double  position() const override;
 
     double effectDuration()   const { return m_duration; }
     void setEffectDuration(double s){ m_duration = qMax(0.0, s); emit propertyChanged(); }
@@ -151,10 +152,11 @@ private slots:
     void onTimeout();
 
 private:
-    PluginChain m_chain;
-    QTimer     *m_timer        = nullptr;
-    double      m_duration     = 0.0;
-    Cue        *m_activeTarget = nullptr;
+    PluginChain    m_chain;
+    QTimer        *m_timer        = nullptr;
+    double         m_duration     = 0.0;
+    Cue           *m_activeTarget = nullptr;
+    QElapsedTimer  m_startTimer;
 };
 
 // ── ResetEffectCue: ripristina il plugin chain originale del target AudioCue ──
