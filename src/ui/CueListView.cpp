@@ -127,28 +127,27 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
 
 // ── Editor navigation ─────────────────────────────────────────────────────────
 
-QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
-    return QTableView::moveCursor(action, mods);
-}
-
-// Tab/Shift+Tab from an open editor: move to same column of next/prev row and
-// start editing immediately.  We intercept here because by the time moveCursor
-// is called the state is already NoState, so checking EditingState there is too late.
+// Tab/Shift+Tab: set flag before calling base so that moveCursor (called
+// synchronously inside the base's EditNextItem/EditPreviousItem handler)
+// redirects to the next/prev row instead of the next/prev column.
+// Qt's own pipeline then calls edit() on the result — no timer needed.
 void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
     if (hint == QAbstractItemDelegate::EditNextItem
-     || hint == QAbstractItemDelegate::EditPreviousItem) {
-        const QModelIndex cur = currentIndex();  // capture before base resets state
-        QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
-        const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
-                            ? cur.row() + 1 : cur.row() - 1;
-        if (nextRow >= 0 && nextRow < model()->rowCount()) {
-            const QModelIndex next = model()->index(nextRow, cur.column());
-            setCurrentIndex(next);
-            QTimer::singleShot(0, this, [this, next]() { edit(next); });
-        }
-        return;
-    }
+     || hint == QAbstractItemDelegate::EditPreviousItem)
+        m_tabEditing = true;
     QAbstractItemView::closeEditor(editor, hint);
+}
+
+QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
+    if (m_tabEditing) {
+        m_tabEditing = false;
+        const QModelIndex cur = currentIndex();
+        if (action == MoveNext && cur.row() + 1 < model()->rowCount())
+            return model()->index(cur.row() + 1, cur.column());
+        if (action == MovePrevious && cur.row() > 0)
+            return model()->index(cur.row() - 1, cur.column());
+    }
+    return QTableView::moveCursor(action, mods);
 }
 
 // ── Context menu / keyboard ───────────────────────────────────────────────────

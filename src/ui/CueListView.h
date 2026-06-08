@@ -56,6 +56,7 @@ private:
 
     CueListModel *m_model;
     bool          m_stretchGuard       = false;
+    bool          m_tabEditing         = false;
     int           m_dragRow            = -1;
     int           m_dropHighlightRow   = -1;
     int           m_groupDropHighlight = -1;
