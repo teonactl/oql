@@ -127,26 +127,38 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
 
 // ── Editor navigation ─────────────────────────────────────────────────────────
 
-// Tab/Shift+Tab: set flag before calling base so that moveCursor (called
-// synchronously inside the base's EditNextItem/EditPreviousItem handler)
-// redirects to the next/prev row instead of the next/prev column.
-// Qt's own pipeline then calls edit() on the result — no timer needed.
+// Tab/Shift+Tab strategy:
+//   closeEditor  — close with NoHint (skip Qt's EditNextItem pipeline entirely),
+//                  move selection to next/prev row, set m_editOnCurrentChange.
+//   currentChanged — fires synchronously from setCurrentIndex; if flag is set,
+//                  calls edit() on the new cell.  edit() is called AFTER the
+//                  base has fully settled (state=NoState, selection updated),
+//                  so the editor opens and keeps focus reliably every iteration.
 void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
     if (hint == QAbstractItemDelegate::EditNextItem
-     || hint == QAbstractItemDelegate::EditPreviousItem)
-        m_tabEditing = true;
+     || hint == QAbstractItemDelegate::EditPreviousItem) {
+        const QModelIndex cur = currentIndex();
+        QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
+        const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
+                            ? cur.row() + 1 : cur.row() - 1;
+        if (nextRow >= 0 && nextRow < model()->rowCount()) {
+            m_editOnCurrentChange = true;
+            setCurrentIndex(model()->index(nextRow, cur.column()));
+        }
+        return;
+    }
     QAbstractItemView::closeEditor(editor, hint);
 }
 
-QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
-    if (m_tabEditing) {
-        m_tabEditing = false;
-        const QModelIndex cur = currentIndex();
-        if (action == MoveNext && cur.row() + 1 < model()->rowCount())
-            return model()->index(cur.row() + 1, cur.column());
-        if (action == MovePrevious && cur.row() > 0)
-            return model()->index(cur.row() - 1, cur.column());
+void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &previous) {
+    QTableView::currentChanged(current, previous);
+    if (m_editOnCurrentChange) {
+        m_editOnCurrentChange = false;
+        edit(current);
     }
+}
+
+QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
     return QTableView::moveCursor(action, mods);
 }
 

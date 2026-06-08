@@ -34,6 +34,7 @@ signals:
 protected:
     QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override;
     void closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) override;
+    void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void contextMenuEvent(QContextMenuEvent *event)   override;
     void keyPressEvent(QKeyEvent *event)              override;
     void mouseDoubleClickEvent(QMouseEvent *event)    override;
@@ -55,8 +56,8 @@ private:
     static constexpr char kMime[] = "application/x-openqlab-cuerow";
 
     CueListModel *m_model;
-    bool          m_stretchGuard       = false;
-    bool          m_tabEditing         = false;
+    bool          m_stretchGuard          = false;
+    bool          m_editOnCurrentChange  = false;
     int           m_dragRow            = -1;
     int           m_dropHighlightRow   = -1;
     int           m_groupDropHighlight = -1;
