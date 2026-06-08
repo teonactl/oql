@@ -50,6 +50,23 @@ void AudioCue::setFilePath(const QString &path) {
     emit propertyChanged();
 }
 
+// ── Plugin chain snapshot (for EffectCue / ResetEffectCue) ───────────────────
+
+void AudioCue::savePluginSnapshot() {
+    m_chainSnapshot     = m_chain.toJson();
+    m_hasPluginSnapshot = true;
+}
+
+bool AudioCue::restorePluginSnapshot() {
+    if (!m_hasPluginSnapshot) return false;
+    m_chain.fromJson(m_chainSnapshot);
+    return true;
+}
+
+void AudioCue::applyPluginChain(const QJsonArray &json) {
+    m_chain.fromJson(json);
+}
+
 // ── Volume helpers ────────────────────────────────────────────────────────────
 
 void AudioCue::setVolume(double v) {

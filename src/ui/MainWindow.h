@@ -44,6 +44,8 @@ private slots:
     void addSpeedUpCue();
     void addSpeedDownCue();
     void addPlayCue();
+    void addEffectCue();
+    void addResetEffectCue();
     void deleteSelectedCue();
     void groupSelectedCues(const QVector<int> &visRows);
     void go();

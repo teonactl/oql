@@ -1,5 +1,6 @@
 #pragma once
 #include "Cue.h"
+#include "PluginChain.h"
 #include <QTimer>
 
 // ── ControlCue: abstract base for Stop / Fade / Pause ────────────────────────
@@ -123,4 +124,41 @@ public:
 
 private:
     double m_rate = 1.5;
+};
+
+// ── EffectCue: applica una catena di plugin a un AudioCue target ──────────────
+class EffectCue : public ControlCue {
+    Q_OBJECT
+public:
+    explicit EffectCue(QObject *parent = nullptr) : ControlCue(parent) {}
+
+    Type    type()     const override { return Type::Effect; }
+    QString typeName() const override { return "Effetto"; }
+    void    go()             override;
+    void    stop()           override { setState(State::Idle); }
+    double  duration() const override { return 0.0; }
+
+    PluginChain       *pluginChain()       { return &m_chain; }
+    const PluginChain *pluginChain() const { return &m_chain; }
+
+    QJsonObject toJson()                  const override;
+    void        fromJson(const QJsonObject &o)  override;
+
+private:
+    PluginChain m_chain;
+};
+
+// ── ResetEffectCue: ripristina il plugin chain originale del target AudioCue ──
+class ResetEffectCue : public ControlCue {
+    Q_OBJECT
+public:
+    explicit ResetEffectCue(QObject *parent = nullptr) : ControlCue(parent) {}
+
+    Type    type()     const override { return Type::ResetEffect; }
+    QString typeName() const override { return "Reset Effetti"; }
+    void    go()             override;
+    void    stop()           override { setState(State::Idle); }
+    double  duration() const override { return 0.0; }
+
+    QJsonObject toJson() const override;
 };

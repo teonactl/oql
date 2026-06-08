@@ -36,7 +36,9 @@ static QIcon makeCueIcon(Cue::Type type) {
     case Cue::Type::Mic:   bg = QColor(0xcc, 0x22, 0x88); break;
     case Cue::Type::Group: bg = QColor(0x44, 0x48, 0x58); break;
     case Cue::Type::Label: bg = QColor(0x60, 0x55, 0x10); break;
-    case Cue::Type::Text:  bg = QColor(0x0a, 0x72, 0x8a); break;
+    case Cue::Type::Text:        bg = QColor(0x0a, 0x72, 0x8a); break;
+    case Cue::Type::Effect:      bg = QColor(0x7b, 0x35, 0x9e); break;
+    case Cue::Type::ResetEffect: bg = QColor(0x35, 0x7b, 0x9e); break;
     default: break;
     }
     p.setBrush(bg);
@@ -123,6 +125,28 @@ static QIcon makeCueIcon(Cue::Type type) {
         p.setBrush(Qt::white);
         p.drawRect(2, 2, 12, 3);   // top bar of T
         p.drawRect(6, 2, 4, 12);   // stem of T
+        break;
+    }
+    case Cue::Type::Effect: {
+        // Lightning bolt: zap shape
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon bolt;
+        bolt << QPoint(9, 1) << QPoint(4, 9) << QPoint(8, 9)
+             << QPoint(6, 15) << QPoint(12, 7) << QPoint(8, 7);
+        p.drawPolygon(bolt);
+        break;
+    }
+    case Cue::Type::ResetEffect: {
+        // Circular undo arrow
+        p.setPen(QPen(Qt::white, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(2, 2, 12, 12, 50*16, 250*16);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon arr;
+        arr << QPoint(2, 5) << QPoint(7, 2) << QPoint(7, 8);
+        p.drawPolygon(arr);
         break;
     }
     default: break;

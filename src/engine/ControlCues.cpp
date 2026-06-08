@@ -1,4 +1,5 @@
 #include "ControlCues.h"
+#include "AudioCue.h"
 #include <QJsonObject>
 
 // ── SpeedCue ──────────────────────────────────────────────────────────────────
@@ -128,4 +129,45 @@ QJsonObject SpeedCue::toJson() const {
 void SpeedCue::fromJson(const QJsonObject &o) {
     ControlCue::fromJson(o);
     m_rate = o["rate"].toDouble(1.5);
+}
+
+// ── EffectCue ─────────────────────────────────────────────────────────────────
+
+void EffectCue::go() {
+    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    if (!ac) { setState(State::Idle); emit finished(); return; }
+    // Save the original chain the first time an effect is applied
+    if (!ac->hasPluginSnapshot())
+        ac->savePluginSnapshot();
+    ac->applyPluginChain(m_chain.toJson());
+    setState(State::Idle);
+    emit finished();
+}
+
+QJsonObject EffectCue::toJson() const {
+    auto obj       = ControlCue::toJson();
+    obj["cueType"] = "effect";
+    obj["chain"]   = m_chain.toJson();
+    return obj;
+}
+
+void EffectCue::fromJson(const QJsonObject &o) {
+    ControlCue::fromJson(o);
+    m_chain.fromJson(o["chain"].toArray());
+}
+
+// ── ResetEffectCue ────────────────────────────────────────────────────────────
+
+void ResetEffectCue::go() {
+    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    if (!ac) { setState(State::Idle); emit finished(); return; }
+    ac->restorePluginSnapshot();
+    setState(State::Idle);
+    emit finished();
+}
+
+QJsonObject ResetEffectCue::toJson() const {
+    auto obj       = ControlCue::toJson();
+    obj["cueType"] = "reseteffect";
+    return obj;
 }

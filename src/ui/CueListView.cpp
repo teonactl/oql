@@ -95,13 +95,16 @@ QVector<int> CueListView::validTargetRows(int srcRow) const {
     const bool srcIsMedia = srcCue
         && (srcCue->type() == Cue::Type::Audio || srcCue->type() == Cue::Type::Video);
 
+    const bool srcIsAudio = srcCue && srcCue->type() == Cue::Type::Audio;
     for (int row = 0; row < model()->rowCount(); ++row) {
         if (row == srcRow) continue;
         Cue *dstCue = m_model->cueForRow(row);
         if (!dynamic_cast<ControlCue*>(dstCue)) continue;
         const bool mediaOnly = (dstCue->type() == Cue::Type::Play
                              || dstCue->type() == Cue::Type::Speed);
-        if (!mediaOnly || srcIsMedia)
+        const bool audioOnly = (dstCue->type() == Cue::Type::Effect
+                             || dstCue->type() == Cue::Type::ResetEffect);
+        if ((!mediaOnly || srcIsMedia) && (!audioOnly || srcIsAudio))
             rows.append(row);
     }
     return rows;
@@ -192,11 +195,14 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction("Aggiungi Pause Cue",     this, &CueListView::addPauseRequested);
     menu.addAction("Aggiungi Microfono Cue", this, &CueListView::addMicRequested);
     menu.addSeparator();
-    menu.addAction("Aggiungi Gruppo",        this, &CueListView::addGroupRequested);
-    menu.addAction("Aggiungi Etichetta",     this, &CueListView::addLabelRequested);
-    menu.addAction("Aggiungi Testo",         this, &CueListView::addTextRequested);
+    menu.addAction("Aggiungi Gruppo",               this, &CueListView::addGroupRequested);
+    menu.addAction("Aggiungi Etichetta",            this, &CueListView::addLabelRequested);
+    menu.addAction("Aggiungi Testo",                this, &CueListView::addTextRequested);
     menu.addSeparator();
-    menu.addAction("Elimina cue",            this, &CueListView::deleteRequested);
+    menu.addAction("Aggiungi Effect Cue",           this, &CueListView::addEffectRequested);
+    menu.addAction("Aggiungi Reset Effetti Cue",    this, &CueListView::addResetEffectRequested);
+    menu.addSeparator();
+    menu.addAction("Elimina cue",                   this, &CueListView::deleteRequested);
     menu.exec(event->globalPos());
 }
 

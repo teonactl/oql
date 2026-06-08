@@ -110,7 +110,7 @@ private:
     QPushButton    *m_fxBtn        = nullptr;
     QDialog        *m_fxDialog     = nullptr;
 
-    // Control cues (Stop / Fade / Pause / Speed)
+    // Control cues (Stop / Fade / Pause / Speed / Effect / ResetEffect)
     QWidget        *m_controlSection;
     QComboBox      *m_targetCombo;
     QGroupBox      *m_fadeParamsGroup;
@@ -119,6 +119,7 @@ private:
     QCheckBox      *m_fadeStopAtEndCheck = nullptr;
     QGroupBox      *m_speedGroup     = nullptr;
     QDoubleSpinBox *m_speedRateSpin  = nullptr;
+    QPushButton    *m_effectFxBtn    = nullptr;
 
     // Mic cue
     QWidget        *m_micSection     = nullptr;

@@ -50,6 +50,12 @@ public:
     PluginChain       *pluginChain()       { return &m_chain; }
     const PluginChain *pluginChain() const { return &m_chain; }
 
+    // Snapshot API for EffectCue / ResetEffectCue (main thread only)
+    void savePluginSnapshot();
+    bool restorePluginSnapshot();
+    bool hasPluginSnapshot() const { return m_hasPluginSnapshot; }
+    void applyPluginChain(const QJsonArray &json);
+
     // ── Playback ──────────────────────────────────────────────────────────────
     void   go()              override;
     void   stop()            override;
@@ -106,6 +112,8 @@ private:
     QString          m_filePath;
 
     PluginChain m_chain;
+    QJsonArray  m_chainSnapshot;
+    bool        m_hasPluginSnapshot = false;
 
     // Temp PCM buffers used inside renderAudio (preallocated in go())
     std::vector<float> m_decodeBuf;  // interleaved stereo from decoder

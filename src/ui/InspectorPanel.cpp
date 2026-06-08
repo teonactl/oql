@@ -313,6 +313,17 @@ void InspectorPanel::buildUi() {
     ctrlRowLay->addStretch();
 
     ctrlLay->addWidget(ctrlRow);
+
+    // Effect cue: button to open the plugin chain editor
+    auto *effectFxRow = new QWidget;
+    auto *effectFxLay = new QHBoxLayout(effectFxRow);
+    effectFxLay->setContentsMargins(0, 0, 0, 0);
+    effectFxLay->setSpacing(6);
+    m_effectFxBtn = new QPushButton("⚙ Catena Effetti...");
+    m_effectFxBtn->setToolTip("Apri la catena di plugin da applicare al target");
+    effectFxLay->addWidget(m_effectFxBtn);
+    effectFxLay->addStretch();
+    ctrlLay->addWidget(effectFxRow);
     propsLay->addWidget(m_controlSection);
 
     // ── Mic cue section ──────────────────────────────────────
@@ -553,6 +564,19 @@ void InspectorPanel::buildUi() {
             this, &InspectorPanel::onFadeStopAtEndChanged);
     connect(m_speedRateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &InspectorPanel::onSpeedRateChanged);
+    connect(m_effectFxBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_fxDialog) {
+            m_fxDialog = new QDialog(this, Qt::Window);
+            m_fxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_fxDialog->resize(480, 400);
+            auto *lay = new QVBoxLayout(m_fxDialog);
+            lay->addWidget(m_pluginChainWidget);
+        }
+        m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+        m_fxDialog->show();
+        m_fxDialog->raise();
+        m_fxDialog->activateWindow();
+    });
     connect(m_micDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onMicDeviceChanged);
     connect(m_micVolumeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -632,9 +656,11 @@ void InspectorPanel::updateMediaSection() {
     const Cue::Type t = m_cue->type();
     const bool isAudio   = (t == Cue::Type::Audio);
     const bool isVideo   = (t == Cue::Type::Video);
+    const bool isEffect  = (t == Cue::Type::Effect);
     const bool isControl = (t == Cue::Type::Stop || t == Cue::Type::Fade
                          || t == Cue::Type::Pause || t == Cue::Type::Speed
-                         || t == Cue::Type::Play);
+                         || t == Cue::Type::Play  || isEffect
+                         || t == Cue::Type::ResetEffect);
     const bool isSpeed   = (t == Cue::Type::Speed);
     const bool isMic     = (t == Cue::Type::Mic);
     const bool isTextCue = (t == Cue::Type::Text);
@@ -697,6 +723,11 @@ void InspectorPanel::updateMediaSection() {
         const bool isFade = (t == Cue::Type::Fade);
         m_fadeParamsGroup->setVisible(isFade);
         m_speedGroup->setVisible(isSpeed);
+        m_effectFxBtn->setVisible(isEffect);
+        if (isEffect)
+            m_pluginChainWidget->setChain(static_cast<EffectCue*>(m_cue)->pluginChain());
+        else
+            m_pluginChainWidget->setChain(nullptr);
         if (isSpeed) {
             auto *sc = static_cast<SpeedCue*>(m_cue);
             m_speedRateSpin->blockSignals(true);
@@ -922,6 +953,9 @@ void InspectorPanel::populateTargetCombo() {
     // PlayCue and SpeedCue can only target Audio or Video cues
     const bool mediaOnly = m_cue && (m_cue->type() == Cue::Type::Play
                                   || m_cue->type() == Cue::Type::Speed);
+    // EffectCue and ResetEffectCue can only target AudioCue
+    const bool audioOnly = m_cue && (m_cue->type() == Cue::Type::Effect
+                                  || m_cue->type() == Cue::Type::ResetEffect);
 
     const QString currentId = m_targetCombo->currentData().toString();
     m_targetCombo->blockSignals(true);
@@ -931,6 +965,8 @@ void InspectorPanel::populateTargetCombo() {
         Cue *c = m_cueList->cueAt(i);
         if (c == m_cue) continue;
         if (mediaOnly && c->type() != Cue::Type::Audio && c->type() != Cue::Type::Video)
+            continue;
+        if (audioOnly && c->type() != Cue::Type::Audio)
             continue;
         const QString num = c->number().isEmpty() ? QString::number(i + 1) : c->number();
         const QString name = c->name().isEmpty() ? "(senza nome)" : c->name();
@@ -945,7 +981,8 @@ void InspectorPanel::onTargetChanged(int) {
     if (!m_cue) return;
     const Cue::Type t = m_cue->type();
     if (t == Cue::Type::Stop  || t == Cue::Type::Fade  || t == Cue::Type::Pause
-     || t == Cue::Type::Play  || t == Cue::Type::Speed)
+     || t == Cue::Type::Play  || t == Cue::Type::Speed
+     || t == Cue::Type::Effect || t == Cue::Type::ResetEffect)
         static_cast<ControlCue*>(m_cue)->setTargetId(m_targetCombo->currentData().toString());
 }
 

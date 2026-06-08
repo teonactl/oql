@@ -324,6 +324,14 @@ void CueList::fromJson(const QJsonArray &arr) {
             auto c = std::make_unique<TextCue>();
             c->fromJson(obj);
             cue = std::move(c);
+        } else if (t == "effect") {
+            auto c = std::make_unique<EffectCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
+        } else if (t == "reseteffect") {
+            auto c = std::make_unique<ResetEffectCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
         }
         if (cue) {
             connectCue(cue.get());

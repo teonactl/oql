@@ -20,6 +20,8 @@ signals:
     void addGroupRequested();
     void addLabelRequested();
     void addTextRequested();
+    void addEffectRequested();
+    void addResetEffectRequested();
     void deleteRequested();
     void cueDoubleClicked(int row);
     void filePickRequested(int row);

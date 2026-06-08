@@ -45,16 +45,18 @@
 
 static std::unique_ptr<ControlCue> makeCtrlCue(Cue::Type type, double extra) {
     switch (type) {
-    case Cue::Type::Stop:  return std::make_unique<StopCue>();
+    case Cue::Type::Stop:        return std::make_unique<StopCue>();
     case Cue::Type::Fade: {
         auto c = std::make_unique<FadeCue>();
         c->setFadeDuration(AppSettings::instance().defaultFadeDuration());
         return c;
     }
-    case Cue::Type::Pause: return std::make_unique<PauseCue>();
-    case Cue::Type::Play:  return std::make_unique<PlayCue>();
-    case Cue::Type::Speed: return std::make_unique<SpeedCue>(extra > 0.0 ? extra : 1.5);
-    default:               return nullptr;
+    case Cue::Type::Pause:       return std::make_unique<PauseCue>();
+    case Cue::Type::Play:        return std::make_unique<PlayCue>();
+    case Cue::Type::Speed:       return std::make_unique<SpeedCue>(extra > 0.0 ? extra : 1.5);
+    case Cue::Type::Effect:      return std::make_unique<EffectCue>();
+    case Cue::Type::ResetEffect: return std::make_unique<ResetEffectCue>();
+    default:                     return nullptr;
     }
 }
 
@@ -192,7 +194,9 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addMicRequested,   this, &MainWindow::addMicCue);
     connect(m_cueView, &CueListView::addGroupRequested, this, &MainWindow::addGroupCue);
     connect(m_cueView, &CueListView::addLabelRequested, this, &MainWindow::addLabelCue);
-    connect(m_cueView, &CueListView::addTextRequested,  this, &MainWindow::addTextCue);
+    connect(m_cueView, &CueListView::addTextRequested,         this, &MainWindow::addTextCue);
+    connect(m_cueView, &CueListView::addEffectRequested,       this, &MainWindow::addEffectCue);
+    connect(m_cueView, &CueListView::addResetEffectRequested,  this, &MainWindow::addResetEffectCue);
     connect(m_cueView, &CueListView::deleteRequested,   this, &MainWindow::deleteSelectedCue);
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
@@ -349,6 +353,9 @@ void MainWindow::buildMenus() {
     menuAction(edit, "Aggiungi &Gruppo",           QKeySequence("Ctrl+Shift+G"), this, &MainWindow::addGroupCue);
     menuAction(edit, "Aggiungi &Etichetta",        QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
     menuAction(edit, "Aggiungi &Testo",            QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
+    edit->addSeparator();
+    menuAction(edit, "Aggiungi cue E&ffetto",      QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
+    menuAction(edit, "Aggiungi cue &Reset Effetti",QKeySequence("Ctrl+Shift+R"), this, &MainWindow::addResetEffectCue);
     edit->addSeparator();
     menuAction(edit, "&Elimina cue", QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
@@ -510,6 +517,28 @@ void MainWindow::buildToolBar() {
     addCueBtn(speedUpIcon,   "+ Velocizza",    &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, "+ Rallenta",     &MainWindow::addSpeedDownCue);
 
+    // Effect: lightning bolt (purple #7b359e)
+    auto effectIcon = makeTbIcon(QColor(0x7b, 0x35, 0x9e), [](QPainter &p) {
+        QPolygon bolt;
+        bolt << QPoint(11, 2) << QPoint(5, 11) << QPoint(9, 11)
+             << QPoint(7, 18) << QPoint(15, 9) << QPoint(11, 9);
+        p.drawPolygon(bolt);
+    });
+    // ResetEffect: circular undo arrow (blue-gray #357b9e)
+    auto resetEffectIcon = makeTbIcon(QColor(0x35, 0x7b, 0x9e), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(3, 3, 14, 14, 50*16, 250*16);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon arr;
+        arr << QPoint(3, 6) << QPoint(8, 2) << QPoint(8, 10);
+        p.drawPolygon(arr);
+    });
+
+    addCueBtn(effectIcon,      "+ Effetto",      &MainWindow::addEffectCue);
+    addCueBtn(resetEffectIcon, "+ Reset Effetti",&MainWindow::addResetEffectCue);
+
     tb->addSeparator();
 
     auto *videoWin = tb->addAction("📺 Video Out");
@@ -660,6 +689,8 @@ void MainWindow::addTextCue() {
 
 void MainWindow::addSpeedUpCue()   { addControlCueImpl(Cue::Type::Speed, 1.5); }
 void MainWindow::addSpeedDownCue() { addControlCueImpl(Cue::Type::Speed, 0.5); }
+void MainWindow::addEffectCue()      { addControlCueImpl(Cue::Type::Effect); }
+void MainWindow::addResetEffectCue() { addControlCueImpl(Cue::Type::ResetEffect); }
 
 void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));
