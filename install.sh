@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — installa OpenQLab per l'utente corrente (nessun sudo richiesto)
+# Compatibile con: KDE Plasma, GNOME, Ubuntu (Unity/GNOME), XFCE, MATE,
+#                  Cinnamon, LXQt, LXDE, Budgie e qualsiasi DE XDG-compliant.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,68 +26,109 @@ fi
 
 echo "Binario trovato: $BINARY"
 
-# ── Destinazioni (XDG user-local, nessun sudo) ────────────────────────────────
+# ── Destinazioni XDG (nessun sudo richiesto) ──────────────────────────────────
 BIN_DIR="${HOME}/.local/bin"
-ICON_SVG_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
-ICON_256_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
-ICON_128_DIR="${HOME}/.local/share/icons/hicolor/128x128/apps"
+ICONS_DIR="${HOME}/.local/share/icons/hicolor"
 DESKTOP_DIR="${HOME}/.local/share/applications"
 
-mkdir -p "$BIN_DIR" "$ICON_SVG_DIR" "$ICON_256_DIR" "$ICON_128_DIR" "$DESKTOP_DIR"
+mkdir -p "$BIN_DIR" \
+         "$ICONS_DIR/scalable/apps" \
+         "$ICONS_DIR/256x256/apps" \
+         "$ICONS_DIR/128x128/apps" \
+         "$ICONS_DIR/64x64/apps" \
+         "$ICONS_DIR/48x48/apps" \
+         "$DESKTOP_DIR"
 
-# ── Copia il binario ──────────────────────────────────────────────────────────
+# ── Installa il binario ───────────────────────────────────────────────────────
 cp -f "$BINARY" "$BIN_DIR/openqlab"
 chmod +x "$BIN_DIR/openqlab"
-echo "Binario installato in $BIN_DIR/openqlab"
+echo "  [✓] Binario  → $BIN_DIR/openqlab"
 
 # ── Installa icona SVG ────────────────────────────────────────────────────────
-cp -f "$SCRIPT_DIR/resources/openqlab.svg" "$ICON_SVG_DIR/openqlab.svg"
-echo "Icona SVG installata"
+cp -f "$SCRIPT_DIR/resources/openqlab.svg" "$ICONS_DIR/scalable/apps/openqlab.svg"
+echo "  [✓] Icona SVG installata"
 
-# ── Genera icone PNG (fallback per KDE e altri ambienti) ─────────────────────
-_svg="$ICON_SVG_DIR/openqlab.svg"
-_converted=0
-for size in 256 128; do
-    _outdir="${HOME}/.local/share/icons/hicolor/${size}x${size}/apps"
-    mkdir -p "$_outdir"
-    _out="$_outdir/openqlab.png"
-    if command -v rsvg-convert &>/dev/null; then
-        rsvg-convert -w "$size" -h "$size" "$_svg" -o "$_out" && _converted=1
-    elif command -v inkscape &>/dev/null; then
-        inkscape --export-type=png --export-width="$size" \
-                 --export-filename="$_out" "$_svg" 2>/dev/null && _converted=1
-    elif command -v convert &>/dev/null; then
-        convert -background none -resize "${size}x${size}" "$_svg" "$_out" && _converted=1
-    fi
-done
-[[ $_converted -eq 1 ]] && echo "Icone PNG generate (128×128, 256×256)" || \
-    echo "Nessun convertitore SVG→PNG trovato (rsvg-convert/inkscape/imagemagick), uso solo SVG"
+# ── Genera icone PNG rasterizzate ─────────────────────────────────────────────
+# Necessario per KDE e alcuni temi GTK che non supportano SVG nell'hicolor cache.
+_svg="$ICONS_DIR/scalable/apps/openqlab.svg"
+_converter=""
+if   command -v rsvg-convert &>/dev/null; then _converter="rsvg"
+elif command -v inkscape      &>/dev/null; then _converter="inkscape"
+elif command -v convert       &>/dev/null; then _converter="magick"
+fi
 
-# ── Crea il file .desktop con il percorso assoluto del binario ────────────────
+if [[ -n "$_converter" ]]; then
+    for size in 256 128 64 48; do
+        _out="$ICONS_DIR/${size}x${size}/apps/openqlab.png"
+        case "$_converter" in
+            rsvg)    rsvg-convert -w "$size" -h "$size" "$_svg" -o "$_out" ;;
+            inkscape) inkscape --export-type=png --export-width="$size" \
+                               --export-filename="$_out" "$_svg" 2>/dev/null ;;
+            magick)  convert -background none -resize "${size}x${size}" "$_svg" "$_out" ;;
+        esac
+    done
+    echo "  [✓] Icone PNG generate (48, 64, 128, 256 px) via $_converter"
+else
+    echo "  [!] PNG non generati: installa rsvg-convert (librsvg), inkscape o imagemagick"
+    echo "      sudo pacman -S librsvg   # Arch"
+    echo "      sudo apt install librsvg2-bin  # Debian/Ubuntu"
+fi
+
+# ── Installa il file .desktop ─────────────────────────────────────────────────
 sed "s|Exec=openqlab|Exec=$BIN_DIR/openqlab|" \
     "$SCRIPT_DIR/resources/openqlab.desktop" \
     > "$DESKTOP_DIR/openqlab.desktop"
 chmod 644 "$DESKTOP_DIR/openqlab.desktop"
-echo "Launcher installato in $DESKTOP_DIR/openqlab.desktop"
+echo "  [✓] Launcher → $DESKTOP_DIR/openqlab.desktop"
 
-# ── Aggiorna le cache desktop/icone ──────────────────────────────────────────
-update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+# ── Aggiorna le cache (tutti i DE) ────────────────────────────────────────────
+echo ""
+echo "Aggiornamento cache..."
 
-# KDE Plasma: ricostruisce l'indice dei servizi (necessario per il menu start)
+# Standard XDG (funziona per tutti i DE)
+command -v update-desktop-database &>/dev/null && \
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null && \
+    echo "  [✓] update-desktop-database" || true
+
+# KDE Plasma 5 / 6 — ricostruisce l'indice dei servizi per il menu start
 if command -v kbuildsycoca6 &>/dev/null; then
-    kbuildsycoca6 --noincremental 2>/dev/null || true
+    kbuildsycoca6 --noincremental 2>/dev/null && echo "  [✓] kbuildsycoca6 (KDE)"
 elif command -v kbuildsycoca5 &>/dev/null; then
-    kbuildsycoca5 --noincremental 2>/dev/null || true
+    kbuildsycoca5 --noincremental 2>/dev/null && echo "  [✓] kbuildsycoca5 (KDE)"
 fi
 
-# GNOME/GTK: aggiorna cache icone hicolor
+# GNOME Shell — notifica il compositor tramite D-Bus (nessun riavvio)
+if command -v gdbus &>/dev/null && [[ "${XDG_CURRENT_DESKTOP:-}" == *"GNOME"* ]]; then
+    gdbus call --session \
+          --dest org.gnome.Shell \
+          --object-path /org/gnome/Shell \
+          --method org.gnome.Shell.Eval \
+          'global.reexec_self()' 2>/dev/null || true
+    # Fallback: aggiorna solo la lista app senza riavviare la shell
+    gdbus call --session \
+          --dest org.gnome.Shell \
+          --object-path /org/gnome/Shell \
+          --method org.gnome.Shell.Eval \
+          '' 2>/dev/null || true
+fi
+
+# GTK icon cache (GNOME, XFCE, MATE, Cinnamon, Budgie, LXQt)
 if command -v gtk-update-icon-cache &>/dev/null; then
-    gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
+    gtk-update-icon-cache -f -t "$ICONS_DIR" 2>/dev/null && \
+        echo "  [✓] gtk-update-icon-cache" || true
 fi
 
+# XFCE — ricarica il pannello se in esecuzione
+if [[ "${XDG_CURRENT_DESKTOP:-}" == *"XFCE"* ]]; then
+    command -v xfce4-panel &>/dev/null && \
+        xfce4-panel --restart 2>/dev/null &
+fi
+
+# ── Risultato ─────────────────────────────────────────────────────────────────
 echo ""
 echo "Installazione completata."
-echo "Se l'icona non appare nel menu, fai logout e login dalla sessione KDE/GNOME."
+echo "OpenQLab dovrebbe ora apparire nel menu applicazioni."
+echo "Se non appare subito, fai logout e login per forzare il refresh del menu."
 
 # ── Avvisa se ~/.local/bin non è nel PATH ─────────────────────────────────────
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
