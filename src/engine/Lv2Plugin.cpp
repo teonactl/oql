@@ -1,15 +1,33 @@
 #include "Lv2Plugin.h"
 #include <lilv/lilv.h>
+#include <suil/suil.h>
+#include <lv2/ui/ui.h>
+#include <lv2/instance-access/instance-access.h>
 #include <cstring>
 #include <cmath>
 #include <QJsonArray>
 #include <QDebug>
+#include <QUrl>
 #include <setjmp.h>
 #include <signal.h>
 
-// ── Shared world (one per process) ───────────────────────────────────────────
+// ── Shared world and suil host (one per process) ─────────────────────────────
 
-static LilvWorld *s_world = nullptr;
+static LilvWorld *s_world    = nullptr;
+static SuilHost  *s_suilHost = nullptr;
+
+// ── Suil callbacks ────────────────────────────────────────────────────────────
+
+static void lv2UiWrite(SuilController controller, uint32_t port_index,
+                        uint32_t buffer_size, uint32_t protocol, const void *buffer) {
+    if (protocol != 0 || buffer_size != sizeof(float)) return;
+    static_cast<Lv2Plugin*>(controller)->setParamByPortIndex(
+        port_index, *static_cast<const float*>(buffer));
+}
+
+static uint32_t lv2UiPortIndex(SuilController controller, const char *symbol) {
+    return static_cast<Lv2Plugin*>(controller)->portIndexForSymbol(symbol);
+}
 
 static sigjmp_buf              s_lilvJump;
 static volatile sig_atomic_t   s_lilvProtected = 0;
@@ -154,9 +172,10 @@ static bool portIsA(LilvWorld *w, const LilvPlugin *plug, uint32_t idx,
 // ── Lv2Plugin ─────────────────────────────────────────────────────────────────
 
 Lv2Plugin::Lv2Plugin(const std::string &uri) : m_uri(uri) {
-    LilvWorld       *w    = world();
+    LilvWorld        *w    = world();
     const LilvPlugin *plug = findPlugin(uri);
     if (!plug) return;
+    m_lilvPlugin = plug;
 
     // Plugin name
     LilvNode *nameNode = lilv_plugin_get_name(plug);
@@ -221,6 +240,7 @@ Lv2Plugin::Lv2Plugin(const std::string &uri) : m_uri(uri) {
 }
 
 Lv2Plugin::~Lv2Plugin() {
+    closeEditor();
     if (m_instance) {
         lilv_instance_deactivate(m_instance);
         lilv_instance_free(m_instance);
@@ -334,6 +354,105 @@ PluginParam Lv2Plugin::param(int idx) const {
 void Lv2Plugin::setParam(int idx, float v) {
     if (idx >= 0 && idx < int(m_controls.size()))
         m_controls[idx].value = v;
+}
+
+// ── LV2 UI (suil) ─────────────────────────────────────────────────────────────
+
+bool Lv2Plugin::hasEditor() const {
+    if (!m_lilvPlugin || !m_instance) return false;
+    LilvUIs *uis = lilv_plugin_get_uis(m_lilvPlugin);
+    if (!uis) return false;
+    bool found = false;
+    LILV_FOREACH(uis, u, uis) {
+        const LilvUI    *ui    = lilv_uis_get(uis, u);
+        const LilvNodes *types = lilv_ui_get_classes(ui);
+        LILV_FOREACH(nodes, t, types) {
+            if (suil_ui_supported(LV2_UI__X11UI,
+                    lilv_node_as_uri(lilv_nodes_get(types, t))) > 0) {
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+    }
+    lilv_uis_free(uis);
+    return found;
+}
+
+bool Lv2Plugin::openEditor(void *parentId) {
+    if (m_suilInst) return true;
+    if (!m_lilvPlugin || !m_instance) return false;
+
+    if (!s_suilHost)
+        s_suilHost = suil_host_new(lv2UiWrite, lv2UiPortIndex, nullptr, nullptr);
+
+    // Find the best UI suil can present as X11UI
+    std::string ui_uri, ui_type, ui_bundle, ui_binary;
+    unsigned best = 0;
+
+    LilvUIs *uis = lilv_plugin_get_uis(m_lilvPlugin);
+    LILV_FOREACH(uis, u, uis) {
+        const LilvUI    *ui    = lilv_uis_get(uis, u);
+        const LilvNodes *types = lilv_ui_get_classes(ui);
+        LILV_FOREACH(nodes, t, types) {
+            const char *tUri = lilv_node_as_uri(lilv_nodes_get(types, t));
+            unsigned sup = suil_ui_supported(LV2_UI__X11UI, tUri);
+            if (sup > best) {
+                best      = sup;
+                ui_uri    = lilv_node_as_uri(lilv_ui_get_uri(ui));
+                ui_type   = tUri;
+                ui_bundle = QUrl(lilv_node_as_string(
+                                lilv_ui_get_bundle_uri(ui))).toLocalFile().toStdString();
+                ui_binary = QUrl(lilv_node_as_string(
+                                lilv_ui_get_binary_uri(ui))).toLocalFile().toStdString();
+            }
+        }
+    }
+    lilv_uis_free(uis);
+    if (!best) return false;
+
+    LV2_Feature parent_feat   = { LV2_UI__parent, parentId };
+    LV2_Feature instance_feat = { LV2_INSTANCE_ACCESS_URI,
+                                  lilv_instance_get_handle(m_instance) };
+    const LV2_Feature *features[] = { &parent_feat, &instance_feat, nullptr };
+
+    m_suilInst = suil_instance_new(
+        s_suilHost, this,
+        LV2_UI__X11UI,
+        m_uri.c_str(), ui_uri.c_str(), ui_type.c_str(),
+        ui_bundle.c_str(), ui_binary.c_str(),
+        features);
+
+    return m_suilInst != nullptr;
+}
+
+void Lv2Plugin::closeEditor() {
+    if (m_suilInst) {
+        suil_instance_free(m_suilInst);
+        m_suilInst = nullptr;
+    }
+}
+
+void Lv2Plugin::editorIdle() {
+    if (!m_suilInst) return;
+    const auto *idle = static_cast<const LV2UI_Idle_Interface *>(
+        suil_instance_extension_data(m_suilInst, LV2_UI__idleInterface));
+    if (idle && idle->idle)
+        idle->idle(suil_instance_get_handle(m_suilInst));
+}
+
+void Lv2Plugin::setParamByPortIndex(uint32_t portIndex, float value) {
+    for (auto &c : m_controls) {
+        if (c.index == portIndex) { c.value = value; return; }
+    }
+}
+
+uint32_t Lv2Plugin::portIndexForSymbol(const char *symbol) const {
+    if (!m_lilvPlugin) return LV2UI_INVALID_PORT_INDEX;
+    LilvNode *sym = lilv_new_string(world(), symbol);
+    const LilvPort *port = lilv_plugin_get_port_by_symbol(m_lilvPlugin, sym);
+    lilv_node_free(sym);
+    return port ? lilv_port_get_index(m_lilvPlugin, port) : LV2UI_INVALID_PORT_INDEX;
 }
 
 QJsonObject Lv2Plugin::toJson() const {

@@ -11,6 +11,7 @@ list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
+pkg_check_modules(SUIL REQUIRED suil-0)
 
 qt_add_executable(openqlab
     resources/resources.qrc
@@ -81,14 +82,16 @@ target_link_libraries(openqlab PRIVATE
     Qt6::Svg
     Qt6::Network
     ${LILV_LIBRARIES}
+    ${SUIL_LIBRARIES}
     dl          # for dlopen/dlsym (VST2 loading)
     pthread     # for std::mutex/thread used in AudioEngine
-    X11         # for XSetErrorHandler (suppress VST native UI X11 errors)
+    X11         # for XSetErrorHandler + XQueryTree/XGetWindowAttributes (LV2 UI)
 )
 
 target_include_directories(openqlab PRIVATE
     src
     ${LILV_INCLUDE_DIRS}
+    ${SUIL_INCLUDE_DIRS}
 )
 
 target_compile_options(openqlab PRIVATE ${LILV_CFLAGS_OTHER})

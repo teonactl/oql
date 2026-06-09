@@ -3,6 +3,7 @@
 #include "engine/PluginChain.h"
 #include "engine/VstPlugin.h"
 #include "engine/Lv2Plugin.h"
+#include <suil/suil.h>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
@@ -166,6 +167,81 @@ private:
     }
 
     VstPlugin *m_plugin        = nullptr;
+    QTimer    *m_idleTimer     = nullptr;
+    bool       m_editorOpened  = false;
+    bool       m_openAttempted = false;
+};
+
+// ── LV2 native editor dialog ──────────────────────────────────────────────────
+
+class Lv2EditorDialog : public QDialog {
+    Q_OBJECT
+public:
+    Lv2EditorDialog(Lv2Plugin *plugin, QWidget *parent = nullptr)
+        : QDialog(parent, Qt::Window), m_plugin(plugin)
+    {
+        ensureVstX11Handler();
+        setWindowTitle(QString::fromStdString(plugin->name()));
+        setAttribute(Qt::WA_DeleteOnClose);
+        resize(600, 400);
+
+        m_idleTimer = new QTimer(this);
+        m_idleTimer->setInterval(33);
+        connect(m_idleTimer, &QTimer::timeout, this, [this]() {
+            if (!m_plugin) { close(); return; }
+            m_plugin->editorIdle();
+        });
+    }
+
+    ~Lv2EditorDialog() override {
+        if (m_idleTimer) m_idleTimer->stop();
+        if (m_plugin && m_editorOpened) m_plugin->closeEditor();
+    }
+
+protected:
+    void showEvent(QShowEvent *ev) override {
+        QDialog::showEvent(ev);
+        if (!m_openAttempted) {
+            m_openAttempted = true;
+            QTimer::singleShot(0, this, [this]() { tryOpenEditor(); });
+        }
+    }
+
+private:
+    void tryOpenEditor() {
+        auto *x11App = qGuiApp->nativeInterface<QNativeInterface::QX11Application>();
+        if (x11App) XSync(x11App->display(), False);
+
+        const WId parentId = this->winId();
+        if (!m_plugin->openEditor(reinterpret_cast<void*>(parentId))) {
+            QMessageBox::warning(this, "Editor non disponibile",
+                "Impossibile aprire l'editor LV2.\n"
+                "Questo plugin potrebbe non avere un'interfaccia grafica compatibile.");
+            reject();
+            return;
+        }
+
+        // Query the X11 child window size created by the LV2 UI
+        if (x11App) {
+            Window root_ret, parent_ret;
+            Window *children = nullptr;
+            unsigned nchildren = 0;
+            if (XQueryTree(x11App->display(), Window(parentId),
+                           &root_ret, &parent_ret, &children, &nchildren)
+                    && children && nchildren > 0) {
+                XWindowAttributes attrs = {};
+                if (XGetWindowAttributes(x11App->display(), children[0], &attrs)
+                        && attrs.width > 10 && attrs.height > 10)
+                    resize(attrs.width, attrs.height);
+                XFree(children);
+            }
+        }
+
+        m_editorOpened = true;
+        m_idleTimer->start();
+    }
+
+    Lv2Plugin *m_plugin        = nullptr;
     QTimer    *m_idleTimer     = nullptr;
     bool       m_editorOpened  = false;
     bool       m_openAttempted = false;
@@ -438,8 +514,8 @@ void PluginChainWidget::onOpenEditor() {
     const int row = m_list->currentRow();
     if (row < 0 || row >= m_chain->count()) return;
 
-    VstPlugin *vst = dynamic_cast<VstPlugin*>(m_chain->plugin(row));
-    if (!vst || !vst->hasEditor()) return;
+    AudioPlugin *plug = m_chain->plugin(row);
+    if (!plug || !plug->hasEditor()) return;
 
     // Bring existing editor to front instead of opening a second one
     if (m_editorDlg) {
@@ -448,7 +524,13 @@ void PluginChainWidget::onOpenEditor() {
         return;
     }
 
-    auto *dlg = new VstEditorDialog(vst, this);
+    QDialog *dlg = nullptr;
+    if (auto *vst = dynamic_cast<VstPlugin*>(plug))
+        dlg = new VstEditorDialog(vst, this);
+    else if (auto *lv2 = dynamic_cast<Lv2Plugin*>(plug))
+        dlg = new Lv2EditorDialog(lv2, this);
+
+    if (!dlg) return;
     m_editorDlg = dlg;
     dlg->show();
 }

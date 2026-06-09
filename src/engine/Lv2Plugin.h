@@ -5,6 +5,8 @@
 #include <vector>
 #include <memory>
 
+struct SuilInstanceImpl;  // avoid including suil.h in the header
+
 class Lv2Plugin : public AudioPlugin {
 public:
     struct Info { std::string uri; std::string name; };
@@ -27,6 +29,15 @@ public:
     PluginParam param(int idx)             const override;
     void        setParam(int idx, float v)       override;
 
+    bool hasEditor()                 const override;
+    bool openEditor(void* parentId)        override;
+    void closeEditor()                     override;
+    void editorIdle();
+
+    // Called by the suil write callback (UI → engine parameter update)
+    void     setParamByPortIndex(uint32_t portIndex, float value);
+    uint32_t portIndexForSymbol(const char *symbol) const;
+
     const std::string &uri() const { return m_uri; }
 
     QJsonObject toJson() const override;
@@ -40,10 +51,12 @@ private:
         float       minVal, maxVal, defaultVal;
     };
 
-    std::string    m_uri;
-    std::string    m_name;
-    LilvInstance  *m_instance  = nullptr;
-    int            m_sr        = 44100;
+    std::string        m_uri;
+    std::string        m_name;
+    const LilvPlugin  *m_lilvPlugin = nullptr;  // owned by LilvWorld
+    LilvInstance      *m_instance   = nullptr;
+    SuilInstanceImpl  *m_suilInst   = nullptr;
+    int                m_sr         = 44100;
 
     uint32_t m_audioInL = 0, m_audioInR = 0;
     uint32_t m_audioOutL = 0, m_audioOutR = 0;
