@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>OpenQLab Remote</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg: #111;
+  --surf: #1c1c1e;
+  --surf2: #2c2c2e;
+  --accent: #30d158;
+  --danger: #ff453a;
+  --go: #32d74b;
+  --text: #f2f2f7;
+  --dim: #8e8e93;
+  --r: 10px;
+}
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+header {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(17,17,17,.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid #2c2c2e;
+}
+.logo { flex: 1; font-size: 1rem; font-weight: 700; }
+.logo em { color: var(--accent); font-style: normal; }
+.btn { border: none; border-radius: 8px; padding: 9px 15px; font-size: .85rem; font-weight: 700; cursor: pointer; touch-action: manipulation; transition: opacity .1s; }
+.btn:active { opacity: .6; }
+.btn-go   { background: var(--go); color: #000; }
+.btn-stop { background: var(--danger); color: #fff; }
+.sbar { font-size: .72rem; color: var(--dim); padding: 5px 16px 6px; background: var(--surf); border-bottom: 1px solid #222; }
+#list { padding: 10px 12px 32px; display: flex; flex-direction: column; gap: 5px; }
+.card {
+  background: var(--surf2); border-radius: var(--r);
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 10px 11px 14px;
+  border-left: 3px solid transparent;
+  transition: border-color .15s, background .15s;
+}
+.card.playing { border-left-color: var(--accent); background: #1a2e1e; }
+.card.waiting { border-left-color: #ff9f0a; }
+.card.paused  { border-left-color: #0a84ff; }
+.num  { color: var(--dim); font-size: .78rem; min-width: 28px; font-variant-numeric: tabular-nums; }
+.info { flex: 1; min-width: 0; }
+.name { font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag  { display: inline-block; margin-top: 2px; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.t-audio       { color: #5ac8fa; }
+.t-video       { color: #34c759; }
+.t-stop        { color: #ff453a; }
+.t-fade        { color: #ff9f0a; }
+.t-effect      { color: #bf5af2; }
+.t-reseteffect { color: var(--dim); }
+.t-label       { color: var(--dim); }
+.t-group       { color: var(--dim); }
+.t-mic         { color: #ff6b81; }
+.t-text        { color: #4fc3f7; }
+.t-pause,.t-play,.t-speed { color: #a8e063; }
+.gobtn {
+  background: var(--go); color: #000;
+  border: none; border-radius: 7px;
+  min-width: 46px; height: 38px;
+  font-size: .82rem; font-weight: 700;
+  cursor: pointer; flex-shrink: 0;
+  touch-action: manipulation; transition: opacity .1s;
+}
+.gobtn:active { opacity: .6; }
+.card-label { opacity: .45; pointer-events: none; }
+.card-label .gobtn { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">Open<em>QLab</em></span>
+  <button class="btn btn-go"   ontouchstart="" onclick="doGo()">&#9654; GO</button>
+  <button class="btn btn-stop" ontouchstart="" onclick="doStop()">&#9632; Stop</button>
+</header>
+<div class="sbar" id="sb">Connessione…</div>
+<div id="list"></div>
+<script>
+const TL = {
+  audio:'Audio', video:'Video', text:'Testo', mic:'Mic',
+  stop:'Stop', pause:'Pausa', play:'Play', fade:'Fade',
+  speed:'Velocità', effect:'Effetto', reseteffect:'Reset FX',
+  group:'Gruppo', label:'Sezione'
+};
+function render(cues) {
+  document.getElementById('list').innerHTML = cues.map(c => {
+    const lbl = c.type === 'label' ? ' card-label' : '';
+    const name = c.name || '<span style="color:#555">—</span>';
+    return `<div class="card ${c.state}${lbl}">
+      <span class="num">${c.number}</span>
+      <div class="info">
+        <div class="name">${name}</div>
+        <span class="tag t-${c.type}">${TL[c.type]||c.type}</span>
+      </div>
+      <button class="gobtn" onclick="cueGo('${c.id}')">GO</button>
+    </div>`;
+  }).join('');
+}
+async function refresh() {
+  try {
+    const r = await fetch('/api/cues');
+    if (!r.ok) throw 0;
+    const cues = await r.json();
+    render(cues);
+    const pl = cues.filter(c => c.state === 'playing');
+    document.getElementById('sb').textContent = pl.length
+      ? 'In esecuzione: ' + pl.map(c => c.name || '#' + c.number).join(', ')
+      : 'Pronto — ' + cues.length + ' cue';
+  } catch {
+    document.getElementById('sb').textContent = '⚠ Connessione persa';
+  }
+}
+async function post(u) { try { await fetch(u,{method:'POST'}); } catch{} refresh(); }
+const cueGo = id => post('/api/cue/'+id+'/go');
+const doGo   = () => post('/api/go');
+const doStop = () => post('/api/stop-all');
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

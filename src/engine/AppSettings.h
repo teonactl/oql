@@ -25,6 +25,11 @@ public:
     QKeySequence keyFirstCue() const;
     void         setKeyFirstCue(const QKeySequence &k);
 
+    bool    webEnabled() const;
+    void    setWebEnabled(bool v);
+    quint16 webPort()    const;
+    void    setWebPort(quint16 p);
+
 private:
     AppSettings();
     QSettings m_s;

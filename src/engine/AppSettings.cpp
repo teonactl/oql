@@ -53,3 +53,8 @@ QKeySequence AppSettings::keyFirstCue() const {
     return s.isEmpty() ? QKeySequence(Qt::Key_Home) : QKeySequence(s);
 }
 void AppSettings::setKeyFirstCue(const QKeySequence &k) { m_s.setValue("keyFirstCue", k.toString()); }
+
+bool AppSettings::webEnabled() const { return m_s.value("webEnabled", false).toBool(); }
+void AppSettings::setWebEnabled(bool v) { m_s.setValue("webEnabled", v); }
+quint16 AppSettings::webPort() const { return quint16(m_s.value("webPort", 8080).toUInt()); }
+void AppSettings::setWebPort(quint16 p) { m_s.setValue("webPort", p); }

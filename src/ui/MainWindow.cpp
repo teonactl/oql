@@ -5,6 +5,7 @@
 #include "ActiveCuesPanel.h"
 #include "CueInfoBar.h"
 #include "SettingsDialog.h"
+#include "WebServer.h"
 #include "engine/AudioCue.h"
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
@@ -104,6 +105,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     applyProjectSettings();
 
+    // Web remote server
+    m_webServer = new WebServer(m_workspace.cueList(), this);
+    connect(m_webServer, &WebServer::started, this, [this](quint16) {
+        m_webUrlLabel->setText("  🌐 " + m_webServer->localUrl());
+        m_webUrlLabel->show();
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(true);
+    });
+    connect(m_webServer, &WebServer::stopped, this, [this]() {
+        m_webUrlLabel->hide();
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(false);
+    });
+    connect(m_webServer, &WebServer::errorOccurred, this, [this](const QString &msg) {
+        QMessageBox::warning(this, "Web Remote", "Impossibile avviare il server:\n" + msg);
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(false);
+    });
+    if (AppSettings::instance().webEnabled())
+        m_webServer->start(AppSettings::instance().webPort());
+
     connect(m_workspace.cueList(), &CueList::cueAdded, this, [this](int index) {
         if (m_workspace.cueList()->cueAt(index)->type() == Cue::Type::Video)
             setupNewVideoCue(index);
@@ -183,6 +205,12 @@ void MainWindow::buildUi() {
 
     m_statusLbl = new QLabel("Pronto");
     statusBar()->addWidget(m_statusLbl);
+
+    m_webUrlLabel = new QLabel;
+    m_webUrlLabel->setStyleSheet("color: #4a9eff; font-size: 9pt;");
+    m_webUrlLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_webUrlLabel->hide();
+    statusBar()->addPermanentWidget(m_webUrlLabel);
 
     connect(m_cueView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &MainWindow::onSelectionChanged);
@@ -541,6 +569,17 @@ void MainWindow::buildToolBar() {
 
     tb->addSeparator();
 
+    m_webAction = tb->addAction("🌐 Remote");
+    m_webAction->setCheckable(true);
+    m_webAction->setToolTip("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)");
+    connect(m_webAction, &QAction::toggled, this, [this](bool on) {
+        if (on == m_webServer->isRunning()) return;
+        if (on) m_webServer->start(AppSettings::instance().webPort());
+        else    m_webServer->stop();
+    });
+
+    tb->addSeparator();
+
     auto *videoWin = tb->addAction("📺 Video Out");
     connect(videoWin, &QAction::triggered, this, &MainWindow::toggleVideoOutput);
     auto *textWin = tb->addAction("📝 Text Out");
@@ -703,6 +742,18 @@ void MainWindow::openSettings() {
     dlg.exec();
     applyProjectSettings();
     applyShortcuts();
+    applyWebServer();
+}
+
+void MainWindow::applyWebServer() {
+    const bool   shouldRun = AppSettings::instance().webEnabled();
+    const quint16 port     = AppSettings::instance().webPort();
+    if (shouldRun) {
+        if (m_webServer->isRunning()) m_webServer->stop();
+        m_webServer->start(port);
+    } else {
+        m_webServer->stop();
+    }
 }
 
 void MainWindow::applyProjectSettings() {

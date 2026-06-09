@@ -13,6 +13,7 @@ class CueListModel;
 class CueListView;
 class InspectorPanel;
 class ActiveCuesPanel;
+class WebServer;
 class QLabel;
 class QAction;
 class QMenu;
@@ -83,6 +84,9 @@ private:
     QAction           *m_firstCueAction  = nullptr;
     QMenu             *m_recentMenu      = nullptr;
     QUndoStack        *m_undoStack       = nullptr;
+    WebServer         *m_webServer       = nullptr;
+    QAction           *m_webAction       = nullptr;
+    QLabel            *m_webUrlLabel     = nullptr;
 
     static constexpr int kMaxRecent = 8;
 
@@ -91,4 +95,6 @@ private:
     void showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra = 0.0);
 
     bool m_programmaticSelect = false;
+
+    void applyWebServer();
 };

@@ -7,6 +7,8 @@ class QCheckBox;
 class QLineEdit;
 class QKeySequenceEdit;
 
+class QSpinBox;
+
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
@@ -33,4 +35,8 @@ private:
     QKeySequenceEdit *m_keyGoEdit;
     QKeySequenceEdit *m_keyStopAllEdit;
     QKeySequenceEdit *m_keyFirstCueEdit;
+
+    // Remote
+    QCheckBox *m_webEnabledCheck;
+    QSpinBox  *m_webPortSpin;
 };

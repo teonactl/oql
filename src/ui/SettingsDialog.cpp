@@ -6,6 +6,7 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QGroupBox>
@@ -101,6 +102,27 @@ SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
 
     tabs->addTab(keyWidget, "Scorciatoie");
 
+    // ── Tab 4: Remote ──────────────────────────────────────────────────────────
+    auto *webWidget = new QWidget;
+    auto *webForm   = new QFormLayout(webWidget);
+    webForm->setSpacing(10);
+    webForm->setContentsMargins(12, 12, 12, 12);
+
+    m_webEnabledCheck = new QCheckBox("Abilita Web Remote");
+    m_webEnabledCheck->setChecked(AppSettings::instance().webEnabled());
+    webForm->addRow(m_webEnabledCheck);
+
+    m_webPortSpin = new QSpinBox;
+    m_webPortSpin->setRange(1024, 65535);
+    m_webPortSpin->setValue(AppSettings::instance().webPort());
+    webForm->addRow("Porta HTTP:", m_webPortSpin);
+
+    webForm->addRow(new QLabel(
+        "<small style='color:#888'>Connettiti da smartphone: <b>http://&lt;IP&gt;:porta/</b><br>"
+        "L'IP è mostrato nella barra di stato quando il server è attivo.</small>"));
+
+    tabs->addTab(webWidget, "Remote");
+
     // ── Buttons ───────────────────────────────────────────────────────────────
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     mainLay->addWidget(btns);
@@ -125,6 +147,10 @@ void SettingsDialog::apply() {
     AppSettings::instance().setKeyGo(m_keyGoEdit->keySequence());
     AppSettings::instance().setKeyStopAll(m_keyStopAllEdit->keySequence());
     AppSettings::instance().setKeyFirstCue(m_keyFirstCueEdit->keySequence());
+
+    // Remote
+    AppSettings::instance().setWebEnabled(m_webEnabledCheck->isChecked());
+    AppSettings::instance().setWebPort(quint16(m_webPortSpin->value()));
 
     accept();
 }

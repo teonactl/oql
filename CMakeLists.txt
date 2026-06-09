@@ -8,7 +8,7 @@ set(CMAKE_AUTORCC ON)
 
 list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
 
@@ -69,6 +69,8 @@ qt_add_executable(openqlab
     src/ui/WaveformView.cpp
     src/ui/PluginChainWidget.h
     src/ui/PluginChainWidget.cpp
+    src/ui/WebServer.h
+    src/ui/WebServer.cpp
 )
 
 target_link_libraries(openqlab PRIVATE
@@ -77,6 +79,7 @@ target_link_libraries(openqlab PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
     Qt6::Svg
+    Qt6::Network
     ${LILV_LIBRARIES}
     dl          # for dlopen/dlsym (VST2 loading)
     pthread     # for std::mutex/thread used in AudioEngine
