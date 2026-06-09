@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=OpenQLab
+GenericName=Show Control Software
+Comment=Cue-based show control for audio, video and lighting
+Exec=openqlab
+Icon=openqlab
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Midi;
+Keywords=cue;show;audio;theater;stage;
+StartupWMClass=openqlab
