@@ -3,84 +3,145 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0e0e">
 <title>OpenQLab Remote</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-:root {
-  --bg: #111;
-  --surf: #1c1c1e;
-  --surf2: #2c2c2e;
-  --accent: #30d158;
-  --danger: #ff453a;
-  --go: #32d74b;
-  --text: #f2f2f7;
-  --dim: #8e8e93;
-  --r: 10px;
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0e0e0e;--surf:#1c1c1e;--surf2:#252527;
+  --accent:#30d158;--orange:#e88020;--danger:#ff453a;--blue:#0a84ff;
+  --text:#f2f2f7;--dim:#8e8e93;--r:10px;
 }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-header {
-  position: sticky; top: 0; z-index: 20;
-  background: rgba(17,17,17,.94);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  padding: 12px 14px;
-  display: flex; align-items: center; gap: 8px;
-  border-bottom: 1px solid #2c2c2e;
+html,body{height:100%;overscroll-behavior:none}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+
+/* ── HEADER ── */
+header{
+  position:sticky;top:0;z-index:20;
+  background:rgba(14,14,14,.95);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  padding:10px 12px;
+  display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid rgba(255,255,255,.07);
 }
-.logo { flex: 1; font-size: 1rem; font-weight: 700; }
-.logo em { color: var(--accent); font-style: normal; }
-.btn { border: none; border-radius: 8px; padding: 9px 15px; font-size: .85rem; font-weight: 700; cursor: pointer; touch-action: manipulation; transition: opacity .1s; }
-.btn:active { opacity: .6; }
-.btn-go   { background: var(--go); color: #000; }
-.btn-stop { background: var(--danger); color: #fff; }
-.sbar { font-size: .72rem; color: var(--dim); padding: 5px 16px 6px; background: var(--surf); border-bottom: 1px solid #222; }
-#list { padding: 10px 12px 32px; display: flex; flex-direction: column; gap: 5px; }
-.card {
-  background: var(--surf2); border-radius: var(--r);
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 10px 11px 14px;
-  border-left: 3px solid transparent;
-  transition: border-color .15s, background .15s;
+.logo{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.logo svg{width:28px;height:28px;flex-shrink:0;border-radius:6px}
+.logo-name{font-size:.95rem;font-weight:700;white-space:nowrap}
+.logo-name em{color:var(--orange);font-style:normal}
+.hbtn{
+  border:none;border-radius:9px;padding:9px 14px;
+  font-size:.85rem;font-weight:700;cursor:pointer;touch-action:manipulation;
+  flex-shrink:0;
 }
-.card.playing { border-left-color: var(--accent); background: #1a2e1e; }
-.card.waiting { border-left-color: #ff9f0a; }
-.card.paused  { border-left-color: #0a84ff; }
-.num  { color: var(--dim); font-size: .78rem; min-width: 28px; font-variant-numeric: tabular-nums; }
-.info { flex: 1; min-width: 0; }
-.name { font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tag  { display: inline-block; margin-top: 2px; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
-.t-audio       { color: #5ac8fa; }
-.t-video       { color: #34c759; }
-.t-stop        { color: #ff453a; }
-.t-fade        { color: #ff9f0a; }
-.t-effect      { color: #bf5af2; }
-.t-reseteffect { color: var(--dim); }
-.t-label       { color: var(--dim); }
-.t-group       { color: var(--dim); }
-.t-mic         { color: #ff6b81; }
-.t-text        { color: #4fc3f7; }
-.t-pause,.t-play,.t-speed { color: #a8e063; }
-.gobtn {
-  background: var(--go); color: #000;
-  border: none; border-radius: 7px;
-  min-width: 46px; height: 38px;
-  font-size: .82rem; font-weight: 700;
-  cursor: pointer; flex-shrink: 0;
-  touch-action: manipulation; transition: opacity .1s;
+.hbtn:active{filter:brightness(.6)}
+.hbtn-go  {background:var(--accent);color:#000}
+.hbtn-stop{background:var(--danger);color:#fff}
+
+/* ── PLAYHEAD BAR ── */
+#phbar{
+  font-size:.72rem;padding:5px 14px 6px;
+  background:var(--surf);border-bottom:1px solid rgba(255,255,255,.05);
+  display:flex;align-items:center;gap:6px;color:var(--dim);
 }
-.gobtn:active { opacity: .6; }
-.card-label { opacity: .45; pointer-events: none; }
-.card-label .gobtn { display: none; }
+#phbar.active{color:var(--text)}
+.ph-arrow{color:var(--orange);flex-shrink:0}
+
+/* ── CUE LIST ── */
+#list{padding:8px 10px 50px;display:flex;flex-direction:column;gap:4px}
+
+.card{
+  background:var(--surf2);border-radius:var(--r);
+  border-left:3px solid rgba(255,255,255,.07);
+  overflow:hidden;
+}
+.card.playhead{border-left-color:var(--orange)}
+.card.playing {border-left-color:var(--accent);background:#182a1c}
+.card.waiting {border-left-color:#ff9f0a}
+.card.paused  {border-left-color:var(--blue);background:#131a26}
+.card-label   {opacity:.4;pointer-events:none}
+
+.card-row{
+  display:flex;align-items:center;gap:6px;
+  padding:9px 8px 9px 10px;
+}
+.ph-dot{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  background:transparent;transition:background .15s;
+}
+.card.playhead .ph-dot{background:var(--orange)}
+.num{color:var(--dim);font-size:.78rem;min-width:24px;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.info{flex:1;min-width:0;overflow:hidden}
+.name{font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{display:inline-block;margin-top:2px;font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+
+.btns{display:flex;gap:4px;flex-shrink:0}
+.ibtn{
+  border:none;border-radius:7px;
+  width:36px;height:34px;font-size:.8rem;font-weight:700;
+  cursor:pointer;touch-action:manipulation;
+  display:flex;align-items:center;justify-content:center;
+}
+.ibtn:active{filter:brightness(.6)}
+.ibtn-go    {background:var(--accent);color:#000;min-width:44px;font-size:.82rem}
+.ibtn-pause {background:var(--blue);color:#fff}
+.ibtn-resume{background:var(--accent);color:#000}
+.ibtn-stop  {background:var(--danger);color:#fff}
+
+/* per-state button visibility */
+.card:not(.playing)              .ibtn-pause  {display:none}
+.card:not(.playing):not(.paused) .ibtn-stop   {display:none}
+.card:not(.paused)               .ibtn-resume {display:none}
+
+/* ── PROGRESS ── */
+.prog-wrap{height:3px;background:rgba(255,255,255,.06);display:none}
+.card.playing .prog-wrap{display:block}
+.prog-bar{height:100%;background:var(--accent);transition:width .5s linear;will-change:width}
+
+/* ── TIME ROW ── */
+.time-row{
+  font-size:.65rem;color:var(--dim);padding:0 10px 7px;
+  display:none;font-variant-numeric:tabular-nums;
+}
+.card.playing .time-row{display:flex;justify-content:space-between}
+
+/* ── TYPE TAG COLORS ── */
+.t-audio      {color:#5ac8fa}
+.t-video      {color:#34c759}
+.t-stop       {color:#ff453a}
+.t-fade       {color:#ff9f0a}
+.t-effect     {color:#bf5af2}
+.t-reseteffect{color:var(--dim)}
+.t-label      {color:var(--dim)}
+.t-group      {color:#aaa}
+.t-mic        {color:#ff6b81}
+.t-text       {color:#4fc3f7}
+.t-pause,.t-play,.t-speed{color:#a8e063}
 </style>
 </head>
 <body>
 <header>
-  <span class="logo">Open<em>QLab</em></span>
-  <button class="btn btn-go"   ontouchstart="" onclick="doGo()">&#9654; GO</button>
-  <button class="btn btn-stop" ontouchstart="" onclick="doStop()">&#9632; Stop</button>
+  <div class="logo">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <rect width="512" height="512" rx="80" fill="#111420"/>
+      <circle cx="230" cy="230" r="140" fill="none" stroke="#e88020" stroke-width="50"/>
+      <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
+      <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
+    </svg>
+    <span class="logo-name">Open<em>QLab</em></span>
+  </div>
+  <button class="hbtn hbtn-go"   ontouchstart="" onclick="doGo()">&#9654; GO</button>
+  <button class="hbtn hbtn-stop" ontouchstart="" onclick="doStopAll()">&#9632; Stop</button>
 </header>
-<div class="sbar" id="sb">Connessione…</div>
+
+<div id="phbar">
+  <span class="ph-arrow">&#9658;</span>
+  <span id="ph-text">—</span>
+</div>
+
 <div id="list"></div>
+
 <script>
 const TL = {
   audio:'Audio', video:'Video', text:'Testo', mic:'Mic',
@@ -88,40 +149,114 @@ const TL = {
   speed:'Velocità', effect:'Effetto', reseteffect:'Reset FX',
   group:'Gruppo', label:'Sezione'
 };
-function render(cues) {
-  document.getElementById('list').innerHTML = cues.map(c => {
-    const lbl = c.type === 'label' ? ' card-label' : '';
-    const name = c.name || '<span style="color:#555">—</span>';
-    return `<div class="card ${c.state}${lbl}">
-      <span class="num">${c.number}</span>
-      <div class="info">
-        <div class="name">${name}</div>
-        <span class="tag t-${c.type}">${TL[c.type]||c.type}</span>
-      </div>
-      <button class="gobtn" onclick="cueGo('${c.id}')">GO</button>
-    </div>`;
-  }).join('');
+
+function fmt(s) {
+  if (!s || s < 0) return '0s';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
 }
+
+function cardClass(c) {
+  return ['card', c.state,
+    c.playhead ? 'playhead' : '',
+    c.type === 'label' ? 'card-label' : ''
+  ].filter(Boolean).join(' ');
+}
+
+function buildCard(c) {
+  const hasDur = c.duration > 0;
+  const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
+  const id = c.id;
+  return `<div class="${cardClass(c)}" data-id="${id}">
+  <div class="card-row">
+    <span class="ph-dot"></span>
+    <span class="num">${c.number || ''}</span>
+    <div class="info">
+      <div class="name">${c.name || '<span style="color:#333">—</span>'}</div>
+      <span class="tag t-${c.type}">${TL[c.type] || c.type}</span>
+    </div>
+    <div class="btns">
+      <button class="ibtn ibtn-pause"  ontouchstart="" onclick="cuePause('${id}')">&#9646;&#9646;</button>
+      <button class="ibtn ibtn-resume" ontouchstart="" onclick="cueGo('${id}')">&#9654;</button>
+      <button class="ibtn ibtn-stop"   ontouchstart="" onclick="cueStop('${id}')">&#9632;</button>
+      <button class="ibtn ibtn-go"     ontouchstart="" onclick="cueGo('${id}')">GO</button>
+    </div>
+  </div>
+  <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
+  <div class="time-row"><span>${fmt(c.position)}</span><span>${fmt(c.duration)}</span></div>
+</div>`;
+}
+
+function updateCard(el, c) {
+  const cls = cardClass(c);
+  if (el.className !== cls) el.className = cls;
+  const hasDur = c.duration > 0;
+  const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
+  const pb = el.querySelector('.prog-bar');
+  if (pb) pb.style.width = pct + '%';
+  const spans = el.querySelectorAll('.time-row span');
+  if (spans[0]) spans[0].textContent = fmt(c.position);
+  if (spans[1]) spans[1].textContent = fmt(c.duration);
+}
+
+let lastIds = null;
+let connErr = false;
+
+function render(cues) {
+  const ids = cues.map(c => c.id).join(',');
+  const list = document.getElementById('list');
+
+  if (ids !== lastIds) {
+    const sy = window.scrollY;
+    list.innerHTML = cues.map(buildCard).join('');
+    lastIds = ids;
+    window.scrollTo(0, sy);
+  } else {
+    cues.forEach(c => {
+      const el = list.querySelector('[data-id="' + c.id + '"]');
+      if (el) updateCard(el, c);
+    });
+  }
+
+  const ph = cues.find(c => c.playhead);
+  const phbar = document.getElementById('phbar');
+  const phtext = document.getElementById('ph-text');
+  if (ph) {
+    phtext.textContent = (ph.number ? '#' + ph.number + ' ' : '') + (ph.name || '—');
+    phbar.className = 'active';
+  } else {
+    phtext.textContent = '—';
+    phbar.className = '';
+  }
+  connErr = false;
+}
+
 async function refresh() {
   try {
-    const r = await fetch('/api/cues');
-    if (!r.ok) throw 0;
-    const cues = await r.json();
-    render(cues);
-    const pl = cues.filter(c => c.state === 'playing');
-    document.getElementById('sb').textContent = pl.length
-      ? 'In esecuzione: ' + pl.map(c => c.name || '#' + c.number).join(', ')
-      : 'Pronto — ' + cues.length + ' cue';
-  } catch {
-    document.getElementById('sb').textContent = '⚠ Connessione persa';
+    const r = await fetch('/api/cues', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    render(await r.json());
+  } catch (e) {
+    if (!connErr) {
+      document.getElementById('ph-text').textContent = '⚠ ' + e.message;
+      document.getElementById('phbar').className = '';
+      connErr = true;
+    }
   }
 }
-async function post(u) { try { await fetch(u,{method:'POST'}); } catch{} refresh(); }
-const cueGo = id => post('/api/cue/'+id+'/go');
-const doGo   = () => post('/api/go');
-const doStop = () => post('/api/stop-all');
+
+async function post(url) {
+  try { await fetch(url, { method: 'POST', cache: 'no-store' }); } catch {}
+  refresh();
+}
+const cueGo    = id => post('/api/cue/' + id + '/go');
+const cueStop  = id => post('/api/cue/' + id + '/stop');
+const cuePause = id => post('/api/cue/' + id + '/pause');
+const doGo     = ()  => post('/api/go');
+const doStopAll= ()  => post('/api/stop-all');
+
 refresh();
-setInterval(refresh, 1500);
+setInterval(refresh, 800);
 </script>
 </body>
 </html>

@@ -128,15 +128,29 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
         m_cues->stopAll();
         sendResponse(sock, 200, "application/json", "{\"ok\":true}");
 
-    } else if (method == "POST" && path.startsWith("/api/cue/") && path.endsWith("/go")) {
-        // /api/cue/<uuid>/go  →  uuid starts at index 9, ends 3 chars before end
-        const QString id = path.mid(9, path.length() - 12);
-        Cue *cue = m_cues->findCueById(id);
-        if (cue) {
-            cue->go();
-            sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+    } else if (method == "POST" && path.startsWith("/api/cue/")) {
+        // /api/cue/<uuid>/<action>
+        const QStringList segs = path.split('/');   // ["","api","cue",uuid,action]
+        if (segs.size() == 5) {
+            const QString id     = segs[3];
+            const QString action = segs[4];
+            Cue *cue = m_cues->findCueById(id);
+            if (!cue) {
+                sendResponse(sock, 404, "application/json", "{\"error\":\"not found\"}");
+            } else if (action == "go") {
+                cue->go();
+                sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+            } else if (action == "stop") {
+                cue->stop();
+                sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+            } else if (action == "pause") {
+                cue->pause();
+                sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+            } else {
+                sendResponse(sock, 404, "application/json", "{\"error\":\"unknown action\"}");
+            }
         } else {
-            sendResponse(sock, 404, "application/json", "{\"error\":\"not found\"}");
+            sendResponse(sock, 404, "text/plain", "Not found");
         }
 
     } else if (method == "OPTIONS") {
@@ -167,15 +181,19 @@ void WebServer::sendResponse(QTcpSocket *sock, int status,
 }
 
 QByteArray WebServer::buildCuesJson() const {
+    const int ph = m_cues->playheadIndex();
     QJsonArray arr;
     for (int i = 0; i < m_cues->count(); ++i) {
         Cue *c = m_cues->cueAt(i);
         QJsonObject obj;
-        obj["id"]     = c->id();
-        obj["number"] = c->number();
-        obj["name"]   = c->name();
-        obj["type"]   = QString::fromLatin1(typeStr(c->type()));
-        obj["state"]  = QString::fromLatin1(stateStr(c->state()));
+        obj["id"]       = c->id();
+        obj["number"]   = c->number();
+        obj["name"]     = c->name();
+        obj["type"]     = QString::fromLatin1(typeStr(c->type()));
+        obj["state"]    = QString::fromLatin1(stateStr(c->state()));
+        obj["playhead"] = (i == ph);
+        obj["position"] = c->position();
+        obj["duration"] = c->duration();
         arr.append(obj);
     }
     return QJsonDocument(arr).toJson(QJsonDocument::Compact);
