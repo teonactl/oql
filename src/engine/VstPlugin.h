@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <QByteArray>
 
 // ── Minimal VST2 AEffect struct (public-domain layout) ───────────────────────
@@ -102,6 +103,11 @@ private:
     bool        m_editorCrashed  = false;  // set if effEditOpen/Idle crashed
     QByteArray         m_pendingChunk;   // applied in prepare() after effMainsChanged
     std::vector<float> m_pendingParams;  // re-applied in prepare() after effMainsChanged
+
+    // Serializes setParameter (main thread) vs processReplacing (audio thread).
+    // Raw lock/unlock used in process() so siglongjmp on crash leaves the mutex stuck,
+    // but m_effect is set to null immediately after, preventing any future lock attempt.
+    std::mutex m_effectMtx;
 
     // Temp buffers for plugin processing (deinterleaved)
     std::vector<float> m_inL, m_inR, m_outL, m_outR;

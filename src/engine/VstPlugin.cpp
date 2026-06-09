@@ -212,7 +212,13 @@ void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
         return;
     }
 
+    // Acquire before processReplacing to block concurrent setParam from main thread.
+    // Raw lock/unlock (not RAII): if the plugin crashes and siglongjmp fires, the
+    // destructor is skipped and the mutex stays locked — but m_effect is set to null
+    // in the crash path, so no future caller will ever try to acquire this lock again.
+    m_effectMtx.lock();
     m_effect->processReplacing(m_effect, vstIn, vstOut, frames);
+    m_effectMtx.unlock();
     tl_vstProcProtected = 0;
     vstGuardRestore(g);
 
@@ -243,8 +249,14 @@ PluginParam VstPlugin::param(int idx) const {
 }
 
 void VstPlugin::setParam(int idx, float v) {
+    if (!m_effect || idx >= m_effect->numParams) return;
+    // try_lock: if the audio thread is mid-processReplacing, drop this update rather
+    // than blocking. The slider will send another update on the next move.
+    // Also safe post-crash: m_effect is null so we already returned above.
+    if (!m_effectMtx.try_lock()) return;
     if (m_effect && idx < m_effect->numParams)
         m_effect->setParameter(m_effect, idx, v);
+    m_effectMtx.unlock();
 }
 
 // ── editor ────────────────────────────────────────────────────────────────────
