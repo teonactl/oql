@@ -396,9 +396,15 @@ void InspectorPanel::buildUi() {
     waveRowLay->addWidget(m_vuR);
     audioLay->addWidget(waveRow, 1);
 
-    // Plugin chain — opens in a separate window to avoid inspector height constraints
+    // Plugin chain widgets — each cue type gets its own instance so they never share state
     m_pluginChainWidget = new PluginChainWidget;
     connect(m_pluginChainWidget, &PluginChainWidget::chainModified,
+            this, [this]() {
+        if (m_cue) emit m_cue->propertyChanged();
+    });
+
+    m_effectPluginChainWidget = new PluginChainWidget;
+    connect(m_effectPluginChainWidget, &PluginChainWidget::chainModified,
             this, [this]() {
         if (m_cue) emit m_cue->propertyChanged();
     });
@@ -573,17 +579,17 @@ void InspectorPanel::buildUi() {
     connect(m_effectDurSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &InspectorPanel::onEffectDurationChanged);
     connect(m_effectFxBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_fxDialog) {
-            m_fxDialog = new QDialog(this, Qt::Window);
-            m_fxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
-            m_fxDialog->resize(480, 400);
-            auto *lay = new QVBoxLayout(m_fxDialog);
-            lay->addWidget(m_pluginChainWidget);
+        if (!m_effectFxDialog) {
+            m_effectFxDialog = new QDialog(this, Qt::Window);
+            m_effectFxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_effectFxDialog->resize(480, 400);
+            auto *lay = new QVBoxLayout(m_effectFxDialog);
+            lay->addWidget(m_effectPluginChainWidget);
         }
-        m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
-        m_fxDialog->show();
-        m_fxDialog->raise();
-        m_fxDialog->activateWindow();
+        m_effectFxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+        m_effectFxDialog->show();
+        m_effectFxDialog->raise();
+        m_effectFxDialog->activateWindow();
     });
     connect(m_micDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onMicDeviceChanged);
@@ -628,6 +634,7 @@ void InspectorPanel::setCue(Cue *cue) {
         m_stack->setCurrentIndex(0);
         m_waveformView->setPlayPosition(0);
         m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
         return;
     }
 
@@ -702,11 +709,14 @@ void InspectorPanel::updateMediaSection() {
         m_waveformView->setTrimStart(a->trimStart());
         m_waveformView->setTrimEnd(a->trimEnd());
         m_pluginChainWidget->setChain(a->pluginChain());
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
         m_volumeSpin->setValue(linearToDb(v->volume()));
         m_loopSpin->setValue(v->loopCount());
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isMic) {
         auto *mc = static_cast<MicCue*>(m_cue);
         m_micDeviceCombo->blockSignals(true);
@@ -720,6 +730,8 @@ void InspectorPanel::updateMediaSection() {
         m_micVolumeSpin->blockSignals(true);
         m_micVolumeSpin->setValue(linearToDb(mc->volume()));
         m_micVolumeSpin->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isControl) {
         populateTargetCombo();
         auto *cc = static_cast<ControlCue*>(m_cue);
@@ -737,9 +749,11 @@ void InspectorPanel::updateMediaSection() {
             m_effectDurSpin->blockSignals(true);
             m_effectDurSpin->setValue(ec->effectDuration());
             m_effectDurSpin->blockSignals(false);
-            m_pluginChainWidget->setChain(ec->pluginChain());
+            m_effectPluginChainWidget->setChain(ec->pluginChain());
+            m_pluginChainWidget->setChain(nullptr);
         } else {
             m_pluginChainWidget->setChain(nullptr);
+            m_effectPluginChainWidget->setChain(nullptr);
         }
         if (isSpeed) {
             auto *sc = static_cast<SpeedCue*>(m_cue);
@@ -796,6 +810,8 @@ void InspectorPanel::updateMediaSection() {
         m_textBoldCheck->blockSignals(false);
         m_textItalicCheck->blockSignals(false);
         m_textAlignCombo->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     }
 }
 

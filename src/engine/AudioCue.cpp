@@ -59,12 +59,18 @@ void AudioCue::savePluginSnapshot() {
 
 bool AudioCue::restorePluginSnapshot() {
     if (!m_hasPluginSnapshot) return false;
+    std::lock_guard<std::mutex> lk(m_chainMtx);
     m_chain.fromJson(m_chainSnapshot);
+    if (m_playing.load() && m_chainSR > 0)
+        m_chain.prepare(m_chainSR, m_chainBlock);
     return true;
 }
 
 void AudioCue::applyPluginChain(const QJsonArray &json) {
+    std::lock_guard<std::mutex> lk(m_chainMtx);
     m_chain.fromJson(json);
+    if (m_playing.load() && m_chainSR > 0)
+        m_chain.prepare(m_chainSR, m_chainBlock);
 }
 
 // ── Volume helpers ────────────────────────────────────────────────────────────
@@ -175,8 +181,13 @@ void AudioCue::go() {
     m_plugL.resize(block);
     m_plugR.resize(block);
 
-    // Prepare plugin chain
-    m_chain.prepare(AudioEngine::instance().sampleRate(), block);
+    // Prepare plugin chain (under mutex: audio thread may call process() immediately after addRenderer)
+    {
+        std::lock_guard<std::mutex> lk(m_chainMtx);
+        m_chainSR    = AudioEngine::instance().sampleRate();
+        m_chainBlock = block;
+        m_chain.prepare(m_chainSR, m_chainBlock);
+    }
 
     m_playing.store(true);
     AudioEngine::instance().addRenderer(this);
@@ -323,7 +334,10 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
 
     // Plugin chain (processes m_plugL/m_plugR in-place)
     float *ch[2] = { m_plugL.data(), m_plugR.data() };
-    m_chain.process(ch, n);
+    {
+        std::lock_guard<std::mutex> lk(m_chainMtx);
+        m_chain.process(ch, n);
+    }
 
     // Mix into output (stereo interleaved)
     for (int i = 0; i < n; ++i) {

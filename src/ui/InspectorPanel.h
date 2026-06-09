@@ -121,6 +121,7 @@ private:
     QGroupBox      *m_speedGroup     = nullptr;
     QDoubleSpinBox *m_speedRateSpin  = nullptr;
     QPushButton    *m_effectFxBtn      = nullptr;
+    QDialog        *m_effectFxDialog   = nullptr;
     QGroupBox      *m_effectGroup      = nullptr;
     QDoubleSpinBox *m_effectDurSpin    = nullptr;
 
@@ -140,7 +141,8 @@ private:
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
 
-    PluginChainWidget *m_pluginChainWidget = nullptr;
+    PluginChainWidget *m_pluginChainWidget       = nullptr;  // AudioCue chain editor
+    PluginChainWidget *m_effectPluginChainWidget = nullptr;  // EffectCue chain editor
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <cstring>
 #include <QJsonArray>
+#include <QByteArray>
 #include <QDebug>
 #include <setjmp.h>
 #include <signal.h>
@@ -153,13 +154,26 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
     if (!m_active) {
         m_effect->dispatcher(m_effect, effMainsChanged, 0, 1, nullptr, 0.0f);
         m_active = true;
+
+        // Re-apply params after effMainsChanged: ZynFX resets internal state on activation
+        for (int i = 0; i < int(m_pendingParams.size()) && i < m_effect->numParams; ++i)
+            m_effect->setParameter(m_effect, i, m_pendingParams[i]);
+        m_pendingParams.clear();
+
+        // Apply deferred chunk state (chunk-based plugins, after effMainsChanged)
+        if (!m_pendingChunk.isEmpty()) {
+            m_effect->dispatcher(m_effect, effSetChunk, 1 /*preset*/,
+                                 intptr_t(m_pendingChunk.size()),
+                                 m_pendingChunk.data(), 0.0f);
+            m_pendingChunk.clear();
+        }
     }
 
     s_vstProtected = 0;
     vstGuardRestore(g);
 
-    m_inL.resize(blockSize);  m_inR.resize(blockSize);
-    m_outL.resize(blockSize); m_outR.resize(blockSize);
+    m_inL.assign(blockSize, 0.0f); m_inR.assign(blockSize, 0.0f);
+    m_outL.assign(blockSize, 0.0f); m_outR.assign(blockSize, 0.0f);
 }
 
 // ── process ───────────────────────────────────────────────────────────────────
@@ -322,6 +336,18 @@ void VstPlugin::editorIdle() {
 QJsonObject VstPlugin::toJson() const {
     auto obj = AudioPlugin::toJson();
     obj["path"] = QString::fromStdString(m_path);
+
+    if (m_effect && (m_effect->flags & effFlagsProgramChunks)) {
+        void *chunkPtr = nullptr;
+        const intptr_t chunkSize =
+            m_effect->dispatcher(m_effect, effGetChunk, 1 /*preset*/, 0, &chunkPtr, 0.0f);
+        if (chunkSize > 0 && chunkPtr) {
+            const QByteArray raw(static_cast<const char*>(chunkPtr), int(chunkSize));
+            obj["chunk"] = QString::fromLatin1(raw.toBase64());
+            return obj;
+        }
+    }
+
     QJsonArray params;
     for (int i = 0; i < numParams(); ++i)
         params.append(m_effect ? m_effect->getParameter(m_effect, i) : 0.0);
@@ -331,7 +357,25 @@ QJsonObject VstPlugin::toJson() const {
 
 void VstPlugin::fromJson(const QJsonObject &o) {
     AudioPlugin::fromJson(o);
+
+    if (!o["chunk"].isUndefined() && m_effect && (m_effect->flags & effFlagsProgramChunks)) {
+        const QByteArray raw = QByteArray::fromBase64(o["chunk"].toString().toLatin1());
+        if (!raw.isEmpty()) {
+            m_effect->dispatcher(m_effect, effSetChunk, 1 /*preset*/,
+                                 intptr_t(raw.size()),
+                                 const_cast<char*>(raw.constData()), 0.0f);
+            m_pendingChunk = raw;
+            return;
+        }
+    }
+
+    // Fallback: float parameters — set immediately (for toJson on unprepared plugins)
+    // and save as pending to re-apply after effMainsChanged (ZynFX resets on activation)
     const auto params = o["params"].toArray();
-    for (int i = 0; i < params.size() && i < numParams(); ++i)
-        setParam(i, float(params[i].toDouble()));
+    m_pendingParams.clear();
+    for (int i = 0; i < params.size() && i < numParams(); ++i) {
+        const float v = float(params[i].toDouble());
+        setParam(i, v);
+        m_pendingParams.push_back(v);
+    }
 }

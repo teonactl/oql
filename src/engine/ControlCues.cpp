@@ -149,13 +149,15 @@ void EffectCue::go() {
         ac->savePluginSnapshot();
     ac->applyPluginChain(m_chain.toJson());
 
+    m_activeTarget = m_target;
+    m_startTimer.start();
+    setState(State::Playing);
+
     if (m_duration > 0.001) {
-        m_activeTarget = m_target;
-        m_startTimer.start();
-        setState(State::Playing);
         m_timer->start(int(m_duration * 1000));
     } else {
-        setState(State::Idle);
+        // Permanent (no auto-reset): stay Playing so the card shows in ActiveCuesPanel.
+        // Emit finished() immediately so autoContinue/autoFollow still work.
         emit finished();
     }
 }

@@ -4,8 +4,8 @@
 #include <algorithm>
 
 void PluginChain::prepare(int sampleRate, int blockSize) {
-    m_bufA[0].resize(blockSize); m_bufA[1].resize(blockSize);
-    m_bufB[0].resize(blockSize); m_bufB[1].resize(blockSize);
+    m_bufA[0].assign(blockSize, 0.0f); m_bufA[1].assign(blockSize, 0.0f);
+    m_bufB[0].assign(blockSize, 0.0f); m_bufB[1].assign(blockSize, 0.0f);
     for (auto &p : m_plugins)
         p->prepare(sampleRate, blockSize);
 }

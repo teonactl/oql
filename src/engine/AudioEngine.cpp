@@ -85,9 +85,10 @@ bool AudioEngine::init() {
         return false;
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-    cfg.playback.format  = ma_format_f32;
+    cfg.playback.format   = ma_format_f32;
     cfg.playback.channels = 2;
-    cfg.sampleRate       = 0;  // let device pick best rate
+    cfg.sampleRate        = 0;    // let device pick best rate
+    cfg.periodSizeInFrames = 512; // fixed so VST2 effSetBlockSize matches actual frames
     cfg.dataCallback     = [](ma_device* d, void* out, const void* in, ma_uint32 frames) {
         maDeviceCallback(d->pUserData, out, in, frames);
     };
@@ -103,8 +104,9 @@ bool AudioEngine::init() {
         return false;
     }
 
-    m_sampleRate  = int(m_impl->device.sampleRate);
-    m_blockSize   = 512;
+    m_sampleRate = int(m_impl->device.sampleRate);
+    m_blockSize  = int(m_impl->device.playback.internalPeriodSizeInFrames);
+    if (m_blockSize <= 0) m_blockSize = 512;
     m_initialized = true;
     return true;
 }

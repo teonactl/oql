@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <QByteArray>
 
 // ── Minimal VST2 AEffect struct (public-domain layout) ───────────────────────
 // This reproduces only the binary layout of the VstPlugin AEffect struct as
@@ -49,10 +50,15 @@ enum {
     effSetSampleRate = 10, effSetBlockSize = 11,
     effMainsChanged = 12,
     effEditGetRect = 13, effEditOpen = 14, effEditClose = 15, effEditIdle = 19,
+    effGetChunk = 23, effSetChunk = 24,
     effGetEffectName = 45, effGetVendorString = 47, effGetProductString = 48,
     effCanDo = 51
 };
-enum { effFlagsHasEditor = 1, effFlagsCanReplacing = 1 << 4 };
+enum {
+    effFlagsHasEditor       = 1,
+    effFlagsCanReplacing    = 1 << 4,
+    effFlagsProgramChunks   = 1 << 5
+};
 
 // ── VstPlugin ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +100,8 @@ private:
     int         m_block          = 512;
     bool        m_active         = false;  // mains on?
     bool        m_editorCrashed  = false;  // set if effEditOpen/Idle crashed
+    QByteArray         m_pendingChunk;   // applied in prepare() after effMainsChanged
+    std::vector<float> m_pendingParams;  // re-applied in prepare() after effMainsChanged
 
     // Temp buffers for plugin processing (deinterleaved)
     std::vector<float> m_inL, m_inR, m_outL, m_outR;

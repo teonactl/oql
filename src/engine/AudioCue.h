@@ -111,9 +111,12 @@ private:
     QVector<QPointF> m_volumePoints;
     QString          m_filePath;
 
-    PluginChain m_chain;
-    QJsonArray  m_chainSnapshot;
-    bool        m_hasPluginSnapshot = false;
+    PluginChain      m_chain;
+    mutable std::mutex m_chainMtx;     // guards m_chain between main and audio thread
+    int              m_chainSR    = 0; // sample rate used in last prepare()
+    int              m_chainBlock = 0; // block size used in last prepare()
+    QJsonArray       m_chainSnapshot;
+    bool             m_hasPluginSnapshot = false;
 
     // Temp PCM buffers used inside renderAudio (preallocated in go())
     std::vector<float> m_decodeBuf;  // interleaved stereo from decoder
