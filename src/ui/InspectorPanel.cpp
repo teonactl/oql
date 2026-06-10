@@ -2,6 +2,7 @@
 #include "WaveformView.h"
 #include "engine/ScriptCue.h"
 #include "engine/ScriptEngine.h"
+#include "ScriptEditorDialog.h"
 #include "PluginChainWidget.h"
 #include "engine/AudioCue.h"
 #include "engine/AudioEngine.h"
@@ -507,51 +508,17 @@ void InspectorPanel::buildUi() {
     m_scriptSection = new QWidget;
     auto *scriptLay = new QVBoxLayout(m_scriptSection);
     scriptLay->setContentsMargins(0, 4, 0, 0);
-    scriptLay->setSpacing(4);
 
-    m_scriptEdit = new QPlainTextEdit;
-    m_scriptEdit->setPlaceholderText("// JavaScript\n// workspace.byNumber(\"1\").go();\n// print(\"ciao\");");
-    QFont monoFont("Monospace");
-    monoFont.setStyleHint(QFont::TypeWriter);
-    monoFont.setPointSize(10);
-    m_scriptEdit->setFont(monoFont);
-    m_scriptEdit->setMinimumHeight(120);
-    scriptLay->addWidget(m_scriptEdit, 1);
-
-    m_scriptRunBtn = new QPushButton("▶  Esegui");
+    m_scriptRunBtn = new QPushButton("✎  Modifica Script…");
     scriptLay->addWidget(m_scriptRunBtn);
-
-    m_scriptConsole = new QPlainTextEdit;
-    m_scriptConsole->setReadOnly(true);
-    m_scriptConsole->setMaximumHeight(80);
-    m_scriptConsole->setPlaceholderText("Output…");
-    m_scriptConsole->setFont(monoFont);
-    scriptLay->addWidget(m_scriptConsole);
 
     propsLay->addWidget(m_scriptSection);
 
-    connect(m_scriptEdit, &QPlainTextEdit::textChanged, this, [this]() {
-        if (m_loadingFromCue) return;
-        auto *sc = qobject_cast<ScriptCue*>(m_cue);
-        if (sc) sc->setScript(m_scriptEdit->toPlainText());
-    });
     connect(m_scriptRunBtn, &QPushButton::clicked, this, [this]() {
         auto *sc = qobject_cast<ScriptCue*>(m_cue);
         if (!sc) return;
-        m_scriptConsole->clear();
-        auto conn = connect(&ScriptEngine::instance(), &ScriptEngine::outputLine,
-                            this, [this](const QString &line) {
-            m_scriptConsole->appendPlainText(line);
-        });
-        const QString err = ScriptEngine::instance().evaluate(sc->script());
-        disconnect(conn);
-        if (!err.isEmpty() && !m_scriptConsole->toPlainText().contains("ERROR"))
-            m_scriptConsole->appendPlainText("ERROR: " + err);
-    });
-    connect(&ScriptEngine::instance(), &ScriptEngine::outputLine,
-            this, [this](const QString &line) {
-        if (m_scriptSection->isVisible())
-            m_scriptConsole->appendPlainText(line);
+        ScriptEditorDialog dlg(sc, this);
+        dlg.exec();
     });
 
     // ── Playhead refresh timer ───────────────────────────────
@@ -742,12 +709,6 @@ void InspectorPanel::updateMediaSection() {
     m_micSection->setVisible(isMic);
     m_textSection->setVisible(isTextCue);
     m_scriptSection->setVisible(isScriptCue);
-
-    if (isScriptCue) {
-        auto *sc = static_cast<ScriptCue*>(m_cue);
-        m_scriptEdit->setPlainText(sc->script());
-        m_scriptConsole->clear();
-    }
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);

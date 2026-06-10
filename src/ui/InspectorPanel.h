@@ -146,10 +146,8 @@ private:
     PluginChainWidget *m_effectPluginChainWidget = nullptr;  // EffectCue chain editor
 
     // Script cue
-    QWidget        *m_scriptSection   = nullptr;
-    QPlainTextEdit *m_scriptEdit      = nullptr;
-    QPushButton    *m_scriptRunBtn    = nullptr;
-    QPlainTextEdit *m_scriptConsole   = nullptr;
+    QWidget     *m_scriptSection  = nullptr;
+    QPushButton *m_scriptRunBtn   = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

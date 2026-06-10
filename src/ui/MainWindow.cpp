@@ -574,6 +574,19 @@ void MainWindow::buildToolBar() {
     addCueBtn(effectIcon,      "+ Effetto",      &MainWindow::addEffectCue);
     addCueBtn(resetEffectIcon, "+ Reset Effetti",&MainWindow::addResetEffectCue);
 
+    auto scriptIcon = makeTbIcon(QColor(0x5a, 0x8a, 0x3a), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0));
+        p.setBrush(Qt::NoBrush);
+        // curly braces { }
+        p.drawArc(5, 3, 4, 5, 90*16, 180*16);
+        p.drawArc(5, 11, 4, 5, 180*16, 180*16);
+        p.drawArc(11, 3, 4, 5, 270*16, 180*16);
+        p.drawArc(11, 11, 4, 5, 0*16, 180*16);
+        p.drawLine(9, 5, 9, 10);
+        p.drawLine(11, 5, 11, 10);
+    });
+    addCueBtn(scriptIcon, "+ Script Cue", &MainWindow::addScriptCue);
+
     tb->addSeparator();
 
     m_webAction = tb->addAction("🌐 Remote");
