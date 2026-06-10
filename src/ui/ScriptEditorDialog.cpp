@@ -26,7 +26,11 @@ static const char *kApiDoc = R"(/* ── API disponibile ───────�
    cue.state   (lettura)  "idle" | "playing" | "paused" | "waiting"
 
    print("messaggio")  /  log("messaggio")
-   sleep(2000)                 → attendi 2 secondi (ms)
+   sleep(2000)                       → attendi 2 secondi (ms)
+
+   http.get("http://host/api")       → stringa con il body della risposta
+   http.post("http://host/api", '{"key":"value"}')
+   http.post(url, body, contentType) → contentType default: application/json
    ──────────────────────────────────────────────────────── */
 
 )";

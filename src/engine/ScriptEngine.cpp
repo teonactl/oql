@@ -5,6 +5,10 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QElapsedTimer>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrl>
 
 static QString cueTypeStr(Cue::Type t) {
     switch (t) {
@@ -120,6 +124,50 @@ public slots:
     }
 };
 
+// ── JsHttp — synchronous HTTP client for scripts ─────────────────────────────
+class JsHttp : public QObject {
+    Q_OBJECT
+public:
+    explicit JsHttp(QObject *parent = nullptr) : QObject(parent) {
+        m_nam = new QNetworkAccessManager(this);
+    }
+
+public slots:
+    QString get(const QString &url) {
+        return request("GET", url, {}, {});
+    }
+
+    QString post(const QString &url, const QString &body,
+                 const QString &contentType = "application/json") {
+        return request("POST", url, body.toUtf8(), contentType);
+    }
+
+private:
+    QString request(const QByteArray &method, const QString &url,
+                    const QByteArray &body, const QString &contentType) {
+        QNetworkRequest req{QUrl{url}};
+        req.setHeader(QNetworkRequest::UserAgentHeader, "OpenQLab/1.0");
+        if (!contentType.isEmpty())
+            req.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
+
+        QNetworkReply *reply = nullptr;
+        if (method == "POST")
+            reply = m_nam->post(req, body);
+        else
+            reply = m_nam->get(req);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        const QString result = QString::fromUtf8(reply->readAll());
+        reply->deleteLater();
+        return result;
+    }
+
+    QNetworkAccessManager *m_nam;
+};
+
 // ── JsPrint — bridges JS print() to ScriptEngine::outputLine ─────────────────
 class JsPrint : public QObject {
     Q_OBJECT
@@ -149,9 +197,11 @@ void ScriptEngine::setup() {
     auto *workspace = new JsWorkspace(m_cues, &m_engine, this);
     auto *printer   = new JsPrint(this);
     auto *sleeper   = new JsSleep(this);
+    auto *httpObj   = new JsHttp(this);
     m_engine.globalObject().setProperty("workspace",  m_engine.newQObject(workspace));
     m_engine.globalObject().setProperty("__printer",  m_engine.newQObject(printer));
     m_engine.globalObject().setProperty("__sleeper",  m_engine.newQObject(sleeper));
+    m_engine.globalObject().setProperty("http",       m_engine.newQObject(httpObj));
     m_engine.evaluate("function print(msg){ __printer.print(String(msg)); }");
     m_engine.evaluate("var log = print;");
     m_engine.evaluate("function sleep(ms){ __sleeper.sleep(ms); }");
