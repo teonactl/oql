@@ -185,21 +185,23 @@ void MainWindow::buildUi() {
     inspScroll->setWidgetResizable(true);
     inspScroll->setFrameShape(QFrame::NoFrame);
     inspScroll->setWidget(m_inspector);
-    inspScroll->setMinimumHeight(260);
+    inspScroll->setMinimumHeight(0);
 
     // Vertical split: content area (top) + inspector (bottom)
-    auto *mainSplit = new QSplitter(Qt::Vertical);
-    mainSplit->addWidget(topSplit);
-    mainSplit->addWidget(inspScroll);
-    mainSplit->setStretchFactor(0, 1);
-    mainSplit->setStretchFactor(1, 0);
-    mainSplit->setHandleWidth(4);
+    m_mainSplit = new QSplitter(Qt::Vertical);
+    m_mainSplit->addWidget(topSplit);
+    m_mainSplit->addWidget(inspScroll);
+    m_mainSplit->setStretchFactor(0, 1);
+    m_mainSplit->setStretchFactor(1, 0);
+    m_mainSplit->setHandleWidth(4);
+    m_mainSplit->setCollapsible(1, true);
+    m_mainSplit->setSizes({10000, 0});
 
     auto *central = new QWidget;
     auto *vlay    = new QVBoxLayout(central);
     vlay->setContentsMargins(0, 0, 0, 0);
     vlay->setSpacing(0);
-    vlay->addWidget(mainSplit, 1);
+    vlay->addWidget(m_mainSplit, 1);
     vlay->addWidget(m_infoBar);
     setCentralWidget(central);
 
@@ -281,10 +283,13 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::cueDoubleClicked, this, [this](int row) {
         Cue *cue = m_model->cueForRow(row);
         if (!cue) return;
-        if (cue->state() == Cue::State::Playing)
-            cue->stop();
-        else
-            cue->go();
+        // Expand inspector if collapsed
+        const QList<int> sz = m_mainSplit->sizes();
+        if (sz.size() >= 2 && sz[1] < 50) {
+            const int total = sz[0] + sz[1];
+            m_mainSplit->setSizes({ qMax(0, total - 280), 280 });
+        }
+        m_inspector->setCue(cue);
     });
 
     connect(m_cueView, &CueListView::groupSelectionRequested,
@@ -743,6 +748,8 @@ void MainWindow::openSettings() {
     applyProjectSettings();
     applyShortcuts();
     applyWebServer();
+    m_cueView->applyRowHeight();
+    m_cueView->applyFont();
 }
 
 void MainWindow::applyWebServer() {

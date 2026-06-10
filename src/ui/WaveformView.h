@@ -3,12 +3,13 @@
 #include <QVector>
 #include <QPointF>
 
-class QAudioDecoder;
+class QThread;
 
 class WaveformView : public QWidget {
     Q_OBJECT
 public:
     explicit WaveformView(QWidget *parent = nullptr);
+    ~WaveformView() override;
 
     void setFilePath(const QString &path);
     void setDuration(double secs);
@@ -65,7 +66,6 @@ private:
     double           m_playPos    = 0.0;
     double           m_trimStart  = -1.0; // normalised [0,1]; -1 = not set
     double           m_trimEnd    = -1.0; // normalised [0,1]; -1 = not set
-    QVector<float>   m_rawSamples;
     QVector<float>   m_waveform;
     QVector<QPointF> m_points;  // x=normalised time [0,1], y=volume [0,1]
 
@@ -85,5 +85,6 @@ private:
     double m_panStartX      = 0.0;
     double m_panStartOffset = 0.0;
 
-    QAudioDecoder *m_decoder = nullptr;
+    QThread *m_decodeThread     = nullptr;
+    int      m_decodeGeneration = 0;
 };

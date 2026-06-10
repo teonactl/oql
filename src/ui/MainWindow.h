@@ -17,6 +17,7 @@ class WebServer;
 class QLabel;
 class QAction;
 class QMenu;
+class QSplitter;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -73,6 +74,7 @@ private:
     Workspace          m_workspace;
     CueListModel      *m_model           = nullptr;
     CueListView       *m_cueView         = nullptr;
+    QSplitter         *m_mainSplit       = nullptr;
     InspectorPanel    *m_inspector       = nullptr;
     ActiveCuesPanel   *m_activeCues      = nullptr;
     VideoOutputWindow *m_videoOut        = nullptr;

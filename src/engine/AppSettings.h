@@ -1,6 +1,7 @@
 #pragma once
 #include <QKeySequence>
 #include <QSettings>
+#include <QString>
 
 class AppSettings {
 public:
@@ -32,6 +33,14 @@ public:
 
     QList<int> cueListColumnWidths() const;
     void       setCueListColumnWidths(const QList<int> &widths);
+
+    int  cueListRowHeight() const;
+    void setCueListRowHeight(int h);
+
+    int     cueListFontSize()   const;
+    void    setCueListFontSize(int pt);
+    QString cueListFontFamily() const;
+    void    setCueListFontFamily(const QString &family);
 
 private:
     AppSettings();

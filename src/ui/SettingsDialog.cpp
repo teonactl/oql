@@ -12,6 +12,8 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QKeySequenceEdit>
+#include <QFontComboBox>
+#include <QHBoxLayout>
 
 SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
     : QDialog(parent), m_workspace(workspace)
@@ -54,6 +56,34 @@ SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
     m_autoNumberCheck = new QCheckBox("Numera automaticamente le nuove cue");
     m_autoNumberCheck->setChecked(AppSettings::instance().autoNumberNewCues());
     genForm->addRow(m_autoNumberCheck);
+
+    m_rowHeightSpin = new QSpinBox;
+    m_rowHeightSpin->setRange(16, 80);
+    m_rowHeightSpin->setSingleStep(2);
+    m_rowHeightSpin->setSuffix(" px");
+    m_rowHeightSpin->setValue(AppSettings::instance().cueListRowHeight());
+    genForm->addRow("Altezza righe cue list:", m_rowHeightSpin);
+
+    m_fontFamilyCombo = new QFontComboBox;
+    m_fontFamilyCombo->setEditable(false);
+    {
+        const QString saved = AppSettings::instance().cueListFontFamily();
+        if (!saved.isEmpty()) m_fontFamilyCombo->setCurrentFont(QFont(saved));
+    }
+
+    m_fontSizeSpin = new QSpinBox;
+    m_fontSizeSpin->setRange(7, 24);
+    m_fontSizeSpin->setSingleStep(1);
+    m_fontSizeSpin->setSuffix(" pt");
+    m_fontSizeSpin->setValue(AppSettings::instance().cueListFontSize());
+    m_fontSizeSpin->setFixedWidth(70);
+
+    auto *fontRow = new QWidget;
+    auto *fontLay = new QHBoxLayout(fontRow);
+    fontLay->setContentsMargins(0, 0, 0, 0);
+    fontLay->addWidget(m_fontFamilyCombo, 1);
+    fontLay->addWidget(m_fontSizeSpin, 0);
+    genForm->addRow("Font cue list:", fontRow);
 
     genForm->addRow(new QLabel(
         "<small style='color:#888'>Le impostazioni generali si applicano a tutti i progetti.</small>"));
@@ -137,6 +167,9 @@ void SettingsDialog::apply() {
     AppSettings::instance().setDefaultFadeInDuration(m_fadeInSpin->value());
     AppSettings::instance().setDefaultFadeOutDuration(m_fadeOutSpin->value());
     AppSettings::instance().setAutoNumberNewCues(m_autoNumberCheck->isChecked());
+    AppSettings::instance().setCueListRowHeight(m_rowHeightSpin->value());
+    AppSettings::instance().setCueListFontSize(m_fontSizeSpin->value());
+    AppSettings::instance().setCueListFontFamily(m_fontFamilyCombo->currentFont().family());
 
     // Project settings
     m_workspace->setName(m_projectNameEdit->text().trimmed());

@@ -199,6 +199,7 @@ QByteArray WebServer::buildCuesJson() const {
         obj["playhead"] = (i == ph);
         obj["position"] = c->position();
         obj["duration"] = c->duration();
+        obj["color"]    = c->userColor().isValid() ? c->userColor().name() : QString();
         arr.append(obj);
     }
     return QJsonDocument(arr).toJson(QJsonDocument::Compact);

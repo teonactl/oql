@@ -2,8 +2,10 @@
 #include "CueListModel.h"
 #include "engine/ControlCues.h"
 #include "engine/AppSettings.h"
+#include "engine/Cue.h"
 #include <QHeaderView>
 #include <QMenu>
+#include <QPixmap>
 #include <QContextMenuEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -26,11 +28,18 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
     setModel(model);
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
-    setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    setEditTriggers(QAbstractItemView::EditKeyPressed);
     setAlternatingRowColors(true);
     setShowGrid(false);
     verticalHeader()->setVisible(false);
-    verticalHeader()->setDefaultSectionSize(28);
+    verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
+    {
+        QFont f = font();
+        const QString fam = AppSettings::instance().cueListFontFamily();
+        if (!fam.isEmpty()) f.setFamily(fam);
+        f.setPointSize(AppSettings::instance().cueListFontSize());
+        setFont(f);
+    }
 
     auto *h = horizontalHeader();
     h->setSectionResizeMode(QHeaderView::Interactive);
@@ -64,6 +73,19 @@ void CueListView::saveColumnWidths() {
     for (int c = 0; c < CueListModel::ColCount; ++c)
         widths.append(h->sectionSize(c));
     AppSettings::instance().setCueListColumnWidths(widths);
+}
+
+void CueListView::applyRowHeight() {
+    verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
+}
+
+void CueListView::applyFont() {
+    QFont f = font();
+    const QString family = AppSettings::instance().cueListFontFamily();
+    if (!family.isEmpty())
+        f.setFamily(family);
+    f.setPointSize(AppSettings::instance().cueListFontSize());
+    setFont(f);
 }
 
 void CueListView::stretchFlexColumns() {
@@ -209,6 +231,46 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction("Aggiungi Effect Cue",           this, &CueListView::addEffectRequested);
     menu.addAction("Aggiungi Reset Effetti Cue",    this, &CueListView::addResetEffectRequested);
     menu.addSeparator();
+    // Color palette submenu — visible only when at least one row is selected
+    if (!selIdxs.isEmpty()) {
+        static const struct { const char *name; QColor color; } kPalette[] = {
+            { "Rosa",     QColor(255, 175, 185) },
+            { "Pesca",    QColor(255, 210, 170) },
+            { "Giallo",   QColor(255, 240, 155) },
+            { "Verde",    QColor(185, 240, 185) },
+            { "Menta",    QColor(170, 235, 215) },
+            { "Celeste",  QColor(170, 215, 255) },
+            { "Azzurro",  QColor(185, 195, 255) },
+            { "Viola",    QColor(215, 185, 255) },
+            { "Lilla",    QColor(240, 185, 255) },
+            { "Grigio",   QColor(215, 215, 220) },
+        };
+
+        QMenu *colorMenu = menu.addMenu("Colore");
+
+        auto makeIcon = [](QColor c) {
+            QPixmap px(14, 14);
+            px.fill(c);
+            return QIcon(px);
+        };
+
+        QVector<int> targetRows;
+        for (const auto &idx : selIdxs) targetRows.append(idx.row());
+
+        for (const auto &entry : kPalette) {
+            QColor c = entry.color;
+            colorMenu->addAction(makeIcon(c), entry.name, this, [this, targetRows, c]() {
+                for (int row : targetRows)
+                    if (Cue *cue = m_model->cueForRow(row)) cue->setUserColor(c);
+            });
+        }
+        colorMenu->addSeparator();
+        colorMenu->addAction("Nessuno", this, [this, targetRows]() {
+            for (int row : targetRows)
+                if (Cue *cue = m_model->cueForRow(row)) cue->setUserColor(QColor{});
+        });
+        menu.addSeparator();
+    }
     menu.addAction("Elimina cue",                   this, &CueListView::deleteRequested);
     menu.exec(event->globalPos());
 }
@@ -238,32 +300,13 @@ void CueListView::keyPressEvent(QKeyEvent *event) {
 void CueListView::mouseDoubleClickEvent(QMouseEvent *event) {
     const QModelIndex idx = indexAt(event->pos());
     if (!idx.isValid()) return;
-    const int col = idx.column();
 
-    // Toggle group collapse on double-click anywhere on the row
     Cue *cue = m_model->cueForRow(idx.row());
-    if (cue && cue->type() == Cue::Type::Group) {
+    if (!cue) return;
+
+    if (cue->type() == Cue::Type::Group) {
         emit groupToggleRequested(idx.row());
         return;
-    }
-
-    // Inline editing columns
-    if (col == CueListModel::ColNumber
-        || col == CueListModel::ColName
-        || col == CueListModel::ColPreWait
-        || col == CueListModel::ColDuration
-        || col == CueListModel::ColPostWait) {
-        QTableView::mouseDoubleClickEvent(event);
-        return;
-    }
-
-    // File picker for audio/video Target cell
-    if (col == CueListModel::ColTarget) {
-        Cue *cue = m_model->cueForRow(idx.row());
-        if (cue && (cue->type() == Cue::Type::Audio || cue->type() == Cue::Type::Video)) {
-            emit filePickRequested(idx.row());
-            return;
-        }
     }
 
     emit cueDoubleClicked(idx.row());

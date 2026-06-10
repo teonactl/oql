@@ -50,6 +50,10 @@ protected:
     void dropEvent(QDropEvent *event)                 override;
     void resizeEvent(QResizeEvent *event)             override;
 
+public:
+    void applyRowHeight();
+    void applyFont();
+
 private:
     void stretchFlexColumns();
     void saveColumnWidths();
@@ -59,11 +63,11 @@ private:
     static constexpr char kMime[] = "application/x-openqlab-cuerow";
 
     CueListModel *m_model;
-    bool          m_stretchGuard          = false;
+    bool          m_stretchGuard         = false;
     bool          m_editOnCurrentChange  = false;
-    int           m_dragRow            = -1;
-    int           m_dropHighlightRow   = -1;
-    int           m_groupDropHighlight = -1;
+    int           m_dragRow              = -1;
+    int           m_dropHighlightRow     = -1;
+    int           m_groupDropHighlight   = -1;
     QVector<int>  m_validTargetRows;
     QVector<int>  m_validGroupRows;
     QPoint        m_dragStartPos;

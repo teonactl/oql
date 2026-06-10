@@ -316,6 +316,8 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isGroup)   return QColor(210, 210, 225);
         if (isLabel)   return QColor(230, 210, 100);
         if (isText)    return QColor(130, 220, 240);
+        if (cue->userColor().isValid())
+            return cue->userColor().lightnessF() > 0.5 ? QColor(20, 20, 20) : Qt::white;
     }
 
     if (role == Qt::FontRole) {
@@ -332,6 +334,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isText)  return QColor(8, 48, 58);
         if (m_visibleRows.value(idx.row(), -1) == m_list->playheadIndex())
             return QColor(200, 160, 30, 55);
+        if (cue->userColor().isValid()) return cue->userColor();
         if (!cue->parentGroupId().isEmpty()) return QColor(30, 38, 30);
     }
 

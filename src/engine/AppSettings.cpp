@@ -70,3 +70,24 @@ void AppSettings::setCueListColumnWidths(const QList<int> &widths) {
     for (int w : widths) v.append(w);
     m_s.setValue("cueListColumnWidths", v);
 }
+
+int AppSettings::cueListRowHeight() const {
+    return m_s.value("cueListRowHeight", 28).toInt();
+}
+void AppSettings::setCueListRowHeight(int h) {
+    m_s.setValue("cueListRowHeight", qMax(16, h));
+}
+
+int AppSettings::cueListFontSize() const {
+    return m_s.value("cueListFontSize", 9).toInt();
+}
+void AppSettings::setCueListFontSize(int pt) {
+    m_s.setValue("cueListFontSize", qMax(7, pt));
+}
+
+QString AppSettings::cueListFontFamily() const {
+    return m_s.value("cueListFontFamily", QString()).toString();
+}
+void AppSettings::setCueListFontFamily(const QString &family) {
+    m_s.setValue("cueListFontFamily", family);
+}

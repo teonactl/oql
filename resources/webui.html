@@ -159,6 +159,13 @@ function fmt(s) {
   return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
 }
 
+function contrastColor(hex) {
+  const r = parseInt(hex.slice(1,3),16)/255;
+  const g = parseInt(hex.slice(3,5),16)/255;
+  const b = parseInt(hex.slice(5,7),16)/255;
+  return (0.299*r*r + 0.587*g*g + 0.114*b*b) > 0.25 ? '#141414' : '#ffffff';
+}
+
 function cardClass(c) {
   return ['card', c.state,
     c.playhead ? 'playhead' : '',
@@ -166,11 +173,21 @@ function cardClass(c) {
   ].filter(Boolean).join(' ');
 }
 
+function applyUserColor(el, c) {
+  const active = c.color && c.state === 'idle' && !c.playhead;
+  el.style.background = active ? c.color : '';
+  const tc = active ? contrastColor(c.color) : '';
+  const nameEl = el.querySelector('.name');
+  const tagEl  = el.querySelector('.tag');
+  if (nameEl) nameEl.style.color = tc;
+  if (tagEl)  tagEl.style.color  = tc ? tc : '';
+}
+
 function buildCard(c) {
   const hasDur = c.duration > 0;
   const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
   const id = c.id;
-  return `<div class="${cardClass(c)}" data-id="${id}">
+  const html = `<div class="${cardClass(c)}" data-id="${id}">
   <div class="card-row">
     <span class="ph-dot"></span>
     <span class="num">${c.number || ''}</span>
@@ -188,11 +205,17 @@ function buildCard(c) {
   <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
   <div class="time-row"><span>${fmt(c.position)}</span><span>${fmt(c.duration)}</span></div>
 </div>`;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const card = tmp.firstElementChild;
+  applyUserColor(card, c);
+  return card.outerHTML;
 }
 
 function updateCard(el, c) {
   const cls = cardClass(c);
   if (el.className !== cls) el.className = cls;
+  applyUserColor(el, c);
   const hasDur = c.duration > 0;
   const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
   const pb = el.querySelector('.prog-bar');
