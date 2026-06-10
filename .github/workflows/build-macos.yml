@@ -1,0 +1,50 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main, feature/**]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-13        # Intel x86_64
+            arch: x86_64
+          - runner: macos-latest    # Apple Silicon ARM64
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+    name: macOS ${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake qt6 pkg-config lilv
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt6)"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Deploy Qt
+        run: |
+          $(brew --prefix qt6)/bin/macdeployqt build/openqlab.app -dmg
+          codesign --force --deep --sign - build/openqlab.app
+
+      - name: Rename DMG
+        run: mv build/openqlab.dmg build/OpenQLab-macOS-${{ matrix.arch }}.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenQLab-macOS-${{ matrix.arch }}
+          path: build/OpenQLab-macOS-${{ matrix.arch }}.dmg
+          retention-days: 30
