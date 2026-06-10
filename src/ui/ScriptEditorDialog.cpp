@@ -26,6 +26,7 @@ static const char *kApiDoc = R"(/* ── API disponibile ───────�
    cue.state   (lettura)  "idle" | "playing" | "paused" | "waiting"
 
    print("messaggio")  /  log("messaggio")
+   sleep(2000)                 → attendi 2 secondi (ms)
    ──────────────────────────────────────────────────────── */
 
 )";

@@ -2,6 +2,9 @@
 #include "CueList.h"
 #include "Cue.h"
 #include <QJSValue>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QElapsedTimer>
 
 static QString cueTypeStr(Cue::Type t) {
     switch (t) {
@@ -103,6 +106,20 @@ private:
     QJSEngine *m_engine;
 };
 
+// ── JsSleep — blocking sleep that keeps the UI alive via processEvents ────────
+class JsSleep : public QObject {
+    Q_OBJECT
+public:
+    explicit JsSleep(QObject *parent = nullptr) : QObject(parent) {}
+public slots:
+    void sleep(int ms) {
+        QElapsedTimer t;
+        t.start();
+        while (t.elapsed() < ms)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+};
+
 // ── JsPrint — bridges JS print() to ScriptEngine::outputLine ─────────────────
 class JsPrint : public QObject {
     Q_OBJECT
@@ -131,10 +148,13 @@ void ScriptEngine::setup() {
     if (!m_cues) return;
     auto *workspace = new JsWorkspace(m_cues, &m_engine, this);
     auto *printer   = new JsPrint(this);
-    m_engine.globalObject().setProperty("workspace", m_engine.newQObject(workspace));
+    auto *sleeper   = new JsSleep(this);
+    m_engine.globalObject().setProperty("workspace",  m_engine.newQObject(workspace));
     m_engine.globalObject().setProperty("__printer",  m_engine.newQObject(printer));
+    m_engine.globalObject().setProperty("__sleeper",  m_engine.newQObject(sleeper));
     m_engine.evaluate("function print(msg){ __printer.print(String(msg)); }");
     m_engine.evaluate("var log = print;");
+    m_engine.evaluate("function sleep(ms){ __sleeper.sleep(ms); }");
 }
 
 QString ScriptEngine::evaluate(const QString &script) {
