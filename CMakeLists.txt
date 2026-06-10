@@ -112,6 +112,11 @@ target_include_directories(openqlab PRIVATE
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_INCLUDE_DIRS}>
 )
 
+target_link_directories(openqlab PRIVATE
+    ${LILV_LIBRARY_DIRS}
+    $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_LIBRARY_DIRS}>
+)
+
 target_compile_options(openqlab PRIVATE
     ${LILV_CFLAGS_OTHER}
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_CFLAGS_OTHER}>
