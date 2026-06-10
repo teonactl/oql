@@ -9,6 +9,7 @@ class ScriptEngine : public QObject {
 public:
     static ScriptEngine &instance();
     void init(CueList *cues);
+    void shutdown();
     QString evaluate(const QString &script); // returns error string, empty = ok
 
 signals:

@@ -2,6 +2,7 @@
 #include <QIcon>
 #include "ui/MainWindow.h"
 #include "engine/AudioEngine.h"
+#include "engine/ScriptEngine.h"
 #include "engine/Lv2Plugin.h"
 #include <cstdlib>
 
@@ -23,11 +24,17 @@ int main(int argc, char *argv[]) {
 
     AudioEngine::instance().init();
 
-    MainWindow w;
-    w.show();
+    int ret;
+    {
+        MainWindow w;
+        w.show();
+        ret = app.exec();
+        // MainWindow (and all cues) destruct here, before engine teardown
+    }
 
-    const int ret = app.exec();
+    // Shut down engines only after all cues/renderers are gone
     AudioEngine::instance().shutdown();
+    ScriptEngine::instance().shutdown();
     Lv2Plugin::freeWorld();
     return ret;
 }

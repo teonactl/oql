@@ -228,6 +228,13 @@ function listCues() {
 )JS");
 }
 
+void ScriptEngine::shutdown() {
+    // Delete all QObject children while QApplication is still alive,
+    // preventing crashes when the static singleton destructs later.
+    qDeleteAll(children());
+    m_cues = nullptr;
+}
+
 QString ScriptEngine::evaluate(const QString &script) {
     if (!m_cues) return "ScriptEngine not initialised";
     const QJSValue result = m_engine.evaluate(script);
