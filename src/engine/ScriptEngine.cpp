@@ -205,6 +205,23 @@ void ScriptEngine::setup() {
     m_engine.evaluate("function print(msg){ __printer.print(String(msg)); }");
     m_engine.evaluate("var log = print;");
     m_engine.evaluate("function sleep(ms){ __sleeper.sleep(ms); }");
+    m_engine.evaluate(R"JS(
+function inspect(cue) {
+    if (cue === null || cue === undefined) { print(String(cue)); return; }
+    print("id:     " + cue.id);
+    print("name:   " + cue.name);
+    print("number: " + cue.number);
+    print("type:   " + cue.type);
+    print("state:  " + cue.state);
+}
+function listCues() {
+    var n = workspace.count();
+    for (var i = 0; i < n; i++) {
+        var c = workspace.at(i);
+        print("[" + i + "]  #" + c.number + "  " + c.name + "  (" + c.type + ")  " + c.state);
+    }
+}
+)JS");
 }
 
 QString ScriptEngine::evaluate(const QString &script) {
