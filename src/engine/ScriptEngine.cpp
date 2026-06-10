@@ -198,18 +198,19 @@ void ScriptEngine::init(CueList *cues) {
 
 void ScriptEngine::setup() {
     if (!m_cues) return;
-    auto *workspace = new JsWorkspace(m_cues, &m_engine, this);
+    m_engine = new QJSEngine(this);
+    auto *workspace = new JsWorkspace(m_cues, m_engine, this);
     auto *printer   = new JsPrint(this);
     auto *sleeper   = new JsSleep(this);
     auto *httpObj   = new JsHttp(this);
-    m_engine.globalObject().setProperty("workspace",  m_engine.newQObject(workspace));
-    m_engine.globalObject().setProperty("__printer",  m_engine.newQObject(printer));
-    m_engine.globalObject().setProperty("__sleeper",  m_engine.newQObject(sleeper));
-    m_engine.globalObject().setProperty("http",       m_engine.newQObject(httpObj));
-    m_engine.evaluate("function print(msg){ __printer.print(String(msg)); }");
-    m_engine.evaluate("var log = print;");
-    m_engine.evaluate("function sleep(ms){ __sleeper.sleep(ms); }");
-    m_engine.evaluate(R"JS(
+    m_engine->globalObject().setProperty("workspace",  m_engine->newQObject(workspace));
+    m_engine->globalObject().setProperty("__printer",  m_engine->newQObject(printer));
+    m_engine->globalObject().setProperty("__sleeper",  m_engine->newQObject(sleeper));
+    m_engine->globalObject().setProperty("http",       m_engine->newQObject(httpObj));
+    m_engine->evaluate("function print(msg){ __printer.print(String(msg)); }");
+    m_engine->evaluate("var log = print;");
+    m_engine->evaluate("function sleep(ms){ __sleeper.sleep(ms); }");
+    m_engine->evaluate(R"JS(
 function inspect(cue) {
     if (cue === null || cue === undefined) { print(String(cue)); return; }
     print("id:     " + cue.id);
@@ -229,15 +230,17 @@ function listCues() {
 }
 
 void ScriptEngine::shutdown() {
-    // Delete all QObject children while QApplication is still alive,
-    // preventing crashes when the static singleton destructs later.
-    qDeleteAll(children());
-    m_cues = nullptr;
+    // Explicitly delete QJSEngine (V4 runtime) while QApplication is still
+    // alive. Without this, the static singleton destructs after QApplication
+    // exits and QV4::ExecutionEngine aborts.
+    delete m_engine;
+    m_engine = nullptr;
+    m_cues   = nullptr;
 }
 
 QString ScriptEngine::evaluate(const QString &script) {
-    if (!m_cues) return "ScriptEngine not initialised";
-    const QJSValue result = m_engine.evaluate(script);
+    if (!m_engine || !m_cues) return "ScriptEngine not initialised";
+    const QJSValue result = m_engine->evaluate(script);
     if (result.isError()) {
         const QString err = QString("Line %1: %2")
             .arg(result.property("lineNumber").toInt())

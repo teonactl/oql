@@ -18,6 +18,6 @@ signals:
 private:
     explicit ScriptEngine(QObject *parent = nullptr);
     void setup();
-    QJSEngine  m_engine;
-    CueList   *m_cues = nullptr;
+    QJSEngine *m_engine = nullptr;  // heap-allocated so we can destroy it before QApplication exits
+    CueList   *m_cues   = nullptr;
 };
