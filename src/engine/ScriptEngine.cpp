@@ -48,6 +48,7 @@ class JsCue : public QObject {
     Q_PROPERTY(QString number READ number   WRITE setNumber)
     Q_PROPERTY(QString type   READ typeStr  CONSTANT)
     Q_PROPERTY(QString state  READ stateStr)
+    Q_PROPERTY(double  volume READ volume   WRITE setVolume)
 public:
     explicit JsCue(Cue *cue, QObject *parent = nullptr) : QObject(parent), m_cue(cue) {}
 
@@ -56,6 +57,9 @@ public:
     QString number()   const { return m_cue ? m_cue->number() : QString(); }
     QString typeStr()  const { return m_cue ? cueTypeStr(m_cue->type())   : QString(); }
     QString stateStr() const { return m_cue ? cueStateStr(m_cue->state()) : QString(); }
+
+    double volume() const            { return m_cue ? m_cue->volume() : 1.0; }
+    void setVolume(double v)         { if (m_cue) m_cue->setVolume(qBound(0.0, v, 1.0)); }
 
     void setName(const QString &v)   { if (m_cue) m_cue->setName(v); }
     void setNumber(const QString &v) { if (m_cue) m_cue->setNumber(v); }
