@@ -30,6 +30,9 @@ public:
     quint16 webPort()    const;
     void    setWebPort(quint16 p);
 
+    QList<int> cueListColumnWidths() const;
+    void       setCueListColumnWidths(const QList<int> &widths);
+
 private:
     AppSettings();
     QSettings m_s;

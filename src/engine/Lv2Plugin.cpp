@@ -1,8 +1,10 @@
 #include "Lv2Plugin.h"
 #include <lilv/lilv.h>
+#ifdef Q_OS_LINUX
 #include <suil/suil.h>
 #include <lv2/ui/ui.h>
 #include <lv2/instance-access/instance-access.h>
+#endif
 #include <cstring>
 #include <cmath>
 #include <QJsonArray>
@@ -14,10 +16,13 @@
 // ── Shared world and suil host (one per process) ─────────────────────────────
 
 static LilvWorld *s_world    = nullptr;
+#ifdef Q_OS_LINUX
 static SuilHost  *s_suilHost = nullptr;
+#endif
 
 // ── Suil callbacks ────────────────────────────────────────────────────────────
 
+#ifdef Q_OS_LINUX
 static void lv2UiWrite(SuilController controller, uint32_t port_index,
                         uint32_t buffer_size, uint32_t protocol, const void *buffer) {
     if (protocol != 0 || buffer_size != sizeof(float)) return;
@@ -28,6 +33,7 @@ static void lv2UiWrite(SuilController controller, uint32_t port_index,
 static uint32_t lv2UiPortIndex(SuilController controller, const char *symbol) {
     return static_cast<Lv2Plugin*>(controller)->portIndexForSymbol(symbol);
 }
+#endif
 
 static sigjmp_buf              s_lilvJump;
 static volatile sig_atomic_t   s_lilvProtected = 0;
@@ -359,6 +365,7 @@ void Lv2Plugin::setParam(int idx, float v) {
 // ── LV2 UI (suil) ─────────────────────────────────────────────────────────────
 
 bool Lv2Plugin::hasEditor() const {
+#ifdef Q_OS_LINUX
     if (!m_lilvPlugin || !m_instance) return false;
     LilvUIs *uis = lilv_plugin_get_uis(m_lilvPlugin);
     if (!uis) return false;
@@ -377,9 +384,13 @@ bool Lv2Plugin::hasEditor() const {
     }
     lilv_uis_free(uis);
     return found;
+#else
+    return false;
+#endif
 }
 
 bool Lv2Plugin::openEditor(void *parentId) {
+#ifdef Q_OS_LINUX
     if (m_suilInst) return true;
     if (!m_lilvPlugin || !m_instance) return false;
 
@@ -424,21 +435,29 @@ bool Lv2Plugin::openEditor(void *parentId) {
         features);
 
     return m_suilInst != nullptr;
+#else
+    Q_UNUSED(parentId)
+    return false;
+#endif
 }
 
 void Lv2Plugin::closeEditor() {
+#ifdef Q_OS_LINUX
     if (m_suilInst) {
         suil_instance_free(m_suilInst);
         m_suilInst = nullptr;
     }
+#endif
 }
 
 void Lv2Plugin::editorIdle() {
+#ifdef Q_OS_LINUX
     if (!m_suilInst) return;
     const auto *idle = static_cast<const LV2UI_Idle_Interface *>(
         suil_instance_extension_data(m_suilInst, LV2_UI__idleInterface));
     if (idle && idle->idle)
         idle->idle(suil_instance_get_handle(m_suilInst));
+#endif
 }
 
 void Lv2Plugin::setParamByPortIndex(uint32_t portIndex, float value) {
@@ -448,11 +467,16 @@ void Lv2Plugin::setParamByPortIndex(uint32_t portIndex, float value) {
 }
 
 uint32_t Lv2Plugin::portIndexForSymbol(const char *symbol) const {
+#ifdef Q_OS_LINUX
     if (!m_lilvPlugin) return LV2UI_INVALID_PORT_INDEX;
     LilvNode *sym = lilv_new_string(world(), symbol);
     const LilvPort *port = lilv_plugin_get_port_by_symbol(m_lilvPlugin, sym);
     lilv_node_free(sym);
     return port ? lilv_port_get_index(m_lilvPlugin, port) : LV2UI_INVALID_PORT_INDEX;
+#else
+    Q_UNUSED(symbol)
+    return UINT32_MAX;
+#endif
 }
 
 QJsonObject Lv2Plugin::toJson() const {

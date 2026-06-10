@@ -11,7 +11,9 @@ list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
-pkg_check_modules(SUIL REQUIRED suil-0)
+if(UNIX AND NOT APPLE)
+    pkg_check_modules(SUIL REQUIRED suil-0)
+endif()
 
 qt_add_executable(openqlab
     resources/resources.qrc
@@ -82,19 +84,36 @@ target_link_libraries(openqlab PRIVATE
     Qt6::Svg
     Qt6::Network
     ${LILV_LIBRARIES}
-    ${SUIL_LIBRARIES}
-    dl          # for dlopen/dlsym (VST2 loading)
-    pthread     # for std::mutex/thread used in AudioEngine
-    X11         # for XSetErrorHandler + XQueryTree/XGetWindowAttributes (LV2 UI)
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(openqlab PRIVATE ${SUIL_LIBRARIES})
+endif()
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(openqlab PRIVATE
+        dl       # dlopen/dlsym for VST2 loading
+        pthread  # std::mutex/thread in AudioEngine
+        X11      # XSetErrorHandler + XQueryTree (LV2/VST2 UI)
+    )
+elseif(APPLE)
+    target_link_libraries(openqlab PRIVATE
+        "-framework CoreAudio"
+        "-framework CoreFoundation"
+        "-framework AudioUnit"
+        "-framework AudioToolbox"
+    )
+endif()
 
 target_include_directories(openqlab PRIVATE
     src
     ${LILV_INCLUDE_DIRS}
-    ${SUIL_INCLUDE_DIRS}
+    $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_INCLUDE_DIRS}>
 )
 
-target_compile_options(openqlab PRIVATE ${LILV_CFLAGS_OTHER})
+target_compile_options(openqlab PRIVATE
+    ${LILV_CFLAGS_OTHER}
+    $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_CFLAGS_OTHER}>
+)
 
 # miniaudio needs these on Linux
 target_compile_definitions(openqlab PRIVATE
@@ -105,3 +124,8 @@ set_target_properties(openqlab PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE   TRUE
 )
+if(APPLE)
+    set_target_properties(openqlab PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/MacOSXBundleInfo.plist.in"
+    )
+endif()

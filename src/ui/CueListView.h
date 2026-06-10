@@ -52,6 +52,7 @@ protected:
 
 private:
     void stretchFlexColumns();
+    void saveColumnWidths();
     QVector<int> validTargetRows(int srcRow) const;
     QVector<int> validGroupRows(int srcRow)  const;
 

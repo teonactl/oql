@@ -1,6 +1,7 @@
 #include "CueListView.h"
 #include "CueListModel.h"
 #include "engine/ControlCues.h"
+#include "engine/AppSettings.h"
 #include <QHeaderView>
 #include <QMenu>
 #include <QContextMenuEvent>
@@ -35,14 +36,11 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
     h->setSectionResizeMode(QHeaderView::Interactive);
     h->setMinimumSectionSize(24);
 
-    setColumnWidth(CueListModel::ColNumber,   50);
-    setColumnWidth(CueListModel::ColType,     60);
-    setColumnWidth(CueListModel::ColName,     220);
-    setColumnWidth(CueListModel::ColTarget,   200);
-    setColumnWidth(CueListModel::ColPreWait,  70);
-    setColumnWidth(CueListModel::ColDuration, 70);
-    setColumnWidth(CueListModel::ColPostWait, 70);
-    setColumnWidth(CueListModel::ColContinue, 30);
+    const QList<int> defaults = { 50, 60, 220, 200, 70, 70, 70, 30 };
+    const QList<int> saved    = AppSettings::instance().cueListColumnWidths();
+    const QList<int> &widths  = (saved.size() == CueListModel::ColCount) ? saved : defaults;
+    for (int c = 0; c < CueListModel::ColCount; ++c)
+        setColumnWidth(c, widths[c]);
 
     setDragEnabled(false);
     setAcceptDrops(true);
@@ -51,12 +49,21 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
 
     connect(h, &QHeaderView::sectionResized, this, [this](int, int, int) {
         stretchFlexColumns();
+        saveColumnWidths();
     });
 }
 
 void CueListView::resizeEvent(QResizeEvent *event) {
     QTableView::resizeEvent(event);
     stretchFlexColumns();
+}
+
+void CueListView::saveColumnWidths() {
+    auto *h = horizontalHeader();
+    QList<int> widths;
+    for (int c = 0; c < CueListModel::ColCount; ++c)
+        widths.append(h->sectionSize(c));
+    AppSettings::instance().setCueListColumnWidths(widths);
 }
 
 void CueListView::stretchFlexColumns() {

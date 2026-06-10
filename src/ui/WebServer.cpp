@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QFile>
+#include <QTimer>
 
 static QByteArray typeStr(Cue::Type t) {
     switch (t) {
@@ -152,6 +153,10 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
         } else {
             sendResponse(sock, 404, "text/plain", "Not found");
         }
+
+    } else if (method == "POST" && path == "/api/shutdown") {
+        sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+        QTimer::singleShot(200, this, &WebServer::stop);
 
     } else if (method == "OPTIONS") {
         sendResponse(sock, 200, "text/plain", "");

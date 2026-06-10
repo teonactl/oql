@@ -3,7 +3,6 @@
 #include "engine/PluginChain.h"
 #include "engine/VstPlugin.h"
 #include "engine/Lv2Plugin.h"
-#include <suil/suil.h>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
@@ -24,7 +23,10 @@
 #include <QLineEdit>
 #include <QProxyStyle>
 #include <QGuiApplication>
+#ifdef Q_OS_LINUX
+#include <suil/suil.h>
 #include <X11/Xlib.h>
+#endif
 #include <cstdlib>
 #include <memory>
 
@@ -42,6 +44,7 @@ public:
 
 static AbsoluteSliderStyle *s_sliderStyle = nullptr;
 
+#ifdef Q_OS_LINUX
 // VST2 native editor UIs use their own X11 connections and may trigger X11
 // errors (e.g. BadWindow on XCreateColormap) before our window is fully synced.
 // The default handler aborts the process; ours just logs and continues.
@@ -63,6 +66,7 @@ static void ensureVstX11Handler() {
     static bool installed = false;
     if (!installed) { XSetErrorHandler(vstX11ErrorHandler); installed = true; }
 }
+#endif // Q_OS_LINUX
 
 // ── VST2 native editor dialog ─────────────────────────────────────────────────
 
@@ -72,7 +76,9 @@ public:
     VstEditorDialog(VstPlugin *plugin, QWidget *parent = nullptr)
         : QDialog(parent, Qt::Window), m_plugin(plugin)
     {
+#ifdef Q_OS_LINUX
         ensureVstX11Handler();
+#endif
         setWindowTitle(QString::fromStdString(plugin->name()));
         setAttribute(Qt::WA_DeleteOnClose);
         setMinimumSize(100, 100);
@@ -108,19 +114,13 @@ protected:
 
 private:
     void tryOpenEditor() {
+#ifdef Q_OS_LINUX
         // Force Mesa software GL so NVIDIA's broken XWayland GLX is bypassed.
-        // Mesa reads LIBGL_ALWAYS_SOFTWARE at glXCreateContext time.
         setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0);
-
-        // Flush Qt's XCB output buffer and wait for X server ack.
         if (auto *x11 = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
             XSync(x11->display(), False);
+#endif
 
-        // Use the DIALOG's own native window as the plugin parent.
-        // This window is the Qt top-level window, already mapped by the time
-        // showEvent fired. Unlike a child QWidget container, its X11 window
-        // is created and flushed as part of the dialog's show() path and is
-        // guaranteed to exist server-side by the time we arrive here.
         const WId parentId = this->winId();
 
         // Resize dialog to match plugin's reported size
@@ -133,15 +133,18 @@ private:
             }
         }
 
+#ifdef Q_OS_LINUX
         s_vstGlxErrors = 0;
+#endif
         if (!m_plugin->openEditor(reinterpret_cast<void*>(parentId))) {
             QMessageBox::warning(this, "Editor non disponibile",
-                "Il plugin non supporta un editor grafico su Linux,\n"
+                "Il plugin non supporta un editor grafico,\n"
                 "oppure l'editor ha crashato durante l'apertura.");
             reject();
             return;
         }
 
+#ifdef Q_OS_LINUX
         if (s_vstGlxErrors > 0) {
             m_plugin->closeEditor();
             QMessageBox::warning(this, "Editor non disponibile",
@@ -151,6 +154,7 @@ private:
             reject();
             return;
         }
+#endif
 
         // Re-apply rect: some plugins report correct size only after effEditOpen
         {
@@ -172,8 +176,8 @@ private:
     bool       m_openAttempted = false;
 };
 
-// ── LV2 native editor dialog ──────────────────────────────────────────────────
-
+// ── LV2 native editor dialog (Linux/X11 only) ─────────────────────────────────
+#ifdef Q_OS_LINUX
 class Lv2EditorDialog : public QDialog {
     Q_OBJECT
 public:
@@ -246,6 +250,7 @@ private:
     bool       m_editorOpened  = false;
     bool       m_openAttempted = false;
 };
+#endif // Q_OS_LINUX
 
 // ── Plugin browser dialog ─────────────────────────────────────────────────────
 
@@ -527,8 +532,12 @@ void PluginChainWidget::onOpenEditor() {
     QDialog *dlg = nullptr;
     if (auto *vst = dynamic_cast<VstPlugin*>(plug))
         dlg = new VstEditorDialog(vst, this);
+#ifdef Q_OS_LINUX
     else if (auto *lv2 = dynamic_cast<Lv2Plugin*>(plug))
         dlg = new Lv2EditorDialog(lv2, this);
+#else
+    Q_UNUSED(plug)
+#endif
 
     if (!dlg) return;
     m_editorDlg = dlg;

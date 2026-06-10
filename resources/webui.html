@@ -36,8 +36,10 @@ header{
   flex-shrink:0;
 }
 .hbtn:active{filter:brightness(.6)}
-.hbtn-go  {background:var(--accent);color:#000}
-.hbtn-stop{background:var(--danger);color:#fff}
+.hbtn-go      {background:var(--accent);color:#000}
+.hbtn-stop    {background:var(--danger);color:#fff}
+.hbtn-shutdown{background:rgba(255,255,255,.1);color:var(--dim);font-size:.75rem;padding:9px 10px}
+.hbtn-shutdown:active{filter:brightness(.6)}
 
 /* ── PLAYHEAD BAR ── */
 #phbar{
@@ -131,8 +133,9 @@ header{
     </svg>
     <span class="logo-name">Open<em>QLab</em></span>
   </div>
-  <button class="hbtn hbtn-go"   ontouchstart="" onclick="doGo()">&#9654; GO</button>
-  <button class="hbtn hbtn-stop" ontouchstart="" onclick="doStopAll()">&#9632; Stop</button>
+  <button class="hbtn hbtn-go"       ontouchstart="" onclick="doGo()">&#9654; GO</button>
+  <button class="hbtn hbtn-stop"     ontouchstart="" onclick="doStopAll()">&#9632; Stop</button>
+  <button class="hbtn hbtn-shutdown" ontouchstart="" onclick="doShutdown()" title="Spegni server">⏻</button>
 </header>
 
 <div id="phbar">
@@ -255,8 +258,24 @@ const cuePause = id => post('/api/cue/' + id + '/pause');
 const doGo     = ()  => post('/api/go');
 const doStopAll= ()  => post('/api/stop-all');
 
+async function doShutdown() {
+  if (!confirm('Spegnere il server remoto?\nPotrai riattivarlo dall\'applicazione desktop.')) return;
+  try { await fetch('/api/shutdown', { method: 'POST', cache: 'no-store' }); } catch {}
+  clearInterval(refreshTimer);
+  document.getElementById('list').innerHTML = '';
+  document.getElementById('ph-text').textContent = 'Server spento';
+  document.getElementById('phbar').className = '';
+  document.querySelector('header').style.opacity = '.4';
+  document.querySelector('header').style.pointerEvents = 'none';
+  document.getElementById('list').innerHTML =
+    '<div style="text-align:center;padding:3rem 1rem;color:var(--dim);font-size:.95rem;">' +
+    '⏻ Server remoto spento.<br><br>' +
+    '<span style="font-size:.8rem;">Per riattivarlo apri OpenQLab sul desktop<br>e premi il pulsante Remote nella toolbar.</span>' +
+    '</div>';
+}
+
+const refreshTimer = setInterval(refresh, 800);
 refresh();
-setInterval(refresh, 800);
 </script>
 </body>
 </html>

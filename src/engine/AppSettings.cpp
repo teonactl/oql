@@ -58,3 +58,15 @@ bool AppSettings::webEnabled() const { return m_s.value("webEnabled", false).toB
 void AppSettings::setWebEnabled(bool v) { m_s.setValue("webEnabled", v); }
 quint16 AppSettings::webPort() const { return quint16(m_s.value("webPort", 8080).toUInt()); }
 void AppSettings::setWebPort(quint16 p) { m_s.setValue("webPort", p); }
+
+QList<int> AppSettings::cueListColumnWidths() const {
+    const auto v = m_s.value("cueListColumnWidths").toList();
+    QList<int> out;
+    for (const auto &val : v) out.append(val.toInt());
+    return out;
+}
+void AppSettings::setCueListColumnWidths(const QList<int> &widths) {
+    QVariantList v;
+    for (int w : widths) v.append(w);
+    m_s.setValue("cueListColumnWidths", v);
+}
