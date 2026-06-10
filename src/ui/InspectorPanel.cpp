@@ -1,5 +1,7 @@
 #include "InspectorPanel.h"
 #include "WaveformView.h"
+#include "engine/ScriptCue.h"
+#include "engine/ScriptEngine.h"
 #include "PluginChainWidget.h"
 #include "engine/AudioCue.h"
 #include "engine/AudioEngine.h"
@@ -24,6 +26,7 @@
 #include <QComboBox>
 #include <QSpinBox>
 #include <QTimer>
+#include <QPlainTextEdit>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QPainter>
@@ -500,6 +503,57 @@ void InspectorPanel::buildUi() {
     textLay->addWidget(textRow);
     propsLay->addWidget(m_textSection);
 
+    // ── Script section ───────────────────────────────────────
+    m_scriptSection = new QWidget;
+    auto *scriptLay = new QVBoxLayout(m_scriptSection);
+    scriptLay->setContentsMargins(0, 4, 0, 0);
+    scriptLay->setSpacing(4);
+
+    m_scriptEdit = new QPlainTextEdit;
+    m_scriptEdit->setPlaceholderText("// JavaScript\n// workspace.byNumber(\"1\").go();\n// print(\"ciao\");");
+    QFont monoFont("Monospace");
+    monoFont.setStyleHint(QFont::TypeWriter);
+    monoFont.setPointSize(10);
+    m_scriptEdit->setFont(monoFont);
+    m_scriptEdit->setMinimumHeight(120);
+    scriptLay->addWidget(m_scriptEdit, 1);
+
+    m_scriptRunBtn = new QPushButton("▶  Esegui");
+    scriptLay->addWidget(m_scriptRunBtn);
+
+    m_scriptConsole = new QPlainTextEdit;
+    m_scriptConsole->setReadOnly(true);
+    m_scriptConsole->setMaximumHeight(80);
+    m_scriptConsole->setPlaceholderText("Output…");
+    m_scriptConsole->setFont(monoFont);
+    scriptLay->addWidget(m_scriptConsole);
+
+    propsLay->addWidget(m_scriptSection);
+
+    connect(m_scriptEdit, &QPlainTextEdit::textChanged, this, [this]() {
+        if (m_loadingFromCue) return;
+        auto *sc = qobject_cast<ScriptCue*>(m_cue);
+        if (sc) sc->setScript(m_scriptEdit->toPlainText());
+    });
+    connect(m_scriptRunBtn, &QPushButton::clicked, this, [this]() {
+        auto *sc = qobject_cast<ScriptCue*>(m_cue);
+        if (!sc) return;
+        m_scriptConsole->clear();
+        auto conn = connect(&ScriptEngine::instance(), &ScriptEngine::outputLine,
+                            this, [this](const QString &line) {
+            m_scriptConsole->appendPlainText(line);
+        });
+        const QString err = ScriptEngine::instance().evaluate(sc->script());
+        disconnect(conn);
+        if (!err.isEmpty() && !m_scriptConsole->toPlainText().contains("ERROR"))
+            m_scriptConsole->appendPlainText("ERROR: " + err);
+    });
+    connect(&ScriptEngine::instance(), &ScriptEngine::outputLine,
+            this, [this](const QString &line) {
+        if (m_scriptSection->isVisible())
+            m_scriptConsole->appendPlainText(line);
+    });
+
     // ── Playhead refresh timer ───────────────────────────────
     m_playTimer = new QTimer(this);
     m_playTimer->setInterval(80);
@@ -678,7 +732,8 @@ void InspectorPanel::updateMediaSection() {
                          || t == Cue::Type::ResetEffect);
     const bool isSpeed   = (t == Cue::Type::Speed);
     const bool isMic     = (t == Cue::Type::Mic);
-    const bool isTextCue = (t == Cue::Type::Text);
+    const bool isTextCue   = (t == Cue::Type::Text);
+    const bool isScriptCue = (t == Cue::Type::Script);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
     m_fadeGroup->setVisible(isAudio);
@@ -686,6 +741,13 @@ void InspectorPanel::updateMediaSection() {
     m_controlSection->setVisible(isControl);
     m_micSection->setVisible(isMic);
     m_textSection->setVisible(isTextCue);
+    m_scriptSection->setVisible(isScriptCue);
+
+    if (isScriptCue) {
+        auto *sc = static_cast<ScriptCue*>(m_cue);
+        m_scriptEdit->setPlainText(sc->script());
+        m_scriptConsole->clear();
+    }
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
@@ -874,7 +936,7 @@ void InspectorPanel::onBrowseFile() {
     if (!m_cue) return;
     const bool isAudio = (m_cue->type() == Cue::Type::Audio);
     const QString filter = isAudio
-        ? "File audio (*.mp3 *.wav *.flac *.ogg *.aac *.m4a *.opus)"
+        ? "File audio (*.mp3 *.wav *.flac *.ogg *.aac *.m4a *.opus *.aiff *.aif)"
         : "File video (*.mp4 *.mkv *.avi *.mov *.webm *.m4v)";
     const QString path = QFileDialog::getOpenFileName(this, "Scegli file", {}, filter);
     if (path.isEmpty()) return;

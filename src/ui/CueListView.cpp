@@ -230,6 +230,7 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addSeparator();
     menu.addAction("Aggiungi Effect Cue",           this, &CueListView::addEffectRequested);
     menu.addAction("Aggiungi Reset Effetti Cue",    this, &CueListView::addResetEffectRequested);
+    menu.addAction("Aggiungi Script Cue",           this, &CueListView::addScriptRequested);
     menu.addSeparator();
     // Color palette submenu — visible only when at least one row is selected
     if (!selIdxs.isEmpty()) {

@@ -22,6 +22,7 @@ signals:
     void addTextRequested();
     void addEffectRequested();
     void addResetEffectRequested();
+    void addScriptRequested();
     void deleteRequested();
     void cueDoubleClicked(int row);
     void filePickRequested(int row);

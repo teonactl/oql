@@ -13,6 +13,7 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#include "engine/ScriptCue.h"
 #include "TextOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
@@ -227,6 +228,7 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addTextRequested,         this, &MainWindow::addTextCue);
     connect(m_cueView, &CueListView::addEffectRequested,       this, &MainWindow::addEffectCue);
     connect(m_cueView, &CueListView::addResetEffectRequested,  this, &MainWindow::addResetEffectCue);
+    connect(m_cueView, &CueListView::addScriptRequested,        this, &MainWindow::addScriptCue);
     connect(m_cueView, &CueListView::deleteRequested,   this, &MainWindow::deleteSelectedCue);
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
@@ -735,6 +737,20 @@ void MainWindow::addSpeedUpCue()   { addControlCueImpl(Cue::Type::Speed, 1.5); }
 void MainWindow::addSpeedDownCue() { addControlCueImpl(Cue::Type::Speed, 0.5); }
 void MainWindow::addEffectCue()      { addControlCueImpl(Cue::Type::Effect); }
 void MainWindow::addResetEffectCue() { addControlCueImpl(Cue::Type::ResetEffect); }
+
+void MainWindow::addScriptCue() {
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
+    doUndoable("Aggiungi Script Cue", [&] {
+        auto cue = std::make_unique<ScriptCue>();
+        cue->setNumber(nextCueNumber());
+        cue->setName("Script");
+        m_workspace.cueList()->addCue(std::move(cue), idx);
+    });
+    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
+    m_cueView->selectRow(m_model->visibleRowForActual(actual));
+    m_cueView->setFocus();
+}
 
 void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));

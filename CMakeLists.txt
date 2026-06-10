@@ -10,7 +10,7 @@ if(UNIX AND NOT APPLE)
     list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
 if(UNIX AND NOT APPLE)
@@ -76,6 +76,10 @@ qt_add_executable(openqlab
     src/ui/PluginChainWidget.cpp
     src/ui/WebServer.h
     src/ui/WebServer.cpp
+    src/engine/ScriptEngine.h
+    src/engine/ScriptEngine.cpp
+    src/engine/ScriptCue.h
+    src/engine/ScriptCue.cpp
 )
 
 target_link_libraries(openqlab PRIVATE
@@ -85,6 +89,7 @@ target_link_libraries(openqlab PRIVATE
     Qt6::MultimediaWidgets
     Qt6::Svg
     Qt6::Network
+    Qt6::Qml
     ${LILV_LIBRARIES}
 )
 if(UNIX AND NOT APPLE)

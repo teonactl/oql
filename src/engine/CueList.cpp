@@ -6,11 +6,15 @@
 #include "GroupCue.h"
 #include "LabelCue.h"
 #include "TextCue.h"
+#include "ScriptCue.h"
+#include "ScriptEngine.h"
 #include <QJsonObject>
 #include <QTimer>
 #include <algorithm>
 
-CueList::CueList(QObject *parent) : QObject(parent) {}
+CueList::CueList(QObject *parent) : QObject(parent) {
+    ScriptEngine::instance().init(this);
+}
 
 void CueList::addCue(std::unique_ptr<Cue> cue, int index) {
     const int n = int(m_cues.size());
@@ -330,6 +334,10 @@ void CueList::fromJson(const QJsonArray &arr) {
             cue = std::move(c);
         } else if (t == "reseteffect") {
             auto c = std::make_unique<ResetEffectCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
+        } else if (t == "script") {
+            auto c = std::make_unique<ScriptCue>();
             c->fromJson(obj);
             cue = std::move(c);
         }

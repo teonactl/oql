@@ -39,6 +39,7 @@ static QIcon makeCueIcon(Cue::Type type) {
     case Cue::Type::Text:        bg = QColor(0x0a, 0x72, 0x8a); break;
     case Cue::Type::Effect:      bg = QColor(0x7b, 0x35, 0x9e); break;
     case Cue::Type::ResetEffect: bg = QColor(0x35, 0x7b, 0x9e); break;
+    case Cue::Type::Script:      bg = QColor(0x5a, 0x8a, 0x3a); break;
     default: break;
     }
     p.setBrush(bg);

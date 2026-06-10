@@ -25,6 +25,7 @@ static QByteArray typeStr(Cue::Type t) {
     case Cue::Type::ResetEffect: return "reseteffect";
     case Cue::Type::Group:       return "group";
     case Cue::Type::Label:       return "label";
+    case Cue::Type::Script:      return "script";
     }
     return "unknown";
 }

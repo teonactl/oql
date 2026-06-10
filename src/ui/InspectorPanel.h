@@ -19,6 +19,7 @@ class WaveformView;
 class QFontComboBox;
 class PluginChainWidget;
 class VuMeter;
+class QPlainTextEdit;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -143,6 +144,12 @@ private:
 
     PluginChainWidget *m_pluginChainWidget       = nullptr;  // AudioCue chain editor
     PluginChainWidget *m_effectPluginChainWidget = nullptr;  // EffectCue chain editor
+
+    // Script cue
+    QWidget        *m_scriptSection   = nullptr;
+    QPlainTextEdit *m_scriptEdit      = nullptr;
+    QPushButton    *m_scriptRunBtn    = nullptr;
+    QPlainTextEdit *m_scriptConsole   = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
