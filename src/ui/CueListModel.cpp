@@ -36,7 +36,10 @@ static QIcon makeCueIcon(Cue::Type type) {
     case Cue::Type::Mic:   bg = QColor(0xcc, 0x22, 0x88); break;
     case Cue::Type::Group: bg = QColor(0x44, 0x48, 0x58); break;
     case Cue::Type::Label: bg = QColor(0x60, 0x55, 0x10); break;
-    case Cue::Type::Text:  bg = QColor(0x0a, 0x72, 0x8a); break;
+    case Cue::Type::Text:        bg = QColor(0x0a, 0x72, 0x8a); break;
+    case Cue::Type::Effect:      bg = QColor(0x7b, 0x35, 0x9e); break;
+    case Cue::Type::ResetEffect: bg = QColor(0x35, 0x7b, 0x9e); break;
+    case Cue::Type::Script:      bg = QColor(0x5a, 0x8a, 0x3a); break;
     default: break;
     }
     p.setBrush(bg);
@@ -123,6 +126,28 @@ static QIcon makeCueIcon(Cue::Type type) {
         p.setBrush(Qt::white);
         p.drawRect(2, 2, 12, 3);   // top bar of T
         p.drawRect(6, 2, 4, 12);   // stem of T
+        break;
+    }
+    case Cue::Type::Effect: {
+        // Lightning bolt: zap shape
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon bolt;
+        bolt << QPoint(9, 1) << QPoint(4, 9) << QPoint(8, 9)
+             << QPoint(6, 15) << QPoint(12, 7) << QPoint(8, 7);
+        p.drawPolygon(bolt);
+        break;
+    }
+    case Cue::Type::ResetEffect: {
+        // Circular undo arrow
+        p.setPen(QPen(Qt::white, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(2, 2, 12, 12, 50*16, 250*16);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon arr;
+        arr << QPoint(2, 5) << QPoint(7, 2) << QPoint(7, 8);
+        p.drawPolygon(arr);
         break;
     }
     default: break;
@@ -251,6 +276,8 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
                 return QString::number(ac->trimEnd() > 0.001 ? ac->trimEnd() : ac->duration(), 'f', 2);
             if (const auto *fc = dynamic_cast<const FadeCue*>(cue))
                 return QString::number(fc->fadeDuration(), 'f', 2);
+            if (const auto *ec = dynamic_cast<const EffectCue*>(cue))
+                return ec->effectDuration() > 0.0 ? QString::number(ec->effectDuration(), 'f', 2) : QString{};
             return {};
         }
         }
@@ -290,6 +317,8 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isGroup)   return QColor(210, 210, 225);
         if (isLabel)   return QColor(230, 210, 100);
         if (isText)    return QColor(130, 220, 240);
+        if (cue->userColor().isValid())
+            return cue->userColor().lightnessF() > 0.5 ? QColor(20, 20, 20) : Qt::white;
     }
 
     if (role == Qt::FontRole) {
@@ -306,6 +335,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (isText)  return QColor(8, 48, 58);
         if (m_visibleRows.value(idx.row(), -1) == m_list->playheadIndex())
             return QColor(200, 160, 30, 55);
+        if (cue->userColor().isValid()) return cue->userColor();
         if (!cue->parentGroupId().isEmpty()) return QColor(30, 38, 30);
     }
 
@@ -450,6 +480,10 @@ bool CueListModel::setData(const QModelIndex &idx, const QVariant &value, int ro
         }
         if (auto *fc = dynamic_cast<FadeCue*>(cue)) {
             fc->setFadeDuration(v);
+            return true;
+        }
+        if (auto *ec = dynamic_cast<EffectCue*>(cue)) {
+            ec->setEffectDuration(v);
             return true;
         }
         return false;

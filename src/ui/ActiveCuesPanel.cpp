@@ -122,11 +122,14 @@ void ActiveCuesPanel::rebuildCards() {
         switch (cue->type()) {
         case Cue::Type::Audio: badgeColor = QColor(0x2a, 0x6d, 0xcc); break;
         case Cue::Type::Video: badgeColor = QColor(0x2a, 0x88, 0x44); break;
-        case Cue::Type::Stop:  badgeColor = QColor(0xcc, 0x33, 0x33); break;
-        case Cue::Type::Fade:  badgeColor = QColor(0xcc, 0x77, 0x22); break;
-        case Cue::Type::Pause: badgeColor = QColor(0x88, 0x55, 0xcc); break;
-        case Cue::Type::Speed: badgeColor = QColor(0x11, 0x99, 0x99); break;
-        case Cue::Type::Play:  badgeColor = QColor(0x22, 0xaa, 0x55); break;
+        case Cue::Type::Stop:        badgeColor = QColor(0xcc, 0x33, 0x33); break;
+        case Cue::Type::Fade:        badgeColor = QColor(0xcc, 0x77, 0x22); break;
+        case Cue::Type::Pause:       badgeColor = QColor(0x88, 0x55, 0xcc); break;
+        case Cue::Type::Speed:       badgeColor = QColor(0x11, 0x99, 0x99); break;
+        case Cue::Type::Play:        badgeColor = QColor(0x22, 0xaa, 0x55); break;
+        case Cue::Type::Effect:      badgeColor = QColor(0x7b, 0x35, 0x9e); break;
+        case Cue::Type::ResetEffect: badgeColor = QColor(0x35, 0x7b, 0x9e); break;
+        default:                     badgeColor = QColor(0x44, 0x48, 0x58); break;
         }
         auto *typeLbl = new QLabel(cue->typeName());
         typeLbl->setStyleSheet(QString(

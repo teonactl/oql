@@ -1,6 +1,11 @@
 #include "InspectorPanel.h"
 #include "WaveformView.h"
+#include "engine/ScriptCue.h"
+#include "engine/ScriptEngine.h"
+#include "ScriptEditorDialog.h"
+#include "PluginChainWidget.h"
 #include "engine/AudioCue.h"
+#include "engine/AudioEngine.h"
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
 #include "engine/MicCue.h"
@@ -22,10 +27,80 @@
 #include <QComboBox>
 #include <QSpinBox>
 #include <QTimer>
+#include <QPlainTextEdit>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QPainter>
+#include <cmath>
+#include <algorithm>
 #include <QFontComboBox>
 #include <QColorDialog>
+
+// ── VU meter widget ───────────────────────────────────────────────────────────
+
+class VuMeter : public QWidget {
+public:
+    explicit VuMeter(QWidget *parent = nullptr) : QWidget(parent) {
+        setFixedWidth(14);
+        setMinimumHeight(80);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    }
+    void setLevel(float linear) {
+        const float db = (linear <= 1e-7f) ? -60.0f
+                       : std::max(-60.0f, 20.0f * std::log10f(linear));
+        m_env = (db > m_env) ? db : m_env + (db - m_env) * 0.25f;
+        if (db >= m_peak) { m_peak = db; m_holdTicks = 50; }
+        else if (m_holdTicks > 0) --m_holdTicks;
+        else if (m_peak > -60.0f) m_peak -= 0.8f;
+        update();
+    }
+private:
+    float m_env   = -60.0f;
+    float m_peak  = -60.0f;
+    int   m_holdTicks = 0;
+
+    static float frac(float db) { return (db + 60.0f) / 66.0f; }
+
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        const int W = width(), H = height();
+        p.fillRect(0, 0, W, H, QColor(18, 18, 18));
+
+        const float f = std::clamp(frac(m_env), 0.0f, 1.0f);
+        if (f < 0.001f) return;
+        const int bY = H - int(f * H);
+
+        const int yRed    = H - int(frac(-6.0f)  * H);
+        const int yYellow = H - int(frac(-18.0f) * H);
+
+        if (bY < yRed)
+            p.fillRect(0, bY, W, yRed - bY, QColor(220, 40, 40));
+        const int yT = std::max(bY, yRed);
+        if (yT < yYellow)
+            p.fillRect(0, yT, W, yYellow - yT, QColor(200, 170, 20));
+        const int gT = std::max(bY, yYellow);
+        if (gT < H)
+            p.fillRect(0, gT, W, H - gT, QColor(40, 180, 40));
+
+        const float fp = std::clamp(frac(m_peak), 0.0f, 1.0f);
+        if (fp > 0.01f) {
+            const int pY = std::clamp(H - int(fp * H) - 1, 0, H - 2);
+            p.fillRect(0, pY, W, 2,
+                       fp > frac(-6.0f) ? QColor(255, 100, 100) : QColor(220, 220, 60));
+        }
+    }
+};
+
+// ── dB helpers ────────────────────────────────────────────────────────────────
+
+static double linearToDb(double v) {
+    return v <= 0.0 ? -60.0 : std::max(-60.0, 20.0 * std::log10(v));
+}
+static double dbToLinear(double db) {
+    return db <= -60.0 ? 0.0 : std::pow(10.0, db / 20.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
     : QWidget(parent), m_cueList(cueList)
@@ -147,10 +222,11 @@ void InspectorPanel::buildUi() {
     fileRLay->addWidget(m_fileEdit);
     fileRLay->addWidget(m_browseBtn);
 
-    m_volumeSpin = makeSpin(1.0);
-    m_volumeSpin->setRange(0.0, 1.0);
-    m_volumeSpin->setSingleStep(0.05);
-    m_volumeSpin->setSuffix({});
+    m_volumeSpin = new QDoubleSpinBox;
+    m_volumeSpin->setRange(-60.0, 0.0);
+    m_volumeSpin->setSingleStep(0.5);
+    m_volumeSpin->setDecimals(1);
+    m_volumeSpin->setSuffix(" dB");
 
     m_loopSpin = new QSpinBox;
     m_loopSpin->setRange(0, 99);
@@ -212,9 +288,10 @@ void InspectorPanel::buildUi() {
     auto *fadeParamsForm = new QFormLayout(m_fadeParamsGroup);
     fadeParamsForm->setSpacing(3);
     m_fadeTargetVolSpin = new QDoubleSpinBox;
-    m_fadeTargetVolSpin->setRange(0.0, 1.0);
-    m_fadeTargetVolSpin->setSingleStep(0.05);
-    m_fadeTargetVolSpin->setDecimals(2);
+    m_fadeTargetVolSpin->setRange(-60.0, 0.0);
+    m_fadeTargetVolSpin->setSingleStep(0.5);
+    m_fadeTargetVolSpin->setDecimals(1);
+    m_fadeTargetVolSpin->setSuffix(" dB");
     m_fadeDurationSpin = new QDoubleSpinBox;
     m_fadeDurationSpin->setRange(0.01, 999.0);
     m_fadeDurationSpin->setSingleStep(0.1);
@@ -240,6 +317,23 @@ void InspectorPanel::buildUi() {
     ctrlRowLay->addStretch();
 
     ctrlLay->addWidget(ctrlRow);
+
+    // Effect cue: duration + button to open the plugin chain editor
+    m_effectGroup = new QGroupBox("Parametri Effetto");
+    auto *effectForm = new QFormLayout(m_effectGroup);
+    effectForm->setSpacing(3);
+    m_effectDurSpin = new QDoubleSpinBox;
+    m_effectDurSpin->setRange(0.0, 9999.0);
+    m_effectDurSpin->setSingleStep(0.1);
+    m_effectDurSpin->setDecimals(2);
+    m_effectDurSpin->setSuffix(" s");
+    m_effectDurSpin->setSpecialValueText("∞ (nessun reset auto)");
+    m_effectDurSpin->setToolTip("0 = effetto permanente fino a Reset Effetti; > 0 = reset automatico dopo N secondi");
+    m_effectFxBtn = new QPushButton("⚙ Catena Effetti...");
+    m_effectFxBtn->setToolTip("Apri la catena di plugin da applicare al target");
+    effectForm->addRow("Durata:", m_effectDurSpin);
+    effectForm->addRow(m_effectFxBtn);
+    ctrlLay->addWidget(m_effectGroup);
     propsLay->addWidget(m_controlSection);
 
     // ── Mic cue section ──────────────────────────────────────
@@ -261,9 +355,10 @@ void InspectorPanel::buildUi() {
     micForm->addRow("Dispositivo:", m_micDeviceCombo);
 
     m_micVolumeSpin = new QDoubleSpinBox;
-    m_micVolumeSpin->setRange(0.0, 1.0);
-    m_micVolumeSpin->setSingleStep(0.05);
-    m_micVolumeSpin->setDecimals(2);
+    m_micVolumeSpin->setRange(-60.0, 0.0);
+    m_micVolumeSpin->setSingleStep(0.5);
+    m_micVolumeSpin->setDecimals(1);
+    m_micVolumeSpin->setSuffix(" dB");
     micForm->addRow("Volume:", m_micVolumeSpin);
     micRowLay->addWidget(micGroup);
     micRowLay->addStretch();
@@ -290,7 +385,58 @@ void InspectorPanel::buildUi() {
 
     m_waveformView = new WaveformView;
     m_waveformView->setMinimumHeight(110);
-    audioLay->addWidget(m_waveformView, 1);
+
+    m_vuL = new VuMeter;
+    m_vuR = new VuMeter;
+    m_vuL->setToolTip("L");
+    m_vuR->setToolTip("R");
+
+    auto *waveRow = new QWidget;
+    auto *waveRowLay = new QHBoxLayout(waveRow);
+    waveRowLay->setContentsMargins(0, 0, 0, 0);
+    waveRowLay->setSpacing(3);
+    waveRowLay->addWidget(m_waveformView, 1);
+    waveRowLay->addWidget(m_vuL);
+    waveRowLay->addWidget(m_vuR);
+    audioLay->addWidget(waveRow, 1);
+
+    // Plugin chain widgets — each cue type gets its own instance so they never share state
+    m_pluginChainWidget = new PluginChainWidget;
+    connect(m_pluginChainWidget, &PluginChainWidget::chainModified,
+            this, [this]() {
+        if (m_cue) emit m_cue->propertyChanged();
+    });
+
+    m_effectPluginChainWidget = new PluginChainWidget;
+    connect(m_effectPluginChainWidget, &PluginChainWidget::chainModified,
+            this, [this]() {
+        if (m_cue) emit m_cue->propertyChanged();
+    });
+
+    auto *fxRow    = new QWidget;
+    auto *fxRowLay = new QHBoxLayout(fxRow);
+    fxRowLay->setContentsMargins(0, 2, 0, 0);
+    fxRowLay->setSpacing(6);
+    m_fxBtn = new QPushButton("⚙ Effetti...");
+    m_fxBtn->setToolTip("Apri catena effetti per questa cue");
+    fxRowLay->addWidget(m_fxBtn);
+    fxRowLay->addStretch();
+    audioLay->addWidget(fxRow);
+
+    connect(m_fxBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_fxDialog) {
+            m_fxDialog = new QDialog(this, Qt::Window);
+            m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+            m_fxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_fxDialog->resize(480, 400);
+            auto *lay = new QVBoxLayout(m_fxDialog);
+            lay->addWidget(m_pluginChainWidget);
+        }
+        m_fxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+        m_fxDialog->show();
+        m_fxDialog->raise();
+        m_fxDialog->activateWindow();
+    });
 
     propsLay->addWidget(m_audioSection, 1);
 
@@ -358,10 +504,36 @@ void InspectorPanel::buildUi() {
     textLay->addWidget(textRow);
     propsLay->addWidget(m_textSection);
 
+    // ── Script section ───────────────────────────────────────
+    m_scriptSection = new QWidget;
+    auto *scriptLay = new QVBoxLayout(m_scriptSection);
+    scriptLay->setContentsMargins(0, 4, 0, 0);
+
+    m_scriptRunBtn = new QPushButton("✎  Modifica Script…");
+    scriptLay->addWidget(m_scriptRunBtn);
+
+    propsLay->addWidget(m_scriptSection);
+
+    connect(m_scriptRunBtn, &QPushButton::clicked, this, [this]() {
+        auto *sc = qobject_cast<ScriptCue*>(m_cue);
+        if (!sc) return;
+        ScriptEditorDialog dlg(sc, this);
+        dlg.exec();
+    });
+
     // ── Playhead refresh timer ───────────────────────────────
     m_playTimer = new QTimer(this);
     m_playTimer->setInterval(80);
     connect(m_playTimer, &QTimer::timeout, this, &InspectorPanel::refreshPlayhead);
+
+    // ── VU meter refresh timer ───────────────────────────────
+    m_vuTimer = new QTimer(this);
+    m_vuTimer->setInterval(50);
+    connect(m_vuTimer, &QTimer::timeout, this, [this]() {
+        m_vuL->setLevel(AudioEngine::instance().peakL());
+        m_vuR->setLevel(AudioEngine::instance().peakR());
+    });
+    m_vuTimer->start();
 
     // ── Stack ────────────────────────────────────────────────
     m_stack = new QStackedWidget;
@@ -425,6 +597,21 @@ void InspectorPanel::buildUi() {
             this, &InspectorPanel::onFadeStopAtEndChanged);
     connect(m_speedRateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &InspectorPanel::onSpeedRateChanged);
+    connect(m_effectDurSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &InspectorPanel::onEffectDurationChanged);
+    connect(m_effectFxBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_effectFxDialog) {
+            m_effectFxDialog = new QDialog(this, Qt::Window);
+            m_effectFxDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_effectFxDialog->resize(480, 400);
+            auto *lay = new QVBoxLayout(m_effectFxDialog);
+            lay->addWidget(m_effectPluginChainWidget);
+        }
+        m_effectFxDialog->setWindowTitle("Effetti — " + (m_cue ? m_cue->name() : QString()));
+        m_effectFxDialog->show();
+        m_effectFxDialog->raise();
+        m_effectFxDialog->activateWindow();
+    });
     connect(m_micDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onMicDeviceChanged);
     connect(m_micVolumeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -467,6 +654,8 @@ void InspectorPanel::setCue(Cue *cue) {
     if (!m_cue) {
         m_stack->setCurrentIndex(0);
         m_waveformView->setPlayPosition(0);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
         return;
     }
 
@@ -503,12 +692,15 @@ void InspectorPanel::updateMediaSection() {
     const Cue::Type t = m_cue->type();
     const bool isAudio   = (t == Cue::Type::Audio);
     const bool isVideo   = (t == Cue::Type::Video);
+    const bool isEffect  = (t == Cue::Type::Effect);
     const bool isControl = (t == Cue::Type::Stop || t == Cue::Type::Fade
                          || t == Cue::Type::Pause || t == Cue::Type::Speed
-                         || t == Cue::Type::Play);
+                         || t == Cue::Type::Play  || isEffect
+                         || t == Cue::Type::ResetEffect);
     const bool isSpeed   = (t == Cue::Type::Speed);
     const bool isMic     = (t == Cue::Type::Mic);
-    const bool isTextCue = (t == Cue::Type::Text);
+    const bool isTextCue   = (t == Cue::Type::Text);
+    const bool isScriptCue = (t == Cue::Type::Script);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
     m_fadeGroup->setVisible(isAudio);
@@ -516,11 +708,12 @@ void InspectorPanel::updateMediaSection() {
     m_controlSection->setVisible(isControl);
     m_micSection->setVisible(isMic);
     m_textSection->setVisible(isTextCue);
+    m_scriptSection->setVisible(isScriptCue);
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(a->filePath()).fileName());
-        m_volumeSpin->setValue(a->volume());
+        m_volumeSpin->setValue(linearToDb(a->volume()));
         m_loopSpin->setValue(a->loopCount());
         m_fadeInSpin->setValue(a->fadeInDuration());
         m_fadeOutSpin->setValue(a->fadeOutDuration());
@@ -538,11 +731,15 @@ void InspectorPanel::updateMediaSection() {
         m_waveformView->setVolumePoints(a->volumePoints());
         m_waveformView->setTrimStart(a->trimStart());
         m_waveformView->setTrimEnd(a->trimEnd());
+        m_pluginChainWidget->setChain(a->pluginChain());
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
-        m_volumeSpin->setValue(v->volume());
+        m_volumeSpin->setValue(linearToDb(v->volume()));
         m_loopSpin->setValue(v->loopCount());
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isMic) {
         auto *mc = static_cast<MicCue*>(m_cue);
         m_micDeviceCombo->blockSignals(true);
@@ -554,8 +751,10 @@ void InspectorPanel::updateMediaSection() {
         m_micDeviceCombo->setCurrentIndex(devIdx >= 0 ? devIdx : 0);
         m_micDeviceCombo->blockSignals(false);
         m_micVolumeSpin->blockSignals(true);
-        m_micVolumeSpin->setValue(mc->volume());
+        m_micVolumeSpin->setValue(linearToDb(mc->volume()));
         m_micVolumeSpin->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     } else if (isControl) {
         populateTargetCombo();
         auto *cc = static_cast<ControlCue*>(m_cue);
@@ -567,6 +766,18 @@ void InspectorPanel::updateMediaSection() {
         const bool isFade = (t == Cue::Type::Fade);
         m_fadeParamsGroup->setVisible(isFade);
         m_speedGroup->setVisible(isSpeed);
+        m_effectGroup->setVisible(isEffect);
+        if (isEffect) {
+            auto *ec = static_cast<EffectCue*>(m_cue);
+            m_effectDurSpin->blockSignals(true);
+            m_effectDurSpin->setValue(ec->effectDuration());
+            m_effectDurSpin->blockSignals(false);
+            m_effectPluginChainWidget->setChain(ec->pluginChain());
+            m_pluginChainWidget->setChain(nullptr);
+        } else {
+            m_pluginChainWidget->setChain(nullptr);
+            m_effectPluginChainWidget->setChain(nullptr);
+        }
         if (isSpeed) {
             auto *sc = static_cast<SpeedCue*>(m_cue);
             m_speedRateSpin->blockSignals(true);
@@ -578,7 +789,7 @@ void InspectorPanel::updateMediaSection() {
             m_fadeTargetVolSpin->blockSignals(true);
             m_fadeDurationSpin->blockSignals(true);
             m_fadeStopAtEndCheck->blockSignals(true);
-            m_fadeTargetVolSpin->setValue(fc->targetVolume());
+            m_fadeTargetVolSpin->setValue(linearToDb(fc->targetVolume()));
             m_fadeDurationSpin->setValue(fc->fadeDuration());
             m_fadeStopAtEndCheck->setChecked(fc->stopAtEnd());
             m_fadeTargetVolSpin->blockSignals(false);
@@ -622,6 +833,8 @@ void InspectorPanel::updateMediaSection() {
         m_textBoldCheck->blockSignals(false);
         m_textItalicCheck->blockSignals(false);
         m_textAlignCombo->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
     }
 }
 
@@ -641,6 +854,7 @@ void InspectorPanel::blockSignals(bool block) {
     m_fadeOutSpin->blockSignals(block);
     m_channelCombo->blockSignals(block);
     if (m_fadeStopAtEndCheck) m_fadeStopAtEndCheck->blockSignals(block);
+    if (m_effectDurSpin)      m_effectDurSpin->blockSignals(block);
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────────
@@ -683,7 +897,7 @@ void InspectorPanel::onBrowseFile() {
     if (!m_cue) return;
     const bool isAudio = (m_cue->type() == Cue::Type::Audio);
     const QString filter = isAudio
-        ? "File audio (*.mp3 *.wav *.flac *.ogg *.aac *.m4a *.opus)"
+        ? "File audio (*.mp3 *.wav *.flac *.ogg *.aac *.m4a *.opus *.aiff *.aif)"
         : "File video (*.mp4 *.mkv *.avi *.mov *.webm *.m4v)";
     const QString path = QFileDialog::getOpenFileName(this, "Scegli file", {}, filter);
     if (path.isEmpty()) return;
@@ -702,8 +916,9 @@ void InspectorPanel::onFilePathChanged() {}
 
 void InspectorPanel::onVolumeChanged(double v) {
     if (!m_cue) return;
-    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue)->setVolume(v);
-    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue)->setVolume(v);
+    const double linear = dbToLinear(v);
+    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue)->setVolume(linear);
+    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue)->setVolume(linear);
 }
 
 void InspectorPanel::onFadeInChanged(double v) {
@@ -791,6 +1006,9 @@ void InspectorPanel::populateTargetCombo() {
     // PlayCue and SpeedCue can only target Audio or Video cues
     const bool mediaOnly = m_cue && (m_cue->type() == Cue::Type::Play
                                   || m_cue->type() == Cue::Type::Speed);
+    // EffectCue and ResetEffectCue can only target AudioCue
+    const bool audioOnly = m_cue && (m_cue->type() == Cue::Type::Effect
+                                  || m_cue->type() == Cue::Type::ResetEffect);
 
     const QString currentId = m_targetCombo->currentData().toString();
     m_targetCombo->blockSignals(true);
@@ -800,6 +1018,8 @@ void InspectorPanel::populateTargetCombo() {
         Cue *c = m_cueList->cueAt(i);
         if (c == m_cue) continue;
         if (mediaOnly && c->type() != Cue::Type::Audio && c->type() != Cue::Type::Video)
+            continue;
+        if (audioOnly && c->type() != Cue::Type::Audio)
             continue;
         const QString num = c->number().isEmpty() ? QString::number(i + 1) : c->number();
         const QString name = c->name().isEmpty() ? "(senza nome)" : c->name();
@@ -814,13 +1034,14 @@ void InspectorPanel::onTargetChanged(int) {
     if (!m_cue) return;
     const Cue::Type t = m_cue->type();
     if (t == Cue::Type::Stop  || t == Cue::Type::Fade  || t == Cue::Type::Pause
-     || t == Cue::Type::Play  || t == Cue::Type::Speed)
+     || t == Cue::Type::Play  || t == Cue::Type::Speed
+     || t == Cue::Type::Effect || t == Cue::Type::ResetEffect)
         static_cast<ControlCue*>(m_cue)->setTargetId(m_targetCombo->currentData().toString());
 }
 
 void InspectorPanel::onFadeTargetVolChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
-        static_cast<FadeCue*>(m_cue)->setTargetVolume(v);
+        static_cast<FadeCue*>(m_cue)->setTargetVolume(dbToLinear(v));
 }
 
 void InspectorPanel::onFadeDurationChanged(double v) {
@@ -840,7 +1061,12 @@ void InspectorPanel::onMicDeviceChanged(int) {
 
 void InspectorPanel::onMicVolumeChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Mic)
-        static_cast<MicCue*>(m_cue)->setVolume(v);
+        static_cast<MicCue*>(m_cue)->setVolume(dbToLinear(v));
+}
+
+void InspectorPanel::onEffectDurationChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Effect)
+        static_cast<EffectCue*>(m_cue)->setEffectDuration(v);
 }
 
 void InspectorPanel::onSpeedRateChanged(double v) {

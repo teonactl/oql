@@ -1,13 +1,14 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QColor>
 #include <QJsonObject>
 #include <QElapsedTimer>
 
 class Cue : public QObject {
     Q_OBJECT
 public:
-    enum class Type  { Audio, Video, Stop, Fade, Pause, Speed, Play, Mic, Group, Label, Text };
+    enum class Type  { Audio, Video, Stop, Fade, Pause, Speed, Play, Mic, Group, Label, Text, Effect, ResetEffect, Script };
     enum class State { Idle, Waiting, Playing, Paused };
 
     explicit Cue(QObject *parent = nullptr);
@@ -23,6 +24,9 @@ public:
     void setName(const QString &v)          { m_name          = v; emit propertyChanged(); }
     void setNotes(const QString &v)         { m_notes         = v; emit propertyChanged(); }
     void setParentGroupId(const QString &v) { m_parentGroupId = v; emit propertyChanged(); }
+
+    QColor userColor() const               { return m_userColor; }
+    void   setUserColor(const QColor &c)   { m_userColor = c; emit propertyChanged(); }
 
     double preWait()   const { return m_preWait; }
     double postWait()  const { return m_postWait; }
@@ -76,6 +80,7 @@ protected:
     QString m_name;
     QString m_notes;
     QString m_parentGroupId;
+    QColor  m_userColor;
     double  m_preWait      = 0.0;
     double  m_postWait     = 0.0;
     bool    m_autoContinue = false;

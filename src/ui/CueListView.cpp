@@ -1,8 +1,11 @@
 #include "CueListView.h"
 #include "CueListModel.h"
 #include "engine/ControlCues.h"
+#include "engine/AppSettings.h"
+#include "engine/Cue.h"
 #include <QHeaderView>
 #include <QMenu>
+#include <QPixmap>
 #include <QContextMenuEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -17,31 +20,36 @@
 #include <QApplication>
 #include <QDataStream>
 #include <QResizeEvent>
+#include <QTimer>
 
 CueListView::CueListView(CueListModel *model, QWidget *parent)
     : QTableView(parent), m_model(model)
 {
     setModel(model);
     setSelectionBehavior(QAbstractItemView::SelectRows);
-    setSelectionMode(QAbstractItemView::SingleSelection);
-    setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    setSelectionMode(QAbstractItemView::ExtendedSelection);
+    setEditTriggers(QAbstractItemView::EditKeyPressed);
     setAlternatingRowColors(true);
     setShowGrid(false);
     verticalHeader()->setVisible(false);
-    verticalHeader()->setDefaultSectionSize(28);
+    verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
+    {
+        QFont f = font();
+        const QString fam = AppSettings::instance().cueListFontFamily();
+        if (!fam.isEmpty()) f.setFamily(fam);
+        f.setPointSize(AppSettings::instance().cueListFontSize());
+        setFont(f);
+    }
 
     auto *h = horizontalHeader();
     h->setSectionResizeMode(QHeaderView::Interactive);
     h->setMinimumSectionSize(24);
 
-    setColumnWidth(CueListModel::ColNumber,   50);
-    setColumnWidth(CueListModel::ColType,     60);
-    setColumnWidth(CueListModel::ColName,     220);
-    setColumnWidth(CueListModel::ColTarget,   200);
-    setColumnWidth(CueListModel::ColPreWait,  70);
-    setColumnWidth(CueListModel::ColDuration, 70);
-    setColumnWidth(CueListModel::ColPostWait, 70);
-    setColumnWidth(CueListModel::ColContinue, 30);
+    const QList<int> defaults = { 50, 60, 220, 200, 70, 70, 70, 30 };
+    const QList<int> saved    = AppSettings::instance().cueListColumnWidths();
+    const QList<int> &widths  = (saved.size() == CueListModel::ColCount) ? saved : defaults;
+    for (int c = 0; c < CueListModel::ColCount; ++c)
+        setColumnWidth(c, widths[c]);
 
     setDragEnabled(false);
     setAcceptDrops(true);
@@ -50,12 +58,34 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
 
     connect(h, &QHeaderView::sectionResized, this, [this](int, int, int) {
         stretchFlexColumns();
+        saveColumnWidths();
     });
 }
 
 void CueListView::resizeEvent(QResizeEvent *event) {
     QTableView::resizeEvent(event);
     stretchFlexColumns();
+}
+
+void CueListView::saveColumnWidths() {
+    auto *h = horizontalHeader();
+    QList<int> widths;
+    for (int c = 0; c < CueListModel::ColCount; ++c)
+        widths.append(h->sectionSize(c));
+    AppSettings::instance().setCueListColumnWidths(widths);
+}
+
+void CueListView::applyRowHeight() {
+    verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
+}
+
+void CueListView::applyFont() {
+    QFont f = font();
+    const QString family = AppSettings::instance().cueListFontFamily();
+    if (!family.isEmpty())
+        f.setFamily(family);
+    f.setPointSize(AppSettings::instance().cueListFontSize());
+    setFont(f);
 }
 
 void CueListView::stretchFlexColumns() {
@@ -94,13 +124,16 @@ QVector<int> CueListView::validTargetRows(int srcRow) const {
     const bool srcIsMedia = srcCue
         && (srcCue->type() == Cue::Type::Audio || srcCue->type() == Cue::Type::Video);
 
+    const bool srcIsAudio = srcCue && srcCue->type() == Cue::Type::Audio;
     for (int row = 0; row < model()->rowCount(); ++row) {
         if (row == srcRow) continue;
         Cue *dstCue = m_model->cueForRow(row);
         if (!dynamic_cast<ControlCue*>(dstCue)) continue;
         const bool mediaOnly = (dstCue->type() == Cue::Type::Play
                              || dstCue->type() == Cue::Type::Speed);
-        if (!mediaOnly || srcIsMedia)
+        const bool audioOnly = (dstCue->type() == Cue::Type::Effect
+                             || dstCue->type() == Cue::Type::ResetEffect);
+        if ((!mediaOnly || srcIsMedia) && (!audioOnly || srcIsAudio))
             rows.append(row);
     }
     return rows;
@@ -124,10 +157,65 @@ static bool isOnRowCenter(const QRect &rowRect, int posY) {
     return posY >= rowRect.top() + edge && posY <= rowRect.bottom() - edge;
 }
 
+// ── Editor navigation ─────────────────────────────────────────────────────────
+
+// Tab/Shift+Tab strategy:
+//   closeEditor  — close with NoHint (skip Qt's EditNextItem pipeline entirely),
+//                  move selection to next/prev row, set m_editOnCurrentChange.
+//   currentChanged — fires synchronously from setCurrentIndex; if flag is set,
+//                  calls edit() on the new cell.  edit() is called AFTER the
+//                  base has fully settled (state=NoState, selection updated),
+//                  so the editor opens and keeps focus reliably every iteration.
+// Tab/Shift+Tab: use NoUpdate when setting current to avoid selectionChanged,
+// which triggers onSelectionChanged → setPlayhead → playheadChanged → selectRow,
+// a chain that internally calls setCurrentIndex with the wrong column before
+// our currentChanged slot fires.  With NoUpdate only currentChanged fires,
+// keeping the column intact.  edit() in currentChanged then updates the selection.
+void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) {
+    if (hint == QAbstractItemDelegate::EditNextItem
+     || hint == QAbstractItemDelegate::EditPreviousItem) {
+        const QModelIndex cur = currentIndex();
+        QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
+        const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
+                            ? cur.row() + 1 : cur.row() - 1;
+        if (nextRow >= 0 && nextRow < model()->rowCount()) {
+            m_editOnCurrentChange = true;
+            selectionModel()->setCurrentIndex(
+                model()->index(nextRow, cur.column()),
+                QItemSelectionModel::NoUpdate);
+        }
+        return;
+    }
+    QAbstractItemView::closeEditor(editor, hint);
+}
+
+void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &previous) {
+    QTableView::currentChanged(current, previous);
+    if (m_editOnCurrentChange) {
+        m_editOnCurrentChange = false;
+        edit(current);  // edit() calls select() internally, updating the row highlight
+    }
+}
+
+QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
+    return QTableView::moveCursor(action, mods);
+}
+
 // ── Context menu / keyboard ───────────────────────────────────────────────────
 
 void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     QMenu menu(this);
+
+    const auto selIdxs = selectionModel()->selectedRows();
+    if (selIdxs.size() >= 2) {
+        QVector<int> rows;
+        for (const auto &idx : selIdxs) rows.append(idx.row());
+        std::sort(rows.begin(), rows.end());
+        menu.addAction(QString("Raggruppa %1 selezionate").arg(rows.size()),
+                       this, [this, rows]() { emit groupSelectionRequested(rows); });
+        menu.addSeparator();
+    }
+
     menu.addAction("Aggiungi Audio Cue",     this, &CueListView::addAudioRequested);
     menu.addAction("Aggiungi Video Cue",     this, &CueListView::addVideoRequested);
     menu.addSeparator();
@@ -136,11 +224,55 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction("Aggiungi Pause Cue",     this, &CueListView::addPauseRequested);
     menu.addAction("Aggiungi Microfono Cue", this, &CueListView::addMicRequested);
     menu.addSeparator();
-    menu.addAction("Aggiungi Gruppo",        this, &CueListView::addGroupRequested);
-    menu.addAction("Aggiungi Etichetta",     this, &CueListView::addLabelRequested);
-    menu.addAction("Aggiungi Testo",         this, &CueListView::addTextRequested);
+    menu.addAction("Aggiungi Gruppo",               this, &CueListView::addGroupRequested);
+    menu.addAction("Aggiungi Etichetta",            this, &CueListView::addLabelRequested);
+    menu.addAction("Aggiungi Testo",                this, &CueListView::addTextRequested);
     menu.addSeparator();
-    menu.addAction("Elimina cue",            this, &CueListView::deleteRequested);
+    menu.addAction("Aggiungi Effect Cue",           this, &CueListView::addEffectRequested);
+    menu.addAction("Aggiungi Reset Effetti Cue",    this, &CueListView::addResetEffectRequested);
+    menu.addAction("Aggiungi Script Cue",           this, &CueListView::addScriptRequested);
+    menu.addSeparator();
+    // Color palette submenu — visible only when at least one row is selected
+    if (!selIdxs.isEmpty()) {
+        static const struct { const char *name; QColor color; } kPalette[] = {
+            { "Rosa",     QColor(255, 175, 185) },
+            { "Pesca",    QColor(255, 210, 170) },
+            { "Giallo",   QColor(255, 240, 155) },
+            { "Verde",    QColor(185, 240, 185) },
+            { "Menta",    QColor(170, 235, 215) },
+            { "Celeste",  QColor(170, 215, 255) },
+            { "Azzurro",  QColor(185, 195, 255) },
+            { "Viola",    QColor(215, 185, 255) },
+            { "Lilla",    QColor(240, 185, 255) },
+            { "Grigio",   QColor(215, 215, 220) },
+        };
+
+        QMenu *colorMenu = menu.addMenu("Colore");
+
+        auto makeIcon = [](QColor c) {
+            QPixmap px(14, 14);
+            px.fill(c);
+            return QIcon(px);
+        };
+
+        QVector<int> targetRows;
+        for (const auto &idx : selIdxs) targetRows.append(idx.row());
+
+        for (const auto &entry : kPalette) {
+            QColor c = entry.color;
+            colorMenu->addAction(makeIcon(c), entry.name, this, [this, targetRows, c]() {
+                for (int row : targetRows)
+                    if (Cue *cue = m_model->cueForRow(row)) cue->setUserColor(c);
+            });
+        }
+        colorMenu->addSeparator();
+        colorMenu->addAction("Nessuno", this, [this, targetRows]() {
+            for (int row : targetRows)
+                if (Cue *cue = m_model->cueForRow(row)) cue->setUserColor(QColor{});
+        });
+        menu.addSeparator();
+    }
+    menu.addAction("Elimina cue",                   this, &CueListView::deleteRequested);
     menu.exec(event->globalPos());
 }
 
@@ -151,8 +283,15 @@ void CueListView::keyPressEvent(QKeyEvent *event) {
     }
     if (event->key() == Qt::Key_F2) {
         const QModelIndex cur = currentIndex();
-        if (cur.isValid()) {
-            edit(cur);
+        if (cur.isValid()) { edit(cur); return; }
+    }
+    if (event->key() == Qt::Key_G && (event->modifiers() & Qt::ControlModifier)) {
+        const auto selIdxs = selectionModel()->selectedRows();
+        if (selIdxs.size() >= 2) {
+            QVector<int> rows;
+            for (const auto &idx : selIdxs) rows.append(idx.row());
+            std::sort(rows.begin(), rows.end());
+            emit groupSelectionRequested(rows);
             return;
         }
     }
@@ -162,32 +301,13 @@ void CueListView::keyPressEvent(QKeyEvent *event) {
 void CueListView::mouseDoubleClickEvent(QMouseEvent *event) {
     const QModelIndex idx = indexAt(event->pos());
     if (!idx.isValid()) return;
-    const int col = idx.column();
 
-    // Toggle group collapse on double-click anywhere on the row
     Cue *cue = m_model->cueForRow(idx.row());
-    if (cue && cue->type() == Cue::Type::Group) {
+    if (!cue) return;
+
+    if (cue->type() == Cue::Type::Group) {
         emit groupToggleRequested(idx.row());
         return;
-    }
-
-    // Inline editing columns
-    if (col == CueListModel::ColNumber
-        || col == CueListModel::ColName
-        || col == CueListModel::ColPreWait
-        || col == CueListModel::ColDuration
-        || col == CueListModel::ColPostWait) {
-        QTableView::mouseDoubleClickEvent(event);
-        return;
-    }
-
-    // File picker for audio/video Target cell
-    if (col == CueListModel::ColTarget) {
-        Cue *cue = m_model->cueForRow(idx.row());
-        if (cue && (cue->type() == Cue::Type::Audio || cue->type() == Cue::Type::Video)) {
-            emit filePickRequested(idx.row());
-            return;
-        }
     }
 
     emit cueDoubleClicked(idx.row());
@@ -214,13 +334,33 @@ void CueListView::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
-    m_validTargetRows = validTargetRows(m_dragRow);
-    m_validGroupRows  = validGroupRows(m_dragRow);
+    // Collect all selected rows; if dragRow is among them use them all, else drag just dragRow
+    const auto selIdxs = selectionModel()->selectedRows();
+    QVector<int> dragRows;
+    for (const auto &idx : selIdxs) dragRows.append(idx.row());
+    if (!dragRows.contains(m_dragRow)) dragRows = { m_dragRow };
+    std::sort(dragRows.begin(), dragRows.end());
+
+    const bool isMulti = dragRows.size() > 1;
+    if (isMulti) {
+        // Multi-drag: only group rows are valid targets
+        m_validTargetRows.clear();
+        m_validGroupRows.clear();
+        for (int row = 0; row < model()->rowCount(); ++row) {
+            if (dragRows.contains(row)) continue;
+            Cue *c = m_model->cueForRow(row);
+            if (c && c->type() == Cue::Type::Group)
+                m_validGroupRows.append(row);
+        }
+    } else {
+        m_validTargetRows = validTargetRows(m_dragRow);
+        m_validGroupRows  = validGroupRows(m_dragRow);
+    }
     viewport()->update();
 
     QByteArray payload;
     QDataStream ds(&payload, QIODevice::WriteOnly);
-    ds << m_dragRow;
+    ds << dragRows;
 
     auto *mime = new QMimeData;
     mime->setData(kMime, payload);
@@ -354,13 +494,11 @@ void CueListView::dropEvent(QDropEvent *event) {
         return;
     }
 
-    // Always read srcRow from MIME data — on X11/Wayland mouseReleaseEvent
-    // fires before dropEvent and resets m_dragRow to -1 before we get here.
     QByteArray payload = event->mimeData()->data(kMime);
     QDataStream ds(&payload, QIODevice::ReadOnly);
-    int srcRow = -1;
-    ds >> srcRow;
-    if (srcRow < 0) {
+    QVector<int> srcRows;
+    ds >> srcRows;
+    if (srcRows.isEmpty()) {
         event->ignore();
         viewport()->update();
         return;
@@ -369,20 +507,38 @@ void CueListView::dropEvent(QDropEvent *event) {
     const QPoint      pos  = event->position().toPoint();
     const QModelIndex dest = indexAt(pos);
 
-    // Re-evaluate at drop time using m_validGroupRows / m_validTargetRows directly.
-    // dragLeaveEvent fires just before dropEvent on X11 and clears m_groupDropHighlight
-    // and m_dropHighlightRow, so we cannot rely on those saved highlights here.
-    // m_validGroupRows and m_validTargetRows are NOT cleared by dragLeaveEvent.
-    if (dest.isValid() && dest.row() != srcRow) {
+    auto clearDragState = [this]() {
+        m_dragRow = -1; m_dropHighlightRow = -1; m_groupDropHighlight = -1;
+        m_validTargetRows.clear(); m_validGroupRows.clear();
+    };
 
-        // Group assignment — any position over a valid group row counts at drop time
+    // ── Multi-row drop ────────────────────────────────────────────────────────
+    if (srcRows.size() > 1) {
+        if (dest.isValid() && m_validGroupRows.contains(dest.row())) {
+            const int grp = dest.row();
+            clearDragState();
+            emit multiGroupAssignRequested(srcRows, grp);
+            event->setDropAction(Qt::IgnoreAction);
+            event->accept();
+            viewport()->update();
+            return;
+        }
+        // Multi-drag not over a valid group: abort
+        clearDragState();
+        event->setDropAction(Qt::IgnoreAction);
+        event->accept();
+        viewport()->update();
+        return;
+    }
+
+    // ── Single-row drop ───────────────────────────────────────────────────────
+    const int srcRow = srcRows.first();
+
+    if (dest.isValid() && dest.row() != srcRow) {
+        // Group assignment
         if (m_validGroupRows.contains(dest.row())) {
             const int grp = dest.row();
-            m_dragRow            = -1;
-            m_dropHighlightRow   = -1;
-            m_groupDropHighlight = -1;
-            m_validTargetRows.clear();
-            m_validGroupRows.clear();
+            clearDragState();
             emit groupAssignRequested(srcRow, grp);
             selectRow(srcRow);
             event->setDropAction(Qt::IgnoreAction);
@@ -392,16 +548,12 @@ void CueListView::dropEvent(QDropEvent *event) {
         }
 
         // Target assignment — center zone or explicit Target column
-        const bool onTgtCol  = dest.column() == CueListModel::ColTarget;
-        const QRect rowRect  = visualRect(model()->index(dest.row(), 0));
-        const bool  onCenter = isOnRowCenter(rowRect, pos.y());
+        const bool onTgtCol = dest.column() == CueListModel::ColTarget;
+        const QRect rowRect = visualRect(model()->index(dest.row(), 0));
+        const bool onCenter = isOnRowCenter(rowRect, pos.y());
         if ((onCenter || onTgtCol) && m_validTargetRows.contains(dest.row())) {
             const int tgt = dest.row();
-            m_dragRow            = -1;
-            m_dropHighlightRow   = -1;
-            m_groupDropHighlight = -1;
-            m_validTargetRows.clear();
-            m_validGroupRows.clear();
+            clearDragState();
             emit targetAssignRequested(srcRow, tgt);
             selectRow(tgt);
             event->setDropAction(Qt::IgnoreAction);
@@ -424,33 +576,25 @@ void CueListView::dropEvent(QDropEvent *event) {
 
     int targetRow = destRow;
     if (srcRow < destRow) targetRow--;
-
-    const int src = srcRow;
-    m_dragRow            = -1;
-    m_dropHighlightRow   = -1;
-    m_groupDropHighlight = -1;
-    m_validTargetRows.clear();
-    m_validGroupRows.clear();
-
+    clearDragState();
     targetRow = qBound(0, targetRow, model()->rowCount() - 1);
 
-    Cue *srcCue = m_model->cueForRow(src);
+    Cue *srcCue = m_model->cueForRow(srcRow);
     const bool isChild = srcCue && !srcCue->parentGroupId().isEmpty();
 
     if (isChild) {
         Cue *dstCue = m_model->cueForRow(targetRow);
-        // Stay in group only when dropping on own group header or a sibling
         const bool staysInGroup = dstCue && (
             (dstCue->type() == Cue::Type::Group && dstCue->id() == srcCue->parentGroupId()) ||
             (dstCue->parentGroupId() == srcCue->parentGroupId())
         );
         if (staysInGroup) {
-            if (src != targetRow) emit moveRequested(src, targetRow);
+            if (srcRow != targetRow) emit moveRequested(srcRow, targetRow);
         } else {
-            emit ungroupRequested(src, targetRow);
+            emit ungroupRequested(srcRow, targetRow);
         }
-    } else if (src != targetRow) {
-        emit moveRequested(src, targetRow);
+    } else if (srcRow != targetRow) {
+        emit moveRequested(srcRow, targetRow);
     }
 
     event->setDropAction(Qt::IgnoreAction);

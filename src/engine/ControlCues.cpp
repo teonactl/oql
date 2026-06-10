@@ -1,4 +1,5 @@
 #include "ControlCues.h"
+#include "AudioCue.h"
 #include <QJsonObject>
 
 // ── SpeedCue ──────────────────────────────────────────────────────────────────
@@ -128,4 +129,90 @@ QJsonObject SpeedCue::toJson() const {
 void SpeedCue::fromJson(const QJsonObject &o) {
     ControlCue::fromJson(o);
     m_rate = o["rate"].toDouble(1.5);
+}
+
+// ── EffectCue ─────────────────────────────────────────────────────────────────
+
+EffectCue::EffectCue(QObject *parent) : ControlCue(parent) {
+    m_timer = new QTimer(this);
+    m_timer->setSingleShot(true);
+    connect(m_timer, &QTimer::timeout, this, &EffectCue::onTimeout);
+}
+
+void EffectCue::go() {
+    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    if (!ac) { setState(State::Idle); emit finished(); return; }
+
+    m_timer->stop();  // cancel any pending auto-reset from a previous go()
+
+    if (!ac->hasPluginSnapshot())
+        ac->savePluginSnapshot();
+    ac->applyPluginChain(m_chain.toJson());
+
+    m_activeTarget = m_target;
+    m_startTimer.start();
+    setState(State::Playing);
+
+    if (m_duration > 0.001) {
+        m_timer->start(int(m_duration * 1000));
+    } else {
+        // Permanent (no auto-reset): stay Playing so the card shows in ActiveCuesPanel.
+        // Emit finished() immediately so autoContinue/autoFollow still work.
+        emit finished();
+    }
+}
+
+void EffectCue::stop() {
+    m_timer->stop();
+    m_startTimer.invalidate();
+    if (m_state == State::Playing && m_activeTarget) {
+        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+            ac->restorePluginSnapshot();
+        m_activeTarget = nullptr;
+    }
+    setState(State::Idle);
+}
+
+void EffectCue::onTimeout() {
+    m_startTimer.invalidate();
+    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+        ac->restorePluginSnapshot();
+    m_activeTarget = nullptr;
+    setState(State::Idle);
+    emit finished();
+}
+
+double EffectCue::position() const {
+    if (m_duration <= 0.001 || !m_startTimer.isValid()) return 0.0;
+    return qMin(m_startTimer.elapsed() / 1000.0, m_duration);
+}
+
+QJsonObject EffectCue::toJson() const {
+    auto obj          = ControlCue::toJson();
+    obj["cueType"]    = "effect";
+    obj["chain"]      = m_chain.toJson();
+    obj["duration"]   = m_duration;
+    return obj;
+}
+
+void EffectCue::fromJson(const QJsonObject &o) {
+    ControlCue::fromJson(o);
+    m_chain.fromJson(o["chain"].toArray());
+    m_duration = o["duration"].toDouble(0.0);
+}
+
+// ── ResetEffectCue ────────────────────────────────────────────────────────────
+
+void ResetEffectCue::go() {
+    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    if (!ac) { setState(State::Idle); emit finished(); return; }
+    ac->restorePluginSnapshot();
+    setState(State::Idle);
+    emit finished();
+}
+
+QJsonObject ResetEffectCue::toJson() const {
+    auto obj       = ControlCue::toJson();
+    obj["cueType"] = "reseteffect";
+    return obj;
 }

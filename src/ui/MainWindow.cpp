@@ -5,6 +5,7 @@
 #include "ActiveCuesPanel.h"
 #include "CueInfoBar.h"
 #include "SettingsDialog.h"
+#include "WebServer.h"
 #include "engine/AudioCue.h"
 #include "engine/VideoCue.h"
 #include "engine/ControlCues.h"
@@ -12,6 +13,7 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#include "engine/ScriptCue.h"
 #include "TextOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
@@ -35,6 +37,30 @@
 #include <QToolButton>
 #include <QUndoStack>
 #include <QTimer>
+#include <QDialog>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QShortcut>
+#include <algorithm>
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static std::unique_ptr<ControlCue> makeCtrlCue(Cue::Type type, double extra) {
+    switch (type) {
+    case Cue::Type::Stop:        return std::make_unique<StopCue>();
+    case Cue::Type::Fade: {
+        auto c = std::make_unique<FadeCue>();
+        c->setFadeDuration(AppSettings::instance().defaultFadeDuration());
+        return c;
+    }
+    case Cue::Type::Pause:       return std::make_unique<PauseCue>();
+    case Cue::Type::Play:        return std::make_unique<PlayCue>();
+    case Cue::Type::Speed:       return std::make_unique<SpeedCue>(extra > 0.0 ? extra : 1.5);
+    case Cue::Type::Effect:      return std::make_unique<EffectCue>();
+    case Cue::Type::ResetEffect: return std::make_unique<ResetEffectCue>();
+    default:                     return nullptr;
+    }
+}
 
 // ── Undo/redo ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +97,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     buildUi();
     buildMenus();
     buildToolBar();
+    applyShortcuts();
 
     connect(&m_workspace, &Workspace::modifiedChanged,     this, &MainWindow::updateTitle);
     connect(&m_workspace, &Workspace::filePathChanged,     this, &MainWindow::updateTitle);
@@ -78,6 +105,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_undoStack,  &QUndoStack::cleanChanged,       this, &MainWindow::updateTitle);
 
     applyProjectSettings();
+
+    // Web remote server
+    m_webServer = new WebServer(m_workspace.cueList(), this);
+    connect(m_webServer, &WebServer::started, this, [this](quint16) {
+        m_webUrlLabel->setText("  🌐 " + m_webServer->localUrl());
+        m_webUrlLabel->show();
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(true);
+    });
+    connect(m_webServer, &WebServer::stopped, this, [this]() {
+        m_webUrlLabel->hide();
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(false);
+    });
+    connect(m_webServer, &WebServer::errorOccurred, this, [this](const QString &msg) {
+        QMessageBox::warning(this, "Web Remote", "Impossibile avviare il server:\n" + msg);
+        const QSignalBlocker b(m_webAction);
+        m_webAction->setChecked(false);
+    });
+    if (AppSettings::instance().webEnabled())
+        m_webServer->start(AppSettings::instance().webPort());
 
     connect(m_workspace.cueList(), &CueList::cueAdded, this, [this](int index) {
         if (m_workspace.cueList()->cueAt(index)->type() == Cue::Type::Video)
@@ -138,27 +186,34 @@ void MainWindow::buildUi() {
     inspScroll->setWidgetResizable(true);
     inspScroll->setFrameShape(QFrame::NoFrame);
     inspScroll->setWidget(m_inspector);
-    inspScroll->setMinimumHeight(260);
-    inspScroll->setMaximumHeight(400);
+    inspScroll->setMinimumHeight(0);
 
     // Vertical split: content area (top) + inspector (bottom)
-    auto *mainSplit = new QSplitter(Qt::Vertical);
-    mainSplit->addWidget(topSplit);
-    mainSplit->addWidget(inspScroll);
-    mainSplit->setStretchFactor(0, 1);
-    mainSplit->setStretchFactor(1, 0);
-    mainSplit->setHandleWidth(4);
+    m_mainSplit = new QSplitter(Qt::Vertical);
+    m_mainSplit->addWidget(topSplit);
+    m_mainSplit->addWidget(inspScroll);
+    m_mainSplit->setStretchFactor(0, 1);
+    m_mainSplit->setStretchFactor(1, 0);
+    m_mainSplit->setHandleWidth(4);
+    m_mainSplit->setCollapsible(1, true);
+    m_mainSplit->setSizes({10000, 0});
 
     auto *central = new QWidget;
     auto *vlay    = new QVBoxLayout(central);
     vlay->setContentsMargins(0, 0, 0, 0);
     vlay->setSpacing(0);
-    vlay->addWidget(mainSplit, 1);
+    vlay->addWidget(m_mainSplit, 1);
     vlay->addWidget(m_infoBar);
     setCentralWidget(central);
 
     m_statusLbl = new QLabel("Pronto");
     statusBar()->addWidget(m_statusLbl);
+
+    m_webUrlLabel = new QLabel;
+    m_webUrlLabel->setStyleSheet("color: #4a9eff; font-size: 9pt;");
+    m_webUrlLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_webUrlLabel->hide();
+    statusBar()->addPermanentWidget(m_webUrlLabel);
 
     connect(m_cueView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &MainWindow::onSelectionChanged);
@@ -170,7 +225,10 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addMicRequested,   this, &MainWindow::addMicCue);
     connect(m_cueView, &CueListView::addGroupRequested, this, &MainWindow::addGroupCue);
     connect(m_cueView, &CueListView::addLabelRequested, this, &MainWindow::addLabelCue);
-    connect(m_cueView, &CueListView::addTextRequested,  this, &MainWindow::addTextCue);
+    connect(m_cueView, &CueListView::addTextRequested,         this, &MainWindow::addTextCue);
+    connect(m_cueView, &CueListView::addEffectRequested,       this, &MainWindow::addEffectCue);
+    connect(m_cueView, &CueListView::addResetEffectRequested,  this, &MainWindow::addResetEffectCue);
+    connect(m_cueView, &CueListView::addScriptRequested,        this, &MainWindow::addScriptCue);
     connect(m_cueView, &CueListView::deleteRequested,   this, &MainWindow::deleteSelectedCue);
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
@@ -227,10 +285,34 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::cueDoubleClicked, this, [this](int row) {
         Cue *cue = m_model->cueForRow(row);
         if (!cue) return;
-        if (cue->state() == Cue::State::Playing)
-            cue->stop();
-        else
-            cue->go();
+        // Expand inspector if collapsed
+        const QList<int> sz = m_mainSplit->sizes();
+        if (sz.size() >= 2 && sz[1] < 50) {
+            const int total = sz[0] + sz[1];
+            m_mainSplit->setSizes({ qMax(0, total - 280), 280 });
+        }
+        m_inspector->setCue(cue);
+    });
+
+    connect(m_cueView, &CueListView::groupSelectionRequested,
+            this, &MainWindow::groupSelectedCues);
+    connect(m_cueView, &CueListView::multiGroupAssignRequested,
+            this, [this](QVector<int> rows, int grpVis) {
+        Cue *grp = m_model->cueForRow(grpVis);
+        if (!grp || grp->type() != Cue::Type::Group) return;
+        // Resolve cue pointers BEFORE the loop: each setParentGroupId triggers
+        // a model reset that reshuffles visible row indices, so we can't use
+        // visible indices inside the mutation loop.
+        QVector<Cue*> cues;
+        for (int vis : rows) {
+            Cue *c = m_model->cueForRow(vis);
+            if (c && c->type() != Cue::Type::Group)
+                cues.append(c);
+        }
+        doUndoable("Aggiungi a gruppo", [&] {
+            for (Cue *c : cues)
+                c->setParentGroupId(grp->id());
+        });
     });
 
     connect(m_cueView, &CueListView::filePickRequested, this, [this](int row) {
@@ -307,6 +389,9 @@ void MainWindow::buildMenus() {
     menuAction(edit, "Aggiungi &Etichetta",        QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
     menuAction(edit, "Aggiungi &Testo",            QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
     edit->addSeparator();
+    menuAction(edit, "Aggiungi cue E&ffetto",      QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
+    menuAction(edit, "Aggiungi cue &Reset Effetti",QKeySequence("Ctrl+Shift+R"), this, &MainWindow::addResetEffectCue);
+    edit->addSeparator();
     menuAction(edit, "&Elimina cue", QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
     // Finestra
@@ -323,21 +408,25 @@ void MainWindow::buildToolBar() {
     tb->setMovable(false);
     tb->setIconSize({20, 20});
 
+    QFont bigFont;
+    bigFont.setPointSize(13);
+    bigFont.setBold(true);
+
     m_goAction = tb->addAction("▶  GO");
-    m_goAction->setShortcut(Qt::Key_Space);
-    m_goAction->setToolTip("Vai (Spazio)");
-    auto goFont = m_goAction->font();
-    goFont.setPointSize(13);
-    goFont.setBold(true);
-    m_goAction->setFont(goFont);
+    m_goAction->setFont(bigFont);
+    m_goAction->setToolTip("Vai");
     connect(m_goAction, &QAction::triggered, this, &MainWindow::go);
 
     tb->addSeparator();
 
-    m_stopAction = tb->addAction("■  Stop All");
-    m_stopAction->setShortcut(Qt::Key_Escape);
-    m_stopAction->setToolTip("Ferma tutto (Esc)");
+    m_stopAction = tb->addAction("■");
+    m_stopAction->setFont(bigFont);
+    m_stopAction->setToolTip("Ferma tutto");
     connect(m_stopAction, &QAction::triggered, this, &MainWindow::stopAll);
+
+    m_firstCueAction = tb->addAction("");
+    m_firstCueAction->setToolTip("Torna alla prima cue");
+    connect(m_firstCueAction, &QAction::triggered, this, &MainWindow::goToFirstCue);
 
     tb->addSeparator();
 
@@ -353,6 +442,15 @@ void MainWindow::buildToolBar() {
         drawFn(p);
         return QIcon(px);
     };
+
+    // ⏮ drawn as pixel icon: left bar + two left-pointing triangles
+    m_firstCueAction->setIcon(makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
+        p.drawRect(2, 3, 2, 14);                                          // left bar
+        QPolygon t1; t1 << QPoint(11, 3) << QPoint(11, 17) << QPoint(5, 10);
+        QPolygon t2; t2 << QPoint(18, 3) << QPoint(18, 17) << QPoint(12, 10);
+        p.drawPolygon(t1);
+        p.drawPolygon(t2);
+    }));
 
     // Audio: play triangle
     auto audioIcon = makeTbIcon(QColor(0x2a, 0x6d, 0xcc), [](QPainter &p) {
@@ -454,6 +552,52 @@ void MainWindow::buildToolBar() {
     addCueBtn(speedUpIcon,   "+ Velocizza",    &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, "+ Rallenta",     &MainWindow::addSpeedDownCue);
 
+    // Effect: lightning bolt (purple #7b359e)
+    auto effectIcon = makeTbIcon(QColor(0x7b, 0x35, 0x9e), [](QPainter &p) {
+        QPolygon bolt;
+        bolt << QPoint(11, 2) << QPoint(5, 11) << QPoint(9, 11)
+             << QPoint(7, 18) << QPoint(15, 9) << QPoint(11, 9);
+        p.drawPolygon(bolt);
+    });
+    // ResetEffect: circular undo arrow (blue-gray #357b9e)
+    auto resetEffectIcon = makeTbIcon(QColor(0x35, 0x7b, 0x9e), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(3, 3, 14, 14, 50*16, 250*16);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        QPolygon arr;
+        arr << QPoint(3, 6) << QPoint(8, 2) << QPoint(8, 10);
+        p.drawPolygon(arr);
+    });
+
+    addCueBtn(effectIcon,      "+ Effetto",      &MainWindow::addEffectCue);
+    addCueBtn(resetEffectIcon, "+ Reset Effetti",&MainWindow::addResetEffectCue);
+
+    auto scriptIcon = makeTbIcon(QColor(0x5a, 0x8a, 0x3a), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0));
+        p.setBrush(Qt::NoBrush);
+        // curly braces { }
+        p.drawArc(5, 3, 4, 5, 90*16, 180*16);
+        p.drawArc(5, 11, 4, 5, 180*16, 180*16);
+        p.drawArc(11, 3, 4, 5, 270*16, 180*16);
+        p.drawArc(11, 11, 4, 5, 0*16, 180*16);
+        p.drawLine(9, 5, 9, 10);
+        p.drawLine(11, 5, 11, 10);
+    });
+    addCueBtn(scriptIcon, "+ Script Cue", &MainWindow::addScriptCue);
+
+    tb->addSeparator();
+
+    m_webAction = tb->addAction("🌐 Remote");
+    m_webAction->setCheckable(true);
+    m_webAction->setToolTip("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)");
+    connect(m_webAction, &QAction::toggled, this, [this](bool on) {
+        if (on == m_webServer->isRunning()) return;
+        if (on) m_webServer->start(AppSettings::instance().webPort());
+        else    m_webServer->stop();
+    });
+
     tb->addSeparator();
 
     auto *videoWin = tb->addAction("📺 Video Out");
@@ -492,6 +636,25 @@ void MainWindow::stopAll() {
     m_workspace.cueList()->stopAll();
 }
 
+void MainWindow::goToFirstCue() {
+    m_workspace.cueList()->setPlayhead(0);
+    const int vis = m_model->visibleRowForActual(0);
+    if (vis >= 0) {
+        m_cueView->selectRow(vis);
+        m_cueView->scrollTo(m_model->index(vis, 0));
+    }
+}
+
+void MainWindow::applyShortcuts() {
+    const auto &s = AppSettings::instance();
+    m_goAction->setShortcut(s.keyGo());
+    m_goAction->setToolTip(QString("Vai (%1)").arg(s.keyGo().toString()));
+    m_stopAction->setShortcut(s.keyStopAll());
+    m_stopAction->setToolTip(QString("Ferma tutto (%1)").arg(s.keyStopAll().toString()));
+    m_firstCueAction->setShortcut(s.keyFirstCue());
+    m_firstCueAction->setToolTip(QString("Torna alla prima cue (%1)").arg(s.keyFirstCue().toString()));
+}
+
 // ── Cue management ────────────────────────────────────────────────────────────
 
 void MainWindow::addAudioCue() {
@@ -522,58 +685,10 @@ void MainWindow::addVideoCue() {
     m_cueView->setFocus();
 }
 
-void MainWindow::addStopCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Stop Cue", [&] {
-        auto cue = std::make_unique<StopCue>();
-        cue->setNumber(nextCueNumber());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
-}
-
-void MainWindow::addFadeCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Fade Cue", [&] {
-        auto cue = std::make_unique<FadeCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setFadeDuration(AppSettings::instance().defaultFadeDuration());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
-}
-
-void MainWindow::addPauseCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Pause Cue", [&] {
-        auto cue = std::make_unique<PauseCue>();
-        cue->setNumber(nextCueNumber());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
-}
-
-void MainWindow::addPlayCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Play Cue", [&] {
-        auto cue = std::make_unique<PlayCue>();
-        cue->setNumber(nextCueNumber());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
-}
+void MainWindow::addStopCue()    { addControlCueImpl(Cue::Type::Stop); }
+void MainWindow::addFadeCue()    { addControlCueImpl(Cue::Type::Fade); }
+void MainWindow::addPauseCue()   { addControlCueImpl(Cue::Type::Pause); }
+void MainWindow::addPlayCue()    { addControlCueImpl(Cue::Type::Play); }
 
 void MainWindow::addMicCue() {
     const auto sel = m_cueView->selectionModel()->selectedRows();
@@ -631,25 +746,18 @@ void MainWindow::addTextCue() {
     m_cueView->setFocus();
 }
 
-void MainWindow::addSpeedUpCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Velocizza Cue", [&] {
-        auto cue = std::make_unique<SpeedCue>(1.5);
-        cue->setNumber(nextCueNumber());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
-}
+void MainWindow::addSpeedUpCue()   { addControlCueImpl(Cue::Type::Speed, 1.5); }
+void MainWindow::addSpeedDownCue() { addControlCueImpl(Cue::Type::Speed, 0.5); }
+void MainWindow::addEffectCue()      { addControlCueImpl(Cue::Type::Effect); }
+void MainWindow::addResetEffectCue() { addControlCueImpl(Cue::Type::ResetEffect); }
 
-void MainWindow::addSpeedDownCue() {
+void MainWindow::addScriptCue() {
     const auto sel = m_cueView->selectionModel()->selectedRows();
     const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Rallenta Cue", [&] {
-        auto cue = std::make_unique<SpeedCue>(0.5);
+    doUndoable("Aggiungi Script Cue", [&] {
+        auto cue = std::make_unique<ScriptCue>();
         cue->setNumber(nextCueNumber());
+        cue->setName("Script");
         m_workspace.cueList()->addCue(std::move(cue), idx);
     });
     const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
@@ -667,6 +775,21 @@ void MainWindow::openSettings() {
     SettingsDialog dlg(&m_workspace, this);
     dlg.exec();
     applyProjectSettings();
+    applyShortcuts();
+    applyWebServer();
+    m_cueView->applyRowHeight();
+    m_cueView->applyFont();
+}
+
+void MainWindow::applyWebServer() {
+    const bool   shouldRun = AppSettings::instance().webEnabled();
+    const quint16 port     = AppSettings::instance().webPort();
+    if (shouldRun) {
+        if (m_webServer->isRunning()) m_webServer->stop();
+        m_webServer->start(port);
+    } else {
+        m_webServer->stop();
+    }
 }
 
 void MainWindow::applyProjectSettings() {
@@ -698,13 +821,196 @@ void MainWindow::assignVideoSinkToAll() {
 void MainWindow::deleteSelectedCue() {
     const auto sel = m_cueView->selectionModel()->selectedRows();
     if (sel.isEmpty()) return;
-    const int actual = m_model->actualRowForVisible(sel.first().row());
-    if (actual < 0) return;
     m_inspector->setCue(nullptr);
     m_infoBar->setCue(nullptr);
-    doUndoable("Elimina cue", [&] {
-        m_workspace.cueList()->removeCue(actual);
+
+    // Collect and sort actual indices in descending order to avoid shift issues
+    QVector<int> actuals;
+    for (const auto &idx : sel) {
+        const int a = m_model->actualRowForVisible(idx.row());
+        if (a >= 0) actuals.append(a);
+    }
+    std::sort(actuals.begin(), actuals.end(), std::greater<int>());
+
+    doUndoable(actuals.size() > 1 ? "Elimina cue selezionate" : "Elimina cue", [&] {
+        for (int a : actuals)
+            m_workspace.cueList()->removeCue(a);
     });
+}
+
+void MainWindow::addControlCueImpl(Cue::Type type, double extra) {
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+
+    // Collect targetable rows (exclude Group, Label, Text)
+    QVector<int> targetVisRows;
+    for (const auto &idx : sel) {
+        Cue *c = m_model->cueForRow(idx.row());
+        if (c && c->type() != Cue::Type::Group
+               && c->type() != Cue::Type::Label
+               && c->type() != Cue::Type::Text)
+            targetVisRows.append(idx.row());
+    }
+    if (targetVisRows.size() >= 2) {
+        showMultiControlDialog(targetVisRows, type, extra);
+        return;
+    }
+
+    const int idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
+    auto tmp = makeCtrlCue(type, extra);
+    if (!tmp) return;
+    const QString desc = "Aggiungi " + tmp->typeName() + " Cue";
+    doUndoable(desc, [&] {
+        auto cue = makeCtrlCue(type, extra);
+        cue->setNumber(nextCueNumber());
+        m_workspace.cueList()->addCue(std::move(cue), idx);
+    });
+    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
+    m_cueView->selectRow(m_model->visibleRowForActual(actual));
+    m_cueView->setFocus();
+}
+
+void MainWindow::showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra) {
+    const int N = visRows.size();
+    auto sample = makeCtrlCue(type, extra);
+    if (!sample) return;
+    const QString typeName = sample->typeName();
+
+    auto *dlg = new QDialog(this, Qt::Dialog);
+    dlg->setWindowTitle("Selezione multipla");
+    dlg->setModal(true);
+    auto *lay = new QVBoxLayout(dlg);
+    lay->setSpacing(6);
+
+    auto *title = new QLabel(
+        QString("Creare %1 Cue per %2 cue selezionate?").arg(typeName).arg(N));
+    QFont f = title->font();
+    f.setPointSize(11);
+    title->setFont(f);
+    lay->addWidget(title);
+    lay->addSpacing(4);
+
+    auto makeBtn = [&](int num, const QString &text) {
+        auto *row   = new QWidget;
+        auto *rl    = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+        auto *numLbl = new QLabel(QString::number(num) + ".");
+        numLbl->setFixedWidth(18);
+        auto *btn = new QPushButton(text);
+        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        btn->setStyleSheet("text-align: left; padding: 5px 10px;");
+        QObject::connect(btn, &QPushButton::clicked, dlg, [dlg, num]() { dlg->done(num); });
+        rl->addWidget(numLbl);
+        rl->addWidget(btn, 1);
+        lay->addWidget(row);
+        return btn;
+    };
+
+    makeBtn(1, QString("Aggiungi %1 %2 Cue dopo l'ultima selezionata").arg(N).arg(typeName));
+    makeBtn(2, QString("Inserisci una %1 Cue dopo ogni cue selezionata").arg(typeName));
+    makeBtn(3, QString("Aggiungi una %1 Cue senza target").arg(typeName));
+
+    lay->addSpacing(4);
+    auto *cancelBtn = new QPushButton("Annulla");
+    QObject::connect(cancelBtn, &QPushButton::clicked, dlg, &QDialog::reject);
+    lay->addWidget(cancelBtn);
+
+    auto *hint = new QLabel("I numeri 1–3 sono tasti rapidi.");
+    hint->setStyleSheet("color: #888; font-size: 9pt;");
+    lay->addWidget(hint);
+
+    // Keyboard shortcuts
+    for (int k = 1; k <= 3; ++k) {
+        auto *sc = new QShortcut(QKeySequence(Qt::Key_0 + k), dlg);
+        QObject::connect(sc, &QShortcut::activated, dlg, [dlg, k]() { dlg->done(k); });
+    }
+
+    const int choice = dlg->exec();
+    delete dlg;
+    if (choice <= 0) return;
+
+    // Collect target IDs and display names BEFORE any insertions
+    struct TargetInfo { int actualRow; QString id; QString displayName; };
+    QVector<TargetInfo> targets;
+    for (int vis : visRows) {
+        Cue *c = m_model->cueForRow(vis);
+        if (!c) continue;
+        const QString name = c->name().isEmpty() ? c->number() : c->name();
+        targets.append({ m_model->actualRowForVisible(vis), c->id(), name });
+    }
+    std::sort(targets.begin(), targets.end(), [](const auto &a, const auto &b) {
+        return a.actualRow < b.actualRow;
+    });
+
+    if (choice == 1) {
+        // Add N cues after the last selected
+        const int insertBase = targets.last().actualRow + 1;
+        doUndoable(QString("Aggiungi %1 %2 Cue").arg(N).arg(typeName), [&] {
+            for (int i = 0; i < targets.size(); ++i) {
+                auto cue = makeCtrlCue(type, extra);
+                cue->setNumber(nextCueNumber());
+                cue->setTargetId(targets[i].id);
+                cue->setName(typeName + " " + targets[i].displayName);
+                m_workspace.cueList()->addCue(std::move(cue), insertBase + i);
+            }
+        });
+    } else if (choice == 2) {
+        // Insert one after each selected cue (process in descending actual row order)
+        QVector<TargetInfo> rev = targets;
+        std::sort(rev.begin(), rev.end(), [](const auto &a, const auto &b) {
+            return a.actualRow > b.actualRow;
+        });
+        doUndoable(QString("Inserisci %1 Cue per ognuna").arg(typeName), [&] {
+            for (const auto &t : rev) {
+                auto cue = makeCtrlCue(type, extra);
+                cue->setNumber(nextCueNumber());
+                cue->setTargetId(t.id);
+                cue->setName(typeName + " " + t.displayName);
+                m_workspace.cueList()->addCue(std::move(cue), t.actualRow + 1);
+            }
+        });
+    } else if (choice == 3) {
+        // Single cue with no target
+        const auto sel = m_cueView->selectionModel()->selectedRows();
+        const int idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.last().row()) + 1;
+        doUndoable("Aggiungi " + typeName + " Cue", [&] {
+            auto cue = makeCtrlCue(type, extra);
+            cue->setNumber(nextCueNumber());
+            m_workspace.cueList()->addCue(std::move(cue), idx);
+        });
+    }
+    m_cueView->setFocus();
+}
+
+void MainWindow::groupSelectedCues(const QVector<int> &visRows) {
+    if (visRows.size() < 2) return;
+
+    // Convert visible → actual, sorted ascending
+    QVector<int> actuals;
+    for (int vis : visRows) {
+        const int a = m_model->actualRowForVisible(vis);
+        if (a >= 0) actuals.append(a);
+    }
+    if (actuals.size() < 2) return;
+    std::sort(actuals.begin(), actuals.end());
+
+    doUndoable("Raggruppa cue selezionate", [&] {
+        auto grp = std::make_unique<GroupCue>();
+        grp->setNumber(nextCueNumber());
+        grp->setName("Gruppo");
+        const QString grpId = grp->id();
+        const int insertAt  = actuals.first();
+        m_workspace.cueList()->addCue(std::move(grp), insertAt);
+        // All actual rows >= insertAt shifted by 1 after the insert
+        for (int &a : actuals)
+            if (a >= insertAt) ++a;
+        for (int a : actuals) {
+            Cue *c = m_workspace.cueList()->cueAt(a);
+            if (c && c->type() != Cue::Type::Group)
+                c->setParentGroupId(grpId);
+        }
+    });
+    m_cueView->setFocus();
 }
 
 // ── Selection ─────────────────────────────────────────────────────────────────

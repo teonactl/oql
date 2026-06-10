@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QDialog>
 #include "engine/Cue.h"
 
 class CueList;
@@ -16,6 +17,9 @@ class QSpinBox;
 class QTimer;
 class WaveformView;
 class QFontComboBox;
+class PluginChainWidget;
+class VuMeter;
+class QPlainTextEdit;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -47,6 +51,7 @@ private slots:
     void onMicDeviceChanged(int idx);
     void onMicVolumeChanged(double v);
     void onSpeedRateChanged(double v);
+    void onEffectDurationChanged(double v);
     void onCuePropertyChanged();
     void onCueStateChanged(Cue::State state);
     void onLoopCountChanged(int v);
@@ -99,10 +104,15 @@ private:
     QDoubleSpinBox *m_fadeOutSpin;
     QComboBox      *m_channelCombo;
     WaveformView   *m_waveformView;
+    VuMeter        *m_vuL          = nullptr;
+    VuMeter        *m_vuR          = nullptr;
     QTimer         *m_playTimer;
+    QTimer         *m_vuTimer      = nullptr;
     QWidget        *m_audioSection;
+    QPushButton    *m_fxBtn        = nullptr;
+    QDialog        *m_fxDialog     = nullptr;
 
-    // Control cues (Stop / Fade / Pause / Speed)
+    // Control cues (Stop / Fade / Pause / Speed / Effect / ResetEffect)
     QWidget        *m_controlSection;
     QComboBox      *m_targetCombo;
     QGroupBox      *m_fadeParamsGroup;
@@ -111,6 +121,10 @@ private:
     QCheckBox      *m_fadeStopAtEndCheck = nullptr;
     QGroupBox      *m_speedGroup     = nullptr;
     QDoubleSpinBox *m_speedRateSpin  = nullptr;
+    QPushButton    *m_effectFxBtn      = nullptr;
+    QDialog        *m_effectFxDialog   = nullptr;
+    QGroupBox      *m_effectGroup      = nullptr;
+    QDoubleSpinBox *m_effectDurSpin    = nullptr;
 
     // Mic cue
     QWidget        *m_micSection     = nullptr;
@@ -127,6 +141,13 @@ private:
     QPushButton    *m_textColorBtn   = nullptr;
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
+
+    PluginChainWidget *m_pluginChainWidget       = nullptr;  // AudioCue chain editor
+    PluginChainWidget *m_effectPluginChainWidget = nullptr;  // EffectCue chain editor
+
+    // Script cue
+    QWidget     *m_scriptSection  = nullptr;
+    QPushButton *m_scriptRunBtn   = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

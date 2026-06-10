@@ -1,13 +1,11 @@
 #include "WaveformView.h"
+#include "engine/miniaudio.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QContextMenuEvent>
 #include <QMenu>
-#include <QAudioDecoder>
-#include <QAudioFormat>
-#include <QAudioBuffer>
-#include <QUrl>
+#include <QThread>
 #include <QLinearGradient>
 #include <QPolygon>
 #include <algorithm>
@@ -23,13 +21,21 @@ WaveformView::WaveformView(QWidget *parent) : QWidget(parent) {
     setStyleSheet("WaveformView { background:#0c0c10; border-radius:3px; }");
 }
 
+WaveformView::~WaveformView() {
+    if (m_decodeThread) {
+        ++m_decodeGeneration;  // invalidate any pending queued lambda
+        m_decodeThread->requestInterruption();
+        m_decodeThread->wait();
+        delete m_decodeThread;
+    }
+}
+
 // ── Public setters ────────────────────────────────────────────────────────────
 
 void WaveformView::setFilePath(const QString &path) {
     if (m_filePath == path) return;
     m_filePath   = path;
     m_waveform.clear();
-    m_rawSamples.clear();
     m_zoom       = 1.0;
     m_viewOffset = 0.0;
     m_trimStart  = -1.0;
@@ -83,73 +89,66 @@ void WaveformView::setTrimEnd(double secs) {
 // ── Decode ────────────────────────────────────────────────────────────────────
 
 void WaveformView::startDecode(const QString &path) {
-    if (m_decoder) { m_decoder->stop(); m_decoder->deleteLater(); m_decoder = nullptr; }
+    if (m_decodeThread) {
+        ++m_decodeGeneration;
+        m_decodeThread->requestInterruption();
+        m_decodeThread->wait();
+        delete m_decodeThread;
+        m_decodeThread = nullptr;
+    }
     m_waveform.clear();
-    m_rawSamples.clear();
+    update();
 
     if (path.isEmpty()) return;
 
-    auto *dec = new QAudioDecoder(this);
-    m_decoder = dec;
+    const int gen = ++m_decodeGeneration;
+    const QByteArray pathUtf8 = path.toUtf8();
 
-    QAudioFormat fmt;
-    fmt.setSampleRate(4000);
-    fmt.setChannelCount(1);
-    fmt.setSampleFormat(QAudioFormat::Float);
-    dec->setAudioFormat(fmt);
-    dec->setSource(QUrl::fromLocalFile(path));
+    m_decodeThread = QThread::create([this, gen, pathUtf8]() {
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 1, 0);
+        ma_decoder dec;
+        if (ma_decoder_init_file(pathUtf8.constData(), &cfg, &dec) != MA_SUCCESS)
+            return;
 
-    // Capture dec by value so callbacks belong to this specific instance,
-    // not to whatever m_decoder points to at the time the signal fires.
-    connect(dec, &QAudioDecoder::bufferReady, this, [this, dec]() {
-        if (dec != m_decoder) return;  // stale — a new file was set
-        while (dec->bufferAvailable()) {
-            const auto buf = dec->read();
-            if (!buf.isValid()) continue;
-            const QAudioFormat f = buf.format();
-            if (f.sampleFormat() == QAudioFormat::Float) {
-                const float *d = buf.constData<float>();
-                for (int i = 0; i < buf.frameCount(); ++i)
-                    m_rawSamples.append(qAbs(d[i]));
-            } else if (f.sampleFormat() == QAudioFormat::Int16) {
-                const int16_t *d = buf.constData<int16_t>();
-                for (int i = 0; i < buf.frameCount(); ++i)
-                    m_rawSamples.append(qAbs(d[i]) / 32768.0f);
-            }
+        constexpr int kBufFrames = 8192;
+        float buf[kBufFrames];
+        QVector<float> raw;
+
+        while (!QThread::currentThread()->isInterruptionRequested()) {
+            ma_uint64 framesRead = 0;
+            ma_decoder_read_pcm_frames(&dec, buf, kBufFrames, &framesRead);
+            for (ma_uint64 i = 0; i < framesRead; ++i)
+                raw.append(qAbs(buf[i]));
+            if (framesRead < static_cast<ma_uint64>(kBufFrames)) break;
         }
-    });
+        ma_decoder_uninit(&dec);
 
-    connect(dec, &QAudioDecoder::finished, this, [this, dec]() {
-        if (dec != m_decoder) return;  // stale — already deleteLater'd by startDecode
-        const int N = m_rawSamples.size();
+        if (QThread::currentThread()->isInterruptionRequested()) return;
+
+        const int N = raw.size();
+        QVector<float> waveform;
         if (N > 0) {
-            const int buckets = 2000;
-            m_waveform.resize(buckets);
-            for (int i = 0; i < buckets; ++i) {
-                const int s = int(qint64(i)   * N / buckets);
-                const int e = int(qint64(i+1) * N / buckets);
+            constexpr int kBuckets = 2000;
+            waveform.resize(kBuckets);
+            for (int i = 0; i < kBuckets; ++i) {
+                const int s = int(qint64(i)   * N / kBuckets);
+                const int e = int(qint64(i+1) * N / kBuckets);
                 float peak = 0.0f;
                 for (int j = s; j < e && j < N; ++j)
-                    peak = qMax(peak, m_rawSamples[j]);
-                m_waveform[i] = peak;
+                    peak = qMax(peak, raw[j]);
+                waveform[i] = peak;
             }
         }
-        m_rawSamples.clear();
-        m_rawSamples.squeeze();
-        m_decoder->deleteLater();
-        m_decoder = nullptr;
-        update();
+
+        QMetaObject::invokeMethod(this, [this, gen, wv = std::move(waveform)]() mutable {
+            if (gen != m_decodeGeneration) return;
+            m_waveform    = std::move(wv);
+            m_decodeThread = nullptr;
+            update();
+        }, Qt::QueuedConnection);
     });
 
-    connect(dec,
-            QOverload<QAudioDecoder::Error>::of(&QAudioDecoder::error),
-            this, [this, dec](QAudioDecoder::Error) {
-        if (dec != m_decoder) return;
-        m_decoder->deleteLater();
-        m_decoder = nullptr;
-    });
-
-    dec->start();
+    m_decodeThread->start();
 }
 
 // ── Paint ─────────────────────────────────────────────────────────────────────

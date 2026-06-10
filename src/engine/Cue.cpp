@@ -12,7 +12,7 @@ void Cue::setState(State s) {
 }
 
 QJsonObject Cue::toJson() const {
-    return {
+    QJsonObject o = {
         {"id",            m_id},
         {"number",        m_number},
         {"name",          m_name},
@@ -23,6 +23,9 @@ QJsonObject Cue::toJson() const {
         {"autoContinue",  m_autoContinue},
         {"autoFollow",    m_autoFollow},
     };
+    if (m_userColor.isValid())
+        o["userColor"] = m_userColor.name(QColor::HexArgb);
+    return o;
 }
 
 void Cue::fromJson(const QJsonObject &o) {
@@ -35,4 +38,6 @@ void Cue::fromJson(const QJsonObject &o) {
     m_postWait      = o["postWait"].toDouble();
     m_autoContinue  = o["autoContinue"].toBool();
     m_autoFollow    = o["autoFollow"].toBool();
+    const QString col = o["userColor"].toString();
+    m_userColor = col.isEmpty() ? QColor{} : QColor(col);
 }
