@@ -92,29 +92,39 @@ void WaveformView::startDecode(const QString &path) {
     auto *dec = new QAudioDecoder(this);
     m_decoder = dec;
 
-    QAudioFormat fmt;
-    fmt.setSampleRate(4000);
-    fmt.setChannelCount(1);
-    fmt.setSampleFormat(QAudioFormat::Float);
-    dec->setAudioFormat(fmt);
     dec->setSource(QUrl::fromLocalFile(path));
 
     // Capture dec by value so callbacks belong to this specific instance,
     // not to whatever m_decoder points to at the time the signal fires.
     connect(dec, &QAudioDecoder::bufferReady, this, [this, dec]() {
-        if (dec != m_decoder) return;  // stale — a new file was set
+        if (dec != m_decoder) return;
         while (dec->bufferAvailable()) {
             const auto buf = dec->read();
             if (!buf.isValid()) continue;
             const QAudioFormat f = buf.format();
+            const int ch = f.channelCount();
+            const int frames = buf.frameCount();
             if (f.sampleFormat() == QAudioFormat::Float) {
                 const float *d = buf.constData<float>();
-                for (int i = 0; i < buf.frameCount(); ++i)
-                    m_rawSamples.append(qAbs(d[i]));
+                for (int i = 0; i < frames; ++i) {
+                    float peak = 0.0f;
+                    for (int c = 0; c < ch; ++c) peak = qMax(peak, qAbs(d[i * ch + c]));
+                    m_rawSamples.append(peak);
+                }
             } else if (f.sampleFormat() == QAudioFormat::Int16) {
                 const int16_t *d = buf.constData<int16_t>();
-                for (int i = 0; i < buf.frameCount(); ++i)
-                    m_rawSamples.append(qAbs(d[i]) / 32768.0f);
+                for (int i = 0; i < frames; ++i) {
+                    float peak = 0.0f;
+                    for (int c = 0; c < ch; ++c) peak = qMax(peak, qAbs(d[i * ch + c]) / 32768.0f);
+                    m_rawSamples.append(peak);
+                }
+            } else if (f.sampleFormat() == QAudioFormat::Int32) {
+                const int32_t *d = buf.constData<int32_t>();
+                for (int i = 0; i < frames; ++i) {
+                    float peak = 0.0f;
+                    for (int c = 0; c < ch; ++c) peak = qMax(peak, qAbs(d[i * ch + c]) / 2147483648.0f);
+                    m_rawSamples.append(peak);
+                }
             }
         }
     });

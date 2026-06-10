@@ -27,6 +27,7 @@ jobs:
 
       - name: Configure
         run: |
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix lilv)/lib/pkgconfig"
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$(brew --prefix qt6)"

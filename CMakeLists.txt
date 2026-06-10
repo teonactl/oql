@@ -6,7 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
+if(UNIX AND NOT APPLE)
+    list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network)
 find_package(PkgConfig REQUIRED)

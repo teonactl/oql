@@ -80,6 +80,23 @@ LilvWorld* Lv2Plugin::world() {
     if (!s_world) {
         s_world = lilv_world_new();
 
+#ifdef Q_OS_MACOS
+        // macOS non usa le variabili d'ambiente standard di LV2; aggiungiamo i path esplicitamente
+        auto addPath = [](LilvWorld *w, const char *path) {
+            LilvNode *node = lilv_new_uri(w, path);
+            lilv_world_load_bundle(w, node);
+            lilv_node_free(node);
+        };
+        Q_UNUSED(addPath)
+        // Imposta LV2_PATH per lilv_world_load_all
+        const QByteArray home = qgetenv("HOME");
+        const QByteArray lv2Path = home + "/Library/Audio/Plug-Ins/LV2"
+                                   ":/Library/Audio/Plug-Ins/LV2"
+                                   ":/usr/local/lib/lv2"
+                                   ":/opt/homebrew/lib/lv2";
+        qputenv("LV2_PATH", lv2Path);
+#endif
+
         LilvGuard g;
         lilvGuardInstall(g);
         s_lilvProtected = 1;
