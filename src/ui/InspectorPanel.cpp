@@ -35,6 +35,8 @@
 #include <algorithm>
 #include <QFontComboBox>
 #include <QColorDialog>
+#include <QTableWidget>
+#include <QHeaderView>
 
 // ── VU meter widget ───────────────────────────────────────────────────────────
 
@@ -438,6 +440,64 @@ void InspectorPanel::buildUi() {
         m_fxDialog->activateWindow();
     });
 
+    // ── Slice / Rate section (audio only) ───────────────────
+    m_sliceSection = new QWidget;
+    auto *sliceLay = new QVBoxLayout(m_sliceSection);
+    sliceLay->setContentsMargins(0, 4, 0, 0);
+    sliceLay->setSpacing(4);
+
+    // Rate control row
+    auto *rateRow = new QWidget;
+    auto *rateRowLay = new QHBoxLayout(rateRow);
+    rateRowLay->setContentsMargins(0, 0, 0, 0);
+    rateRowLay->setSpacing(6);
+    rateRowLay->addWidget(new QLabel("Rate:"));
+    m_rateSpin = new QDoubleSpinBox;
+    m_rateSpin->setRange(0.1, 4.0);
+    m_rateSpin->setSingleStep(0.05);
+    m_rateSpin->setDecimals(2);
+    m_rateSpin->setSuffix(" ×");
+    m_rateSpin->setValue(1.0);
+    m_rateSpin->setFixedWidth(80);
+    m_rateSpin->setToolTip("Velocità di riproduzione (1.0 = normale)");
+    rateRowLay->addWidget(m_rateSpin);
+    auto *pitchCheck = new QCheckBox("Mantieni pitch");
+    pitchCheck->setEnabled(false);
+    pitchCheck->setToolTip("Richiede la libreria soundtouch (non disponibile)");
+    rateRowLay->addWidget(pitchCheck);
+    rateRowLay->addStretch();
+    sliceLay->addWidget(rateRow);
+
+    // Slice table header row
+    auto *sliceHdrRow = new QWidget;
+    auto *sliceHdrLay = new QHBoxLayout(sliceHdrRow);
+    sliceHdrLay->setContentsMargins(0, 0, 0, 0);
+    sliceHdrLay->setSpacing(4);
+    sliceHdrLay->addWidget(new QLabel("Slices:"));
+    m_addSliceBtn = new QPushButton("+ Aggiungi");
+    m_addSliceBtn->setFixedHeight(22);
+    m_addSliceBtn->setToolTip("Aggiunge una slice alla posizione corrente (Ctrl+Click sulla waveform per aggiungere)");
+    m_clearSlicesBtn = new QPushButton("Rimuovi tutte");
+    m_clearSlicesBtn->setFixedHeight(22);
+    sliceHdrLay->addWidget(m_addSliceBtn);
+    sliceHdrLay->addWidget(m_clearSlicesBtn);
+    sliceHdrLay->addStretch();
+    sliceLay->addWidget(sliceHdrRow);
+
+    // Slice table: Seg # | Inizio | Loop
+    m_sliceTable = new QTableWidget(0, 3);
+    m_sliceTable->setHorizontalHeaderLabels({"Seg", "Inizio", "Loop"});
+    m_sliceTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_sliceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_sliceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_sliceTable->verticalHeader()->setVisible(false);
+    m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_sliceTable->setMaximumHeight(120);
+    m_sliceTable->setStyleSheet("font-size:11px;");
+    sliceLay->addWidget(m_sliceTable);
+    audioLay->addWidget(m_sliceSection);
+
     propsLay->addWidget(m_audioSection, 1);
 
     // ── Text cue section ────────────────────────────────────
@@ -587,6 +647,76 @@ void InspectorPanel::buildUi() {
         }
     });
 
+    // Slice markers ↔ AudioCue
+    connect(m_waveformView, &WaveformView::sliceMarkersChanged,
+            this, [this](const QVector<double> &normPos) {
+        auto *a = qobject_cast<AudioCue*>(m_cue);
+        if (!a || m_loadingFromCue) return;
+        const double dur = a->duration();
+        QVector<AudioSlice> existing = a->slices();
+
+        // Keep 1 implicit first segment; sync divider markers (normPos) with slices[1:]
+        QVector<AudioSlice> newSlices;
+        // Segment 0 always starts at 0 with existing loopCount or 1
+        AudioSlice seg0;
+        seg0.posSec    = 0.0;
+        seg0.loopCount = (!existing.isEmpty()) ? existing[0].loopCount : 1;
+        newSlices.append(seg0);
+        for (int i = 0; i < normPos.size(); ++i) {
+            AudioSlice s;
+            s.posSec = normPos[i] * dur;
+            s.loopCount = (i + 1 < existing.size()) ? existing[i+1].loopCount : 1;
+            newSlices.append(s);
+        }
+        a->setSlices(normPos.isEmpty() ? QVector<AudioSlice>{} : newSlices);
+        rebuildSliceTable(a);
+    });
+
+    // Rate spin
+    connect(m_rateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) {
+        auto *a = qobject_cast<AudioCue*>(m_cue);
+        if (a && !m_loadingFromCue) a->setUserRate(v);
+    });
+
+    // Add/clear slice buttons
+    connect(m_addSliceBtn, &QPushButton::clicked, this, [this]() {
+        auto *a = qobject_cast<AudioCue*>(m_cue);
+        if (!a || a->duration() < 0.1) return;
+        // Add slice at current playback position or midpoint
+        const double pos = (a->state() == Cue::State::Playing) ? a->position() : a->duration() / 2.0;
+        const double normPos = qBound(0.001, pos / a->duration(), 0.999);
+        QVector<double> markers = buildSliceMarkers(a);
+        if (!markers.contains(normPos)) {
+            markers.append(normPos);
+            std::sort(markers.begin(), markers.end());
+            m_waveformView->setSliceMarkers(markers);
+            m_waveformView->sliceMarkersChanged(markers);
+        }
+    });
+    connect(m_clearSlicesBtn, &QPushButton::clicked, this, [this]() {
+        auto *a = qobject_cast<AudioCue*>(m_cue);
+        if (!a) return;
+        a->setSlices({});
+        m_waveformView->setSliceMarkers({});
+        rebuildSliceTable(a);
+    });
+
+    // Slice table loop count editing (double-click cell in Loop column)
+    connect(m_sliceTable, &QTableWidget::cellDoubleClicked,
+            this, [this](int row, int col) {
+        if (col != 2) return;
+        auto *a = qobject_cast<AudioCue*>(m_cue);
+        if (!a) return;
+        auto slices = a->slices();
+        if (row >= slices.size()) return;
+        // Cycle: 0 (skip) → 1 → 2 → ... up to 9 → 0
+        int next = (slices[row].loopCount + 1) % 10;
+        slices[row].loopCount = next;
+        a->setSlices(slices);
+        rebuildSliceTable(a);
+    });
+
     connect(m_targetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onTargetChanged);
     connect(m_fadeTargetVolSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -731,6 +861,11 @@ void InspectorPanel::updateMediaSection() {
         m_waveformView->setVolumePoints(a->volumePoints());
         m_waveformView->setTrimStart(a->trimStart());
         m_waveformView->setTrimEnd(a->trimEnd());
+        m_waveformView->setSliceMarkers(buildSliceMarkers(a));
+        m_rateSpin->blockSignals(true);
+        m_rateSpin->setValue(a->userRate());
+        m_rateSpin->blockSignals(false);
+        rebuildSliceTable(a);
         m_pluginChainWidget->setChain(a->pluginChain());
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isVideo) {
@@ -1130,4 +1265,50 @@ void InspectorPanel::onBgColorClicked() {
 void InspectorPanel::onTextAlignChanged(int idx) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
         static_cast<TextCue*>(m_cue)->setAlignment(m_textAlignCombo->itemData(idx).toInt());
+}
+
+// ── Slice helpers ─────────────────────────────────────────────────────────────
+
+QVector<double> InspectorPanel::buildSliceMarkers(AudioCue *a) const {
+    if (!a || a->duration() < 0.01) return {};
+    QVector<double> markers;
+    const auto &slices = a->slices();
+    for (int i = 1; i < slices.size(); ++i)   // skip segment 0 (starts at 0)
+        markers.append(slices[i].posSec / a->duration());
+    return markers;
+}
+
+void InspectorPanel::rebuildSliceTable(AudioCue *a) {
+    if (!m_sliceTable || !a) return;
+    const auto &slices = a->slices();
+    const double dur = a->duration();
+
+    m_sliceTable->blockSignals(true);
+    m_sliceTable->setRowCount(0);
+
+    if (slices.isEmpty()) {
+        m_sliceTable->setVisible(false);
+        m_clearSlicesBtn->setEnabled(false);
+        m_sliceTable->blockSignals(false);
+        return;
+    }
+
+    m_sliceTable->setVisible(true);
+    m_clearSlicesBtn->setEnabled(true);
+
+    for (int i = 0; i < slices.size(); ++i) {
+        m_sliceTable->insertRow(i);
+        m_sliceTable->setItem(i, 0, new QTableWidgetItem(QString::number(i)));
+        const QString pos = (i == 0)
+            ? "Inizio"
+            : QString("%1 s").arg(slices[i].posSec, 0, 'f', 2);
+        m_sliceTable->setItem(i, 1, new QTableWidgetItem(pos));
+        const int lc = slices[i].loopCount;
+        const QString loopStr = (lc == 0) ? "skip" : QString::number(lc);
+        auto *loopItem = new QTableWidgetItem(loopStr);
+        loopItem->setTextAlignment(Qt::AlignCenter);
+        m_sliceTable->setItem(i, 2, loopItem);
+    }
+    m_sliceTable->blockSignals(false);
+    Q_UNUSED(dur);
 }

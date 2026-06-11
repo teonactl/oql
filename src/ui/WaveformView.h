@@ -27,12 +27,15 @@ public:
     bool hasTrimStart() const { return m_trimStart >= 0.0; }
     bool hasTrimEnd()   const { return m_trimEnd   >= 0.0; }
 
+    void setSliceMarkers(const QVector<double> &normPositions); // normalized [0,1], sorted
+
 signals:
     void volumePointsChanged(const QVector<QPointF> &pts);
     void fadeInChanged(double secs);
     void fadeOutChanged(double secs);
     void trimStartChanged(double secs);
     void trimEndChanged(double secs);
+    void sliceMarkersChanged(const QVector<double> &normPositions);
 
 protected:
     void paintEvent(QPaintEvent *event)          override;
@@ -56,6 +59,7 @@ private:
     bool hitFadeOut  (const QPointF &p) const;
     bool hitTrimStart(const QPointF &p) const;
     bool hitTrimEnd  (const QPointF &p) const;
+    int  hitSlice    (const QPointF &p) const; // returns index or -1
 
     void clampView();
 
@@ -73,8 +77,12 @@ private:
     double m_zoom       = 1.0;   // 1x – 20x
     double m_viewOffset = 0.0;   // normalised left edge of visible range
 
+    // Slice markers (normalized [0,1], sorted)
+    QVector<double> m_sliceMarkers;
+
     // Drag state
     int  m_dragIdx       = -1;
+    int  m_dragSliceIdx  = -1;
     bool m_dragFadeIn    = false;
     bool m_dragFadeOut   = false;
     bool m_dragTrimStart = false;

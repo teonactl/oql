@@ -352,6 +352,26 @@ void WaveformView::paintEvent(QPaintEvent *) {
         }
     }
 
+    // ── Slice markers ─────────────────────────────────────────────────────────
+    if (m_duration > 0.01 && !m_sliceMarkers.isEmpty()) {
+        QFont sf; sf.setPixelSize(9); sf.setBold(true); p.setFont(sf);
+        for (int i = 0; i < m_sliceMarkers.size(); ++i) {
+            const int xs = int(normToX(m_sliceMarkers[i]));
+            if (xs < 0 || xs >= W) continue;
+            p.setPen(QPen(QColor(0xff, 0xdd, 0x44, 220), 1, Qt::DashLine));
+            p.drawLine(xs, 0, xs, waveH);
+            // Triangle handle at top
+            QPolygon tri;
+            tri << QPoint(xs - 4, 0) << QPoint(xs + 4, 0) << QPoint(xs, 8);
+            p.setBrush(QColor(0xff, 0xdd, 0x44, 200));
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(tri);
+            // Segment index
+            p.setPen(QColor(0xff, 0xdd, 0x44));
+            p.drawText(xs + 4, waveH - 4, QString::number(i + 1));
+        }
+    }
+
     // ── Zoom scroll indicator ─────────────────────────────────────────────────
     if (m_zoom > 1.01) {
         const int barY = H - int(kScrollH);
@@ -388,10 +408,24 @@ void WaveformView::mousePressEvent(QMouseEvent *event) {
     if (hitFadeIn   (pos)) { m_dragFadeIn    = true; setCursor(Qt::SizeHorCursor); return; }
     if (hitFadeOut  (pos)) { m_dragFadeOut   = true; setCursor(Qt::SizeHorCursor); return; }
 
+    // Slice marker drag
+    const int sIdx = hitSlice(pos);
+    if (sIdx >= 0) { m_dragSliceIdx = sIdx; setCursor(Qt::SizeHorCursor); return; }
+
     const int idx = hitPoint(pos);
     if (idx >= 0) {
         m_dragIdx = idx;
         setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+
+    // Ctrl+Click: add a new slice marker
+    if (event->modifiers() & Qt::ControlModifier) {
+        const double t = qBound(0.001, xToNorm(pos.x()), 0.999);
+        m_sliceMarkers.append(t);
+        std::sort(m_sliceMarkers.begin(), m_sliceMarkers.end());
+        update();
+        emit sliceMarkersChanged(m_sliceMarkers);
         return;
     }
 
@@ -452,6 +486,18 @@ void WaveformView::mouseMoveEvent(QMouseEvent *event) {
         emit fadeOutChanged(m_fadeOut);
         return;
     }
+    // Drag slice marker
+    if (m_dragSliceIdx >= 0 && m_dragSliceIdx < m_sliceMarkers.size()) {
+        const double lo = m_dragSliceIdx > 0
+            ? m_sliceMarkers[m_dragSliceIdx - 1] + 0.001 : 0.001;
+        const double hi = m_dragSliceIdx + 1 < m_sliceMarkers.size()
+            ? m_sliceMarkers[m_dragSliceIdx + 1] - 0.001 : 0.999;
+        m_sliceMarkers[m_dragSliceIdx] = qBound(lo, xToNorm(pos.x()), hi);
+        update();
+        emit sliceMarkersChanged(m_sliceMarkers);
+        return;
+    }
+
     if (m_dragIdx >= 0 && m_dragIdx < m_points.size()) {
         const double minX = m_dragIdx > 0
             ? m_points[m_dragIdx - 1].x() + 0.001 : 0.001;
@@ -466,7 +512,8 @@ void WaveformView::mouseMoveEvent(QMouseEvent *event) {
     }
 
     // Cursor hints when idle
-    if      (hitTrimStart(pos) || hitTrimEnd(pos)) setCursor(Qt::SizeHorCursor);
+    if      (hitSlice    (pos) >= 0)               setCursor(Qt::SizeHorCursor);
+    else if (hitTrimStart(pos) || hitTrimEnd(pos)) setCursor(Qt::SizeHorCursor);
     else if (hitFadeIn   (pos) || hitFadeOut(pos)) setCursor(Qt::SizeHorCursor);
     else if (hitPoint    (pos) >= 0)               setCursor(Qt::OpenHandCursor);
     else                                            setCursor(Qt::CrossCursor);
@@ -479,6 +526,7 @@ void WaveformView::mouseReleaseEvent(QMouseEvent *event) {
         return;
     }
     m_dragIdx       = -1;
+    m_dragSliceIdx  = -1;
     m_dragFadeIn    = false;
     m_dragFadeOut   = false;
     m_dragTrimStart = false;
@@ -488,10 +536,21 @@ void WaveformView::mouseReleaseEvent(QMouseEvent *event) {
 
 void WaveformView::contextMenuEvent(QContextMenuEvent *event) {
     const QPointF pos = event->pos();
-    const int volIdx  = hitPoint(pos);
-    const double t    = xToNorm(pos.x());
+    const int volIdx   = hitPoint(pos);
+    const int sliceIdx = hitSlice(pos);
+    const double t     = xToNorm(pos.x());
 
     QMenu menu(this);
+
+    if (sliceIdx >= 0) {
+        QAction *del = menu.addAction("Rimuovi slice");
+        if (menu.exec(event->globalPos()) == del) {
+            m_sliceMarkers.removeAt(sliceIdx);
+            update();
+            emit sliceMarkersChanged(m_sliceMarkers);
+        }
+        return;
+    }
 
     if (volIdx >= 0) {
         QAction *del = menu.addAction("Rimuovi punto volume");
@@ -535,6 +594,24 @@ void WaveformView::contextMenuEvent(QContextMenuEvent *event) {
             update();
             if (m_duration > 0.01)
                 emit trimEndChanged(m_trimEnd * m_duration);
+        });
+    }
+
+    menu.addSeparator();
+    menu.addAction("Aggiungi slice qui", this, [this, t]() {
+        const double pos = qBound(0.001, t, 0.999);
+        if (!m_sliceMarkers.contains(pos)) {
+            m_sliceMarkers.append(pos);
+            std::sort(m_sliceMarkers.begin(), m_sliceMarkers.end());
+            update();
+            emit sliceMarkersChanged(m_sliceMarkers);
+        }
+    });
+    if (!m_sliceMarkers.isEmpty()) {
+        menu.addAction("Rimuovi tutte le slice", this, [this]() {
+            m_sliceMarkers.clear();
+            update();
+            emit sliceMarkersChanged(m_sliceMarkers);
         });
     }
 
@@ -613,4 +690,19 @@ bool WaveformView::hitTrimEnd(const QPointF &pos) const {
     if (m_duration <= 0.01 || m_trimEnd < 0.0) return false;
     const double x = normToX(m_trimEnd);
     return x > -10 && x < width() + 10 && qAbs(pos.x() - x) < 8.0;
+}
+
+int WaveformView::hitSlice(const QPointF &pos) const {
+    for (int i = 0; i < m_sliceMarkers.size(); ++i) {
+        const double x = normToX(m_sliceMarkers[i]);
+        if (x > -10 && x < width() + 10 && qAbs(pos.x() - x) < 8.0)
+            return i;
+    }
+    return -1;
+}
+
+void WaveformView::setSliceMarkers(const QVector<double> &normPositions) {
+    m_sliceMarkers = normPositions;
+    std::sort(m_sliceMarkers.begin(), m_sliceMarkers.end());
+    update();
 }

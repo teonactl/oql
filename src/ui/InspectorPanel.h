@@ -4,6 +4,7 @@
 #include "engine/Cue.h"
 
 class CueList;
+class AudioCue;
 class QLabel;
 class QLineEdit;
 class QTextEdit;
@@ -20,6 +21,7 @@ class QFontComboBox;
 class PluginChainWidget;
 class VuMeter;
 class QPlainTextEdit;
+class QTableWidget;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -72,6 +74,8 @@ private:
     void blockSignals(bool block);
     void updateMediaSection();
     void syncPlayButton(Cue::State state);
+    QVector<double>  buildSliceMarkers(AudioCue *a) const;
+    void             rebuildSliceTable(AudioCue *a);
 
     CueList *m_cueList       = nullptr;
     Cue     *m_cue           = nullptr;
@@ -141,6 +145,13 @@ private:
     QPushButton    *m_textColorBtn   = nullptr;
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
+
+    // Slice / rate controls (audio cue only)
+    QWidget        *m_sliceSection   = nullptr;
+    QTableWidget   *m_sliceTable     = nullptr;
+    QPushButton    *m_addSliceBtn    = nullptr;
+    QPushButton    *m_clearSlicesBtn = nullptr;
+    QDoubleSpinBox *m_rateSpin       = nullptr;
 
     PluginChainWidget *m_pluginChainWidget       = nullptr;  // AudioCue chain editor
     PluginChainWidget *m_effectPluginChainWidget = nullptr;  // EffectCue chain editor

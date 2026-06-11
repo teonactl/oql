@@ -9,6 +9,11 @@
 #include <mutex>
 #include <vector>
 
+struct AudioSlice {
+    double posSec    = 0.0; // absolute seconds from file start
+    int    loopCount = 1;   // 0=skip, 1=play once, N>1=loop N times
+};
+
 // Forward-declare miniaudio types (implementation in AudioCue.cpp which includes miniaudio.h)
 struct ma_decoder;
 
@@ -33,6 +38,8 @@ public:
     double   trimStart() const { return m_trimStart; }
     double   trimEnd()   const { return m_trimEnd; }
     int      loopCount() const { return m_loopCount; }
+    double   userRate()  const { return m_userRate; }
+    QVector<AudioSlice> slices() const { return m_slices; }
 
     void setFilePath(const QString &path);
     void setVolume(double v);
@@ -44,6 +51,8 @@ public:
     void setTrimStart(double s)         { m_trimStart = qMax(0.0,s); emit propertyChanged(); }
     void setTrimEnd(double s)           { m_trimEnd   = qMax(0.0,s); emit propertyChanged(); }
     void setLoopCount(int n)            { m_loopCount = qMax(0,n);   emit propertyChanged(); }
+    void setUserRate(double r)          { m_userRate = qBound(0.1, r, 4.0); emit propertyChanged(); }
+    void setSlices(const QVector<AudioSlice> &s) { m_slices = s; emit propertyChanged(); }
     void setPlaybackRate(double r) override;
 
     // ── Plugin chain (main thread access only) ────────────────────────────────
@@ -94,6 +103,7 @@ private:
     double   m_targetVolume   = 1.0;
     double   m_playbackScale  = 1.0;   // from FadeCue::setPlaybackVolume
     double   m_playbackRate   = 1.0;   // from SpeedCue::setPlaybackRate
+    double   m_userRate       = 1.0;   // user-set persistent rate
     int      m_currentDecoderSR = 48000; // decoder output SR (engineSR / rate), set in go()
     double   m_fadeIn         = 3.0;
     double   m_fadeOut       = 3.0;
@@ -101,8 +111,17 @@ private:
     double   m_trimEnd       = 0.0;
     int      m_loopCount     = 1;     // 0 = infinite, N = play N times
 
+    // User-defined slices (main thread)
+    QVector<AudioSlice> m_slices;
+
     // Loop state — written in go(), mutated in renderAudio()
     std::atomic<int> m_loopsRemaining{1};
+
+    // Slice playback state — snapshot in go(), read/written only in renderAudio()
+    struct SliceRange { uint64_t startFrame; uint64_t endFrame; int loopCount; };
+    std::vector<SliceRange> m_sliceRanges;  // set in go() before addRenderer
+    int m_audioSliceIdx   = 0;              // audio thread only
+    int m_audioSliceLoops = 1;             // audio thread only
 
     // Per-render volume (computed in renderAudio() from fade envelope)
     float    m_renderVol     = 1.0f;

@@ -103,7 +103,8 @@ void AudioCue::setPlaybackRate(double r) {
         if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
 
         const int engineSR = AudioEngine::instance().sampleRate();
-        const uint32_t outSR = uint32_t(double(engineSR) / m_playbackRate);
+        const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
+        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
 
         ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
         if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
@@ -141,19 +142,18 @@ void AudioCue::go() {
 
     if (m_filePath.isEmpty()) return;
 
-    // Reset transient overrides left by FadeCue / SpeedCue
+    // Reset transient overrides left by FadeCue / SpeedCue (m_userRate is persistent)
     m_playbackScale = 1.0;
     m_playbackRate  = 1.0;
 
-    // Reinitialize decoder with rate-adjusted output SR so SpeedCue works
+    // Reinitialize decoder at effective rate (userRate × SpeedCue rate)
     {
         std::lock_guard<std::mutex> lock(m_decoderMtx);
         if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
 
         const int engineSR = AudioEngine::instance().sampleRate();
-        const uint32_t outSR = (m_playbackRate > 0.001)
-            ? uint32_t(double(engineSR) / m_playbackRate)
-            : uint32_t(engineSR);
+        const double effectiveRate = qBound(0.1, m_userRate, 4.0);
+        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
 
         ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
         if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
@@ -171,6 +171,60 @@ void AudioCue::go() {
     }
 
     m_loopsRemaining.store(m_loopCount > 0 ? m_loopCount : INT_MAX);
+
+    // Build slice ranges in decoder-frame space (read in renderAudio, set before addRenderer)
+    m_sliceRanges.clear();
+    if (!m_slices.isEmpty()) {
+        const double startSec = m_trimStart;
+        const double endSec   = (m_trimEnd > 0.001) ? m_trimEnd : m_fileDuration;
+        const int    sr       = m_currentDecoderSR;
+
+        // Sort slice positions
+        QVector<AudioSlice> sorted = m_slices;
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const AudioSlice &a, const AudioSlice &b){ return a.posSec < b.posSec; });
+
+        // Build segment boundary list: startSec, then each slice.posSec inside range, then endSec
+        QVector<double> bounds;
+        bounds.append(startSec);
+        for (const auto &s : sorted) {
+            if (s.posSec > startSec + 0.001 && s.posSec < endSec - 0.001)
+                bounds.append(s.posSec);
+        }
+        bounds.append(endSec);
+
+        // Create a SliceRange per segment; loop count comes from the matching AudioSlice
+        for (int i = 0; i < bounds.size() - 1; ++i) {
+            SliceRange r;
+            r.startFrame = uint64_t(bounds[i] * sr);
+            r.endFrame   = uint64_t(bounds[i+1] * sr);
+            // Segment i starts at bounds[i]; the AudioSlice with the closest posSec owns it
+            r.loopCount = 1;
+            if (i < sorted.size())
+                r.loopCount = sorted[i].loopCount;
+            m_sliceRanges.push_back(r);
+        }
+    }
+
+    // Find first non-skip slice
+    m_audioSliceIdx = 0;
+    if (!m_sliceRanges.empty()) {
+        while (m_audioSliceIdx < int(m_sliceRanges.size()) &&
+               m_sliceRanges[m_audioSliceIdx].loopCount == 0)
+            m_audioSliceIdx++;
+        m_audioSliceLoops = (m_audioSliceIdx < int(m_sliceRanges.size()))
+                            ? m_sliceRanges[m_audioSliceIdx].loopCount : 1;
+        // Seek to first non-skip slice
+        if (m_audioSliceIdx < int(m_sliceRanges.size())) {
+            std::lock_guard<std::mutex> lock(m_decoderMtx);
+            if (m_decoderOk) {
+                ma_decoder_seek_to_pcm_frame(m_decoder, m_sliceRanges[m_audioSliceIdx].startFrame);
+                m_framePos.store(m_sliceRanges[m_audioSliceIdx].startFrame);
+            }
+        }
+    } else {
+        m_audioSliceLoops = m_loopCount > 0 ? m_loopCount : INT_MAX;
+    }
     m_renderVol    = (m_fadeIn > 0.01) ? 0.0f : float(m_targetVolume);
     m_paused.store(false);
     m_seekTarget.store(-1);
@@ -255,47 +309,85 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
         m_plugR.resize(frames);
     }
 
+    // Limit read to current slice boundary (if slices active)
+    const bool sliceMode = !m_sliceRanges.empty();
+    int framesToRead = frames;
+    if (sliceMode) {
+        if (m_audioSliceIdx >= int(m_sliceRanges.size())) return false;
+        const uint64_t pos     = m_framePos.load();
+        const uint64_t sliceEnd = m_sliceRanges[m_audioSliceIdx].endFrame;
+        framesToRead = (pos < sliceEnd)
+            ? int(std::min(uint64_t(frames), sliceEnd - pos))
+            : 0;
+    }
+
     ma_uint64 framesRead = 0;
-    {
+    if (framesToRead > 0) {
         std::lock_guard<std::mutex> lock(m_decoderMtx);
         if (!m_decoderOk) return false;
         ma_decoder_read_pcm_frames(m_decoder, m_decodeBuf.data(),
-                                   ma_uint64(frames), &framesRead);
-    }
-
-    if (framesRead == 0) {
-        // End of file
-        if (m_loopsRemaining.load() > 1) {
-            m_loopsRemaining.fetch_sub(1);
-            const ma_uint64 startFrame = ma_uint64(m_trimStart * m_currentDecoderSR);
-            std::lock_guard<std::mutex> lock(m_decoderMtx);
-            if (m_decoderOk) {
-                ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
-                m_framePos.store(startFrame);
-            }
-        } else {
-            return false;  // done → engine will call onRenderFinished
-        }
-        return true;
+                                   ma_uint64(framesToRead), &framesRead);
     }
 
     const ma_uint64 curPos = ma_uint64(m_framePos.load());
     const ma_uint64 newPos = curPos + framesRead;
     m_framePos.store(newPos);
 
-    // Trim end check (frame positions are in decoder-SR space)
-    if (m_trimEnd > 0.001) {
-        const ma_uint64 trimEndFrame = ma_uint64(m_trimEnd * m_currentDecoderSR);
-        if (newPos >= trimEndFrame) {
+    if (sliceMode) {
+        // Slice boundary or EOF within slice
+        const uint64_t sliceEnd = m_sliceRanges[m_audioSliceIdx].endFrame;
+        if (framesRead == 0 || newPos >= sliceEnd) {
+            m_audioSliceLoops--;
+            if (m_audioSliceLoops > 0) {
+                // Loop back to start of this slice
+                const uint64_t s = m_sliceRanges[m_audioSliceIdx].startFrame;
+                std::lock_guard<std::mutex> lock(m_decoderMtx);
+                if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, s);
+                m_framePos.store(s);
+            } else {
+                // Advance to next non-skip slice
+                m_audioSliceIdx++;
+                while (m_audioSliceIdx < int(m_sliceRanges.size()) &&
+                       m_sliceRanges[m_audioSliceIdx].loopCount == 0)
+                    m_audioSliceIdx++;
+                if (m_audioSliceIdx >= int(m_sliceRanges.size()))
+                    return false;  // all slices done
+                const uint64_t s = m_sliceRanges[m_audioSliceIdx].startFrame;
+                m_audioSliceLoops = m_sliceRanges[m_audioSliceIdx].loopCount;
+                std::lock_guard<std::mutex> lock(m_decoderMtx);
+                if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, s);
+                m_framePos.store(s);
+            }
+        }
+    } else {
+        // Original no-slices EOF / trim / loop handling
+        if (framesRead == 0) {
             if (m_loopsRemaining.load() > 1) {
                 m_loopsRemaining.fetch_sub(1);
                 const ma_uint64 startFrame = ma_uint64(m_trimStart * m_currentDecoderSR);
                 std::lock_guard<std::mutex> lock(m_decoderMtx);
-                if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
-                m_framePos.store(startFrame);
+                if (m_decoderOk) {
+                    ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
+                    m_framePos.store(startFrame);
+                }
                 return true;
             }
             return false;
+        }
+
+        if (m_trimEnd > 0.001) {
+            const ma_uint64 trimEndFrame = ma_uint64(m_trimEnd * m_currentDecoderSR);
+            if (newPos >= trimEndFrame) {
+                if (m_loopsRemaining.load() > 1) {
+                    m_loopsRemaining.fetch_sub(1);
+                    const ma_uint64 startFrame = ma_uint64(m_trimStart * m_currentDecoderSR);
+                    std::lock_guard<std::mutex> lock(m_decoderMtx);
+                    if (m_decoderOk) ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
+                    m_framePos.store(startFrame);
+                    return true;
+                }
+                return false;
+            }
         }
     }
 
@@ -406,12 +498,18 @@ QJsonObject AudioCue::toJson() const {
     obj["trimEnd"]   = m_trimEnd;
     obj["channel"]   = int(m_channel);
     obj["loopCount"] = m_loopCount;
+    obj["userRate"]  = m_userRate;
     obj["plugins"]   = m_chain.toJson();
 
     QJsonArray pts;
     for (const auto &p : m_volumePoints)
         pts.append(QJsonArray{p.x(), p.y()});
     obj["volumePoints"] = pts;
+
+    QJsonArray slicesArr;
+    for (const auto &s : m_slices)
+        slicesArr.append(QJsonObject{{"pos", s.posSec}, {"loop", s.loopCount}});
+    obj["slices"] = slicesArr;
     return obj;
 }
 
@@ -426,6 +524,16 @@ void AudioCue::fromJson(const QJsonObject &o) {
     m_trimEnd   = o["trimEnd"].toDouble(0.0);
     m_channel   = ChannelRoute(o["channel"].toInt(0));
     m_loopCount = o["loopCount"].toInt(1);
+    m_userRate  = o["userRate"].toDouble(1.0);
+
+    m_slices.clear();
+    for (const auto &v : o["slices"].toArray()) {
+        const auto obj2 = v.toObject();
+        AudioSlice s;
+        s.posSec    = obj2["pos"].toDouble();
+        s.loopCount = obj2["loop"].toInt(1);
+        m_slices.append(s);
+    }
 
     m_volumePoints.clear();
     for (const auto &v : o["volumePoints"].toArray()) {
