@@ -702,21 +702,6 @@ void InspectorPanel::buildUi() {
         rebuildSliceTable(a);
     });
 
-    // Slice table loop count editing (double-click cell in Loop column)
-    connect(m_sliceTable, &QTableWidget::cellDoubleClicked,
-            this, [this](int row, int col) {
-        if (col != 2) return;
-        auto *a = qobject_cast<AudioCue*>(m_cue);
-        if (!a) return;
-        auto slices = a->slices();
-        if (row >= slices.size()) return;
-        // Cycle: 0 (skip) → 1 → 2 → ... up to 9 → 0
-        int next = (slices[row].loopCount + 1) % 10;
-        slices[row].loopCount = next;
-        a->setSlices(slices);
-        rebuildSliceTable(a);
-    });
-
     connect(m_targetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onTargetChanged);
     connect(m_fadeTargetVolSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -1303,11 +1288,24 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             ? "Inizio"
             : QString("%1 s").arg(slices[i].posSec, 0, 'f', 2);
         m_sliceTable->setItem(i, 1, new QTableWidgetItem(pos));
-        const int lc = slices[i].loopCount;
-        const QString loopStr = (lc == 0) ? "skip" : QString::number(lc);
-        auto *loopItem = new QTableWidgetItem(loopStr);
-        loopItem->setTextAlignment(Qt::AlignCenter);
-        m_sliceTable->setItem(i, 2, loopItem);
+
+        auto *spin = new QSpinBox;
+        spin->setRange(0, 99);
+        spin->setValue(slices[i].loopCount);
+        spin->setSpecialValueText("skip");
+        spin->setToolTip("0 = salta, 1 = riproduci una volta, N = ripeti N volte");
+        spin->setFrame(false);
+        const int row = i;
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, row](int v) {
+            auto *a = qobject_cast<AudioCue*>(m_cue);
+            if (!a || m_loadingFromCue) return;
+            auto slices2 = a->slices();
+            if (row < slices2.size()) {
+                slices2[row].loopCount = v;
+                a->setSlices(slices2);
+            }
+        });
+        m_sliceTable->setCellWidget(i, 2, spin);
     }
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
