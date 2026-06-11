@@ -57,6 +57,7 @@ public:
         else if (m_peak > -60.0f) m_peak -= 0.8f;
         update();
     }
+    float currentDb() const { return m_env; }
 private:
     float m_env   = -60.0f;
     float m_peak  = -60.0f;
@@ -101,6 +102,9 @@ static double linearToDb(double v) {
 }
 static double dbToLinear(double db) {
     return db <= -60.0 ? 0.0 : std::pow(10.0, db / 20.0);
+}
+static QString dbLabel(float db) {
+    return db <= -59.5f ? "-∞" : QString::number(int(db));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,9 +241,15 @@ void InspectorPanel::buildUi() {
     m_loopSpin->setToolTip("Ripetizioni: 0 = loop infinito, 1 = una volta");
     m_loopSpin->setFixedWidth(60);
 
+    m_recSourceLabel = new QLabel;
+    m_recSourceLabel->setStyleSheet("color:#e07020; font-size:10px;");
+    m_recSourceLabel->setWordWrap(true);
+    m_recSourceLabel->setVisible(false);
+
     mediaForm->addRow("File:", fileRow);
     mediaForm->addRow("Volume:", m_volumeSpin);
     mediaForm->addRow("Loop:", m_loopSpin);
+    mediaForm->addRow("", m_recSourceLabel);
     groupsLay->addWidget(m_mediaGroup);
 
     // Fade group (audio only) — with enable/disable checkboxes
@@ -394,13 +404,33 @@ void InspectorPanel::buildUi() {
     m_vuL->setToolTip("L");
     m_vuR->setToolTip("R");
 
+    auto makeDbLabel = [](QWidget *parent = nullptr) {
+        auto *lbl = new QLabel("-∞", parent);
+        lbl->setAlignment(Qt::AlignHCenter);
+        lbl->setStyleSheet("color:#aaa; font-size:8px;");
+        lbl->setFixedWidth(14);
+        return lbl;
+    };
+    m_vuLDbLabel = makeDbLabel();
+    m_vuRDbLabel = makeDbLabel();
+
+    auto makeVuCol = [](VuMeter *vu, QLabel *lbl) {
+        auto *col = new QWidget;
+        auto *lay = new QVBoxLayout(col);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(1);
+        lay->addWidget(vu, 1);
+        lay->addWidget(lbl);
+        return col;
+    };
+
     auto *waveRow = new QWidget;
     auto *waveRowLay = new QHBoxLayout(waveRow);
     waveRowLay->setContentsMargins(0, 0, 0, 0);
     waveRowLay->setSpacing(3);
     waveRowLay->addWidget(m_waveformView, 1);
-    waveRowLay->addWidget(m_vuL);
-    waveRowLay->addWidget(m_vuR);
+    waveRowLay->addWidget(makeVuCol(m_vuL, m_vuLDbLabel));
+    waveRowLay->addWidget(makeVuCol(m_vuR, m_vuRDbLabel));
     audioLay->addWidget(waveRow, 1);
 
     // Plugin chain widgets — each cue type gets its own instance so they never share state
@@ -599,7 +629,30 @@ void InspectorPanel::buildUi() {
     m_recPathLabel->setWordWrap(true);
     recForm->addRow("Ultima rec.:", m_recPathLabel);
 
+    // Input level meter
+    m_recVuMono  = new VuMeter;
+    m_recVuMono->setToolTip("Livello ingresso");
+    m_recVuDbLabel = new QLabel("-∞");
+    m_recVuDbLabel->setAlignment(Qt::AlignHCenter);
+    m_recVuDbLabel->setStyleSheet("color:#aaa; font-size:8px;");
+    m_recVuDbLabel->setFixedWidth(14);
+    auto *recVuCol = new QWidget;
+    auto *recVuColLay = new QVBoxLayout(recVuCol);
+    recVuColLay->setContentsMargins(0, 0, 0, 0);
+    recVuColLay->setSpacing(1);
+    recVuColLay->addWidget(m_recVuMono, 1);
+    recVuColLay->addWidget(m_recVuDbLabel);
+    auto *recLevelRow = new QWidget;
+    auto *recLevelLay = new QHBoxLayout(recLevelRow);
+    recLevelLay->setContentsMargins(0, 0, 0, 0);
+    recLevelLay->setSpacing(4);
+    recLevelLay->addWidget(recVuCol);
+    auto *recLevelLbl = new QLabel("Livello ingresso");
+    recLevelLbl->setStyleSheet("color:#888; font-size:10px;");
+    recLevelLbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    recLevelLay->addWidget(recLevelLbl, 1);
     recLay->addWidget(recGroup);
+    recLay->addWidget(recLevelRow);
     propsLay->addWidget(m_recordSection);
 
     connect(m_scriptRunBtn, &QPushButton::clicked, this, [this]() {
@@ -620,8 +673,19 @@ void InspectorPanel::buildUi() {
     connect(m_vuTimer, &QTimer::timeout, this, [this]() {
         m_vuL->setLevel(AudioEngine::instance().peakL());
         m_vuR->setLevel(AudioEngine::instance().peakR());
+        m_vuLDbLabel->setText(dbLabel(m_vuL->currentDb()));
+        m_vuRDbLabel->setText(dbLabel(m_vuR->currentDb()));
     });
     m_vuTimer->start();
+
+    m_recVuTimer = new QTimer(this);
+    m_recVuTimer->setInterval(50);
+    connect(m_recVuTimer, &QTimer::timeout, this, [this]() {
+        auto *rc = qobject_cast<RecordCue*>(m_cue);
+        if (!rc) { m_recVuTimer->stop(); return; }
+        m_recVuMono->setLevel(rc->inputLevel());
+        m_recVuDbLabel->setText(dbLabel(m_recVuMono->currentDb()));
+    });
 
     // ── Stack ────────────────────────────────────────────────
     m_stack = new QStackedWidget;
@@ -803,6 +867,7 @@ void InspectorPanel::setCue(Cue *cue) {
     if (m_cue) {
         disconnect(m_cue, nullptr, this, nullptr);
         m_playTimer->stop();
+        m_recVuTimer->stop();
     }
 
     m_cue = cue;
@@ -875,6 +940,20 @@ void InspectorPanel::updateMediaSection() {
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
+
+        // Show source RecordCue if one targets this AudioCue
+        QString recSrcText;
+        for (int i = 0; i < m_cueList->count(); ++i) {
+            if (auto *rc = qobject_cast<RecordCue*>(m_cueList->cueAt(i))) {
+                if (rc->linkedAudioCueId() == a->id()) {
+                    recSrcText = QString("Da reg.: %1 — %2").arg(rc->number(), rc->name());
+                    break;
+                }
+            }
+        }
+        m_recSourceLabel->setText(recSrcText);
+        m_recSourceLabel->setVisible(!recSrcText.isEmpty());
+
         m_fileEdit->setText(QFileInfo(a->filePath()).fileName());
         m_volumeSpin->setValue(linearToDb(a->volume()));
         m_loopSpin->setValue(a->loopCount());
@@ -1183,13 +1262,16 @@ void InspectorPanel::onCueStateChanged(Cue::State state) {
     switch (state) {
     case Cue::State::Playing:
         m_playTimer->start();
+        if (m_cue && m_cue->type() == Cue::Type::Record)
+            m_recVuTimer->start();
         break;
     case Cue::State::Paused:
         m_playTimer->stop();
-        // leave cursor at current position
+        m_recVuTimer->stop();
         break;
     default:
         m_playTimer->stop();
+        m_recVuTimer->stop();
         m_waveformView->setPlayPosition(0);
         break;
     }

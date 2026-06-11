@@ -1,6 +1,7 @@
 #include "RecordCue.h"
 #include "CueList.h"
 #include "AudioCue.h"
+#include <cmath>
 #include <QMediaDevices>
 #include <QJsonObject>
 #include <QFile>
@@ -59,8 +60,22 @@ void RecordCue::startRecording() {
 }
 
 void RecordCue::onAudioDataReady() {
-    if (m_ioDevice)
-        m_buffer.append(m_ioDevice->readAll());
+    if (!m_ioDevice) return;
+    const QByteArray chunk = m_ioDevice->readAll();
+    m_buffer.append(chunk);
+
+    // Compute peak for the VU meter
+    float peak = 0.0f;
+    if (m_format.sampleFormat() == QAudioFormat::Int16) {
+        const auto *s = reinterpret_cast<const int16_t*>(chunk.constData());
+        const int n = chunk.size() / int(sizeof(int16_t));
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::abs(s[i]) / 32768.0f);
+    } else if (m_format.sampleFormat() == QAudioFormat::Float) {
+        const auto *s = reinterpret_cast<const float*>(chunk.constData());
+        const int n = chunk.size() / int(sizeof(float));
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::abs(s[i]));
+    }
+    m_inputLevel = peak;
 }
 
 void RecordCue::stopRecording() {
@@ -83,6 +98,7 @@ void RecordCue::stopRecording() {
     if (!m_linkedAudioCueId.isEmpty())
         emit requestSetFilePath(m_linkedAudioCueId, path);
 
+    m_inputLevel = 0.0f;
     setState(State::Idle);
     emit recordingFinished(path);
     emit finished();

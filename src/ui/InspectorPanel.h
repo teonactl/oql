@@ -110,6 +110,9 @@ private:
     WaveformView   *m_waveformView;
     VuMeter        *m_vuL          = nullptr;
     VuMeter        *m_vuR          = nullptr;
+    QLabel         *m_vuLDbLabel   = nullptr;
+    QLabel         *m_vuRDbLabel   = nullptr;
+    QLabel         *m_recSourceLabel = nullptr;
     QTimer         *m_playTimer;
     QTimer         *m_vuTimer      = nullptr;
     QWidget        *m_audioSection;
@@ -165,6 +168,9 @@ private:
     QComboBox *m_recDeviceCombo   = nullptr;
     QComboBox *m_recTargetCombo   = nullptr;
     QLabel    *m_recPathLabel     = nullptr;
+    VuMeter   *m_recVuMono        = nullptr;
+    QLabel    *m_recVuDbLabel     = nullptr;
+    QTimer    *m_recVuTimer       = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;

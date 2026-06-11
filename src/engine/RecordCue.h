@@ -22,6 +22,7 @@ public:
     QString inputDeviceId()      const { return m_inputDeviceId; }
     QString linkedAudioCueId()   const { return m_linkedAudioCueId; }
     QString lastRecordingPath()  const { return m_lastRecordingPath; }
+    float   inputLevel()         const { return m_inputLevel; }
 
     void setInputDeviceId(const QString &id)     { m_inputDeviceId    = id; emit propertyChanged(); }
     void setLinkedAudioCueId(const QString &id)  { m_linkedAudioCueId = id; emit propertyChanged(); }
@@ -47,6 +48,7 @@ private:
     QIODevice    *m_ioDevice  = nullptr;
     QByteArray    m_buffer;
     QAudioFormat  m_format;
+    float         m_inputLevel = 0.0f;
 
     QString m_inputDeviceId;
     QString m_linkedAudioCueId;
