@@ -82,6 +82,8 @@ qt_add_executable(openqlab
     src/engine/ScriptCue.cpp
     src/ui/ScriptEditorDialog.h
     src/ui/ScriptEditorDialog.cpp
+    src/ui/AboutDialog.h
+    src/ui/AboutDialog.cpp
 )
 
 target_link_libraries(openqlab PRIVATE

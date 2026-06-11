@@ -57,6 +57,7 @@ private slots:
     void applyShortcuts();
     void toggleVideoOutput();
     void openSettings();
+    void showAbout();
     void onSelectionChanged();
     void updateTitle();
     void assignVideoSinkToAll();

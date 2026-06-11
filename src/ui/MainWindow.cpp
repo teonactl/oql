@@ -5,6 +5,7 @@
 #include "ActiveCuesPanel.h"
 #include "CueInfoBar.h"
 #include "SettingsDialog.h"
+#include "AboutDialog.h"
 #include "WebServer.h"
 #include "engine/AudioCue.h"
 #include "engine/VideoCue.h"
@@ -401,6 +402,10 @@ void MainWindow::buildMenus() {
     // Strumenti
     auto *tools = menuBar()->addMenu("&Strumenti");
     menuAction(tools, "&Impostazioni…", QKeySequence("Ctrl+,"), this, &MainWindow::openSettings);
+
+    // Aiuto
+    auto *help = menuBar()->addMenu("&Aiuto");
+    menuAction(help, "Informazioni su OpenQLab…", QKeySequence(), this, &MainWindow::showAbout);
 }
 
 void MainWindow::buildToolBar() {
@@ -769,6 +774,11 @@ void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));
     if (cue)
         cue->setVideoSink(m_videoOut->videoWidget()->videoSink());
+}
+
+void MainWindow::showAbout() {
+    AboutDialog dlg(this);
+    dlg.exec();
 }
 
 void MainWindow::openSettings() {
