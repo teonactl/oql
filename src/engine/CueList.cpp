@@ -268,6 +268,13 @@ void CueList::connectCue(Cue *cue) {
         else
             fireNext();
     });
+
+    if (auto *rc = qobject_cast<RecordCue*>(cue)) {
+        connect(rc, &RecordCue::requestSetFilePath, this, [this](const QString &id, const QString &path) {
+            if (auto *ac = qobject_cast<AudioCue*>(findCueById(id)))
+                ac->setFilePath(path);
+        });
+    }
 }
 
 QJsonArray CueList::toJson() const {

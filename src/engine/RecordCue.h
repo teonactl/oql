@@ -31,6 +31,8 @@ public:
 
 signals:
     void recordingFinished(const QString &filePath);
+    // Emitted so CueList can route the file path to the target AudioCue
+    void requestSetFilePath(const QString &audioCueId, const QString &filePath);
 
 private slots:
     void onAudioDataReady();

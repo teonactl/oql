@@ -1020,13 +1020,11 @@ void InspectorPanel::updateMediaSection() {
         m_recTargetCombo->blockSignals(true);
         m_recTargetCombo->clear();
         m_recTargetCombo->addItem("(nessuna)", QString{});
-        if (auto *cl = qobject_cast<CueList*>(m_cue->parent())) {
-            for (int i = 0; i < cl->count(); ++i) {
-                Cue *c = cl->cueAt(i);
-                if (c->type() == Cue::Type::Audio)
-                    m_recTargetCombo->addItem(
-                        QString("%1 — %2").arg(c->number(), c->name()), c->id());
-            }
+        for (int i = 0; i < m_cueList->count(); ++i) {
+            Cue *c = m_cueList->cueAt(i);
+            if (c->type() == Cue::Type::Audio)
+                m_recTargetCombo->addItem(
+                    QString("%1 — %2").arg(c->number(), c->name()), c->id());
         }
         const int tgtIdx = m_recTargetCombo->findData(rc->linkedAudioCueId());
         m_recTargetCombo->setCurrentIndex(tgtIdx >= 0 ? tgtIdx : 0);

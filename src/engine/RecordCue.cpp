@@ -79,13 +79,9 @@ void RecordCue::stopRecording() {
     writeWavFile(path);
     m_lastRecordingPath = path;
 
-    // Push recording to linked AudioCue
-    if (!m_linkedAudioCueId.isEmpty()) {
-        if (auto *cl = qobject_cast<CueList*>(parent())) {
-            if (auto *ac = qobject_cast<AudioCue*>(cl->findCueById(m_linkedAudioCueId)))
-                ac->setFilePath(path);
-        }
-    }
+    // Push recording to linked AudioCue via signal — CueList handles the routing
+    if (!m_linkedAudioCueId.isEmpty())
+        emit requestSetFilePath(m_linkedAudioCueId, path);
 
     setState(State::Idle);
     emit recordingFinished(path);
