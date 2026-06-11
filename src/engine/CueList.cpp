@@ -7,6 +7,7 @@
 #include "LabelCue.h"
 #include "TextCue.h"
 #include "ScriptCue.h"
+#include "RecordCue.h"
 #include "ScriptEngine.h"
 #include <QJsonObject>
 #include <QTimer>
@@ -338,6 +339,10 @@ void CueList::fromJson(const QJsonArray &arr) {
             cue = std::move(c);
         } else if (t == "script") {
             auto c = std::make_unique<ScriptCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
+        } else if (t == "record") {
+            auto c = std::make_unique<RecordCue>();
             c->fromJson(obj);
             cue = std::move(c);
         }

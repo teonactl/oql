@@ -160,6 +160,12 @@ private:
     QWidget     *m_scriptSection  = nullptr;
     QPushButton *m_scriptRunBtn   = nullptr;
 
+    // Record cue
+    QWidget   *m_recordSection    = nullptr;
+    QComboBox *m_recDeviceCombo   = nullptr;
+    QComboBox *m_recTargetCombo   = nullptr;
+    QLabel    *m_recPathLabel     = nullptr;
+
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
 };

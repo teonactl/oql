@@ -26,6 +26,7 @@ static QString cueTypeStr(Cue::Type t) {
     case Cue::Type::Group:       return "group";
     case Cue::Type::Label:       return "label";
     case Cue::Type::Script:      return "script";
+    case Cue::Type::Record:      return "record";
     }
     return "unknown";
 }

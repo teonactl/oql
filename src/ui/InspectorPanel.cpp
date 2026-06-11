@@ -10,6 +10,7 @@
 #include "engine/ControlCues.h"
 #include "engine/MicCue.h"
 #include "engine/TextCue.h"
+#include "engine/RecordCue.h"
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include "engine/CueList.h"
@@ -574,6 +575,33 @@ void InspectorPanel::buildUi() {
 
     propsLay->addWidget(m_scriptSection);
 
+    // ── Record cue section ───────────────────────────────────
+    m_recordSection = new QWidget;
+    auto *recLay = new QVBoxLayout(m_recordSection);
+    recLay->setContentsMargins(0, 4, 0, 0);
+    recLay->setSpacing(4);
+
+    auto *recGroup = new QGroupBox("Registrazione");
+    auto *recForm  = new QFormLayout(recGroup);
+    recForm->setSpacing(3);
+
+    m_recDeviceCombo = new QComboBox;
+    m_recDeviceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    recForm->addRow("Ingresso:", m_recDeviceCombo);
+
+    m_recTargetCombo = new QComboBox;
+    m_recTargetCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_recTargetCombo->setToolTip("Cue audio che riceverà il file registrato dopo lo stop");
+    recForm->addRow("Cue audio:", m_recTargetCombo);
+
+    m_recPathLabel = new QLabel("—");
+    m_recPathLabel->setStyleSheet("color:#888; font-size:10px;");
+    m_recPathLabel->setWordWrap(true);
+    recForm->addRow("Ultima rec.:", m_recPathLabel);
+
+    recLay->addWidget(recGroup);
+    propsLay->addWidget(m_recordSection);
+
     connect(m_scriptRunBtn, &QPushButton::clicked, this, [this]() {
         auto *sc = qobject_cast<ScriptCue*>(m_cue);
         if (!sc) return;
@@ -732,6 +760,19 @@ void InspectorPanel::buildUi() {
     connect(m_micVolumeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &InspectorPanel::onMicVolumeChanged);
 
+    connect(m_recDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+        auto *rc = qobject_cast<RecordCue*>(m_cue);
+        if (rc && !m_loadingFromCue)
+            rc->setInputDeviceId(m_recDeviceCombo->currentData().toString());
+    });
+    connect(m_recTargetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+        auto *rc = qobject_cast<RecordCue*>(m_cue);
+        if (rc && !m_loadingFromCue)
+            rc->setLinkedAudioCueId(m_recTargetCombo->currentData().toString());
+    });
+
     connect(m_playBtn, &QPushButton::clicked, this, [this]() {
         if (!m_cue) return;
         if (m_cue->state() == Cue::State::Playing)
@@ -776,6 +817,11 @@ void InspectorPanel::setCue(Cue *cue) {
 
     connect(m_cue, &Cue::propertyChanged, this, &InspectorPanel::onCuePropertyChanged);
     connect(m_cue, &Cue::stateChanged,    this, &InspectorPanel::onCueStateChanged);
+    if (auto *rc = qobject_cast<RecordCue*>(m_cue)) {
+        connect(rc, &RecordCue::recordingFinished, this, [this](const QString &path) {
+            m_recPathLabel->setText(QFileInfo(path).fileName());
+        });
+    }
     m_stack->setCurrentIndex(1);
     syncPlayButton(m_cue->state());
     if (m_cue->state() == Cue::State::Playing) m_playTimer->start();
@@ -813,9 +859,10 @@ void InspectorPanel::updateMediaSection() {
                          || t == Cue::Type::Play  || isEffect
                          || t == Cue::Type::ResetEffect);
     const bool isSpeed   = (t == Cue::Type::Speed);
-    const bool isMic     = (t == Cue::Type::Mic);
+    const bool isMic       = (t == Cue::Type::Mic);
     const bool isTextCue   = (t == Cue::Type::Text);
     const bool isScriptCue = (t == Cue::Type::Script);
+    const bool isRecord    = (t == Cue::Type::Record);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
     m_fadeGroup->setVisible(isAudio);
@@ -824,6 +871,7 @@ void InspectorPanel::updateMediaSection() {
     m_micSection->setVisible(isMic);
     m_textSection->setVisible(isTextCue);
     m_scriptSection->setVisible(isScriptCue);
+    m_recordSection->setVisible(isRecord);
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
@@ -953,6 +1001,40 @@ void InspectorPanel::updateMediaSection() {
         m_textBoldCheck->blockSignals(false);
         m_textItalicCheck->blockSignals(false);
         m_textAlignCombo->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
+    } else if (isRecord) {
+        auto *rc = static_cast<RecordCue*>(m_cue);
+
+        // Input device combo
+        m_recDeviceCombo->blockSignals(true);
+        m_recDeviceCombo->clear();
+        m_recDeviceCombo->addItem("Default", QString{});
+        for (const auto &dev : QMediaDevices::audioInputs())
+            m_recDeviceCombo->addItem(dev.description(), dev.id());
+        const int devIdx = m_recDeviceCombo->findData(rc->inputDeviceId());
+        m_recDeviceCombo->setCurrentIndex(devIdx >= 0 ? devIdx : 0);
+        m_recDeviceCombo->blockSignals(false);
+
+        // Linked audio cue combo — list all AudioCues in the list
+        m_recTargetCombo->blockSignals(true);
+        m_recTargetCombo->clear();
+        m_recTargetCombo->addItem("(nessuna)", QString{});
+        if (auto *cl = qobject_cast<CueList*>(m_cue->parent())) {
+            for (int i = 0; i < cl->count(); ++i) {
+                Cue *c = cl->cueAt(i);
+                if (c->type() == Cue::Type::Audio)
+                    m_recTargetCombo->addItem(
+                        QString("%1 — %2").arg(c->number(), c->name()), c->id());
+            }
+        }
+        const int tgtIdx = m_recTargetCombo->findData(rc->linkedAudioCueId());
+        m_recTargetCombo->setCurrentIndex(tgtIdx >= 0 ? tgtIdx : 0);
+        m_recTargetCombo->blockSignals(false);
+
+        const QString path = rc->lastRecordingPath();
+        m_recPathLabel->setText(path.isEmpty() ? "—" : QFileInfo(path).fileName());
+
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     }

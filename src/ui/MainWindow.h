@@ -49,6 +49,7 @@ private slots:
     void addEffectCue();
     void addResetEffectCue();
     void addScriptCue();
+    void addRecordCue();
     void deleteSelectedCue();
     void groupSelectedCues(const QVector<int> &visRows);
     void go();
