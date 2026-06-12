@@ -310,6 +310,17 @@ void CueListView::mouseDoubleClickEvent(QMouseEvent *event) {
         return;
     }
 
+    switch (idx.column()) {
+    case CueListModel::ColName:
+    case CueListModel::ColPreWait:
+    case CueListModel::ColDuration:
+    case CueListModel::ColPostWait:
+        edit(idx);
+        return;
+    default:
+        break;
+    }
+
     emit cueDoubleClicked(idx.row());
 }
 

@@ -42,6 +42,26 @@ public:
     QString cueListFontFamily() const;
     void    setCueListFontFamily(const QString &family);
 
+    // UI layout
+    int  activeCuePanelSide() const;   // 0=left, 1=right
+    void setActiveCuePanelSide(int side);
+
+    QKeySequence keyShowMode() const;
+    void         setKeyShowMode(const QKeySequence &k);
+
+    // Language: "it" (default), "en", "es", "fr"
+    QString appLanguage() const;
+    void    setAppLanguage(const QString &lang);
+    static void applyLanguage();   // (re)installs the QTranslator for the current language
+
+    // Waveform resolution in buckets (1000/2000/4000/8000/16000)
+    int  waveformBuckets() const;
+    void setWaveformBuckets(int b);
+
+    // Add-cue shortcuts (typeKey: "audio","video","stop","fade","pause","mic","record","group","label","effect","script","text","play","speed")
+    QKeySequence keyAddCue(const QString &typeKey) const;
+    void         setKeyAddCue(const QString &typeKey, const QKeySequence &k);
+
 private:
     AppSettings();
     QSettings m_s;

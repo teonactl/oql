@@ -6,6 +6,7 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#include "engine/RecordCue.h"
 #include <QColor>
 #include <QFileInfo>
 #include <QFont>
@@ -311,6 +312,12 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         }
     }
 
+    if (role == Qt::ToolTipRole && idx.column() == ColContinue) {
+        if (cue->autoContinue()) return tr("Auto-continue: la prossima cue parte immediatamente");
+        if (cue->autoFollow())   return tr("Auto-follow: la prossima cue inizia al termine di questa");
+        return tr("Nessun auto-continue/follow");
+    }
+
     if (role == Qt::ForegroundRole) {
         if (isPlaying) return QColor(80, 220, 120);
         if (isPaused)  return QColor(240, 200, 60);
@@ -343,19 +350,35 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (const auto *tc = dynamic_cast<const TextCue*>(cue)) {
             if (role == Qt::DisplayRole) {
                 const QString t = tc->text();
-                return t.isEmpty() ? QString("(nessun testo)") : t.left(40).replace('\n', ' ');
+                return t.isEmpty() ? tr("(nessun testo)") : t.left(40).replace('\n', ' ');
             }
             if (role == Qt::ForegroundRole)
                 return tc->text().isEmpty() ? QColor(200, 50, 50) : QColor(130, 220, 240);
             return {};
         }
         if (const auto *ac = dynamic_cast<const AudioCue*>(cue)) {
-            if (role == Qt::DisplayRole)
-                return ac->filePath().isEmpty()
-                    ? QString("✗ nessun file")
-                    : QFileInfo(ac->filePath()).fileName();
-            if (role == Qt::ForegroundRole)
-                return ac->filePath().isEmpty() ? QColor(200, 50, 50) : QColor(160, 210, 160);
+            // Check if this AudioCue is the target of a RecordCue
+            auto findRecordSrc = [&]() -> RecordCue* {
+                for (int i = 0; i < m_list->count(); ++i)
+                    if (auto *rc = qobject_cast<RecordCue*>(m_list->cueAt(i)))
+                        if (rc->linkedAudioCueId() == ac->id()) return rc;
+                return nullptr;
+            };
+            if (role == Qt::DisplayRole) {
+                if (!ac->filePath().isEmpty())
+                    return QFileInfo(ac->filePath()).fileName();
+                if (auto *rc = findRecordSrc()) {
+                    const QString num = rc->number().isEmpty() ? "?" : rc->number();
+                    const QString nm  = rc->name().isEmpty() ? "(senza nome)" : rc->name();
+                    return QString("⏺ Reg. #%1 – %2").arg(num, nm);
+                }
+                return tr("✗ nessun file");
+            }
+            if (role == Qt::ForegroundRole) {
+                if (!ac->filePath().isEmpty()) return QColor(160, 210, 160);
+                if (findRecordSrc()) return QColor(0xe0, 0x88, 0x30);
+                return QColor(200, 50, 50);
+            }
             if (role == Qt::ToolTipRole)
                 return ac->filePath();
             return {};
@@ -363,7 +386,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (const auto *vc = dynamic_cast<const VideoCue*>(cue)) {
             if (role == Qt::DisplayRole)
                 return vc->filePath().isEmpty()
-                    ? QString("✗ nessun file")
+                    ? tr("✗ nessun file")
                     : QFileInfo(vc->filePath()).fileName();
             if (role == Qt::ForegroundRole)
                 return vc->filePath().isEmpty() ? QColor(200, 50, 50) : QColor(160, 210, 160);
@@ -378,7 +401,7 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
             if (cc->targetId().isEmpty())
                 return QString("✗");
             Cue *t = m_list->findCueById(cc->targetId());
-            if (!t) return QString("? non trovato");
+            if (!t) return tr("? non trovato");
             const QString num = t->number().isEmpty() ? "—" : t->number();
             const QString nm  = t->name().isEmpty()   ? "(senza nome)" : t->name();
             return QString("→ #%1 – %2").arg(num, nm);
@@ -413,13 +436,13 @@ QVariant CueListModel::headerData(int section, Qt::Orientation o, int role) cons
     if (o != Qt::Horizontal || role != Qt::DisplayRole) return {};
     switch (section) {
     case ColNumber:   return "#";
-    case ColType:     return "Tipo";
-    case ColName:     return "Nome";
-    case ColPreWait:  return "Pre-wait";
-    case ColDuration: return "Durata";
-    case ColPostWait: return "Post-wait";
+    case ColType:     return tr("Tipo");
+    case ColName:     return tr("Nome");
+    case ColPreWait:  return tr("Pre-wait");
+    case ColDuration: return tr("Durata");
+    case ColPostWait: return tr("Post-wait");
     case ColContinue: return "↳";
-    case ColTarget:   return "Target";
+    case ColTarget:   return tr("Target");
     }
     return {};
 }

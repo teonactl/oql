@@ -6,7 +6,7 @@ class GroupCue : public Cue {
 public:
     explicit GroupCue(QObject *parent = nullptr);
     Type    type()     const override { return Type::Group; }
-    QString typeName() const override { return "Gruppo"; }
+    QString typeName() const override { return tr("Gruppo"); }
     void    go()             override;
     void    stop()           override {}
     void    pause()          override {}

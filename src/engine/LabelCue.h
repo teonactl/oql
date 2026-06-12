@@ -6,7 +6,7 @@ class LabelCue : public Cue {
 public:
     explicit LabelCue(QObject *parent = nullptr);
     Type    type()     const override { return Type::Label; }
-    QString typeName() const override { return "Etichetta"; }
+    QString typeName() const override { return tr("Etichetta"); }
     void    go()             override;
     void    stop()           override {}
     void    pause()          override {}

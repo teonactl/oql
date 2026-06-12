@@ -7,7 +7,7 @@ class TextCue : public Cue {
 public:
     explicit TextCue(QObject *parent = nullptr);
     Type    type()     const override { return Type::Text; }
-    QString typeName() const override { return "Testo"; }
+    QString typeName() const override { return tr("Testo"); }
     void    go()             override;
     void    stop()           override;
     void    pause()          override {}

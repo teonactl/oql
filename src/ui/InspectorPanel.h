@@ -29,6 +29,7 @@ public:
     explicit InspectorPanel(CueList *cueList, QWidget *parent = nullptr);
 
     void setCue(Cue *cue);
+    void setShowMode(bool showMode);
 
 private slots:
     void onNumberChanged();
@@ -80,6 +81,7 @@ private:
     CueList *m_cueList       = nullptr;
     Cue     *m_cue           = nullptr;
     bool     m_loadingFromCue = false;
+    bool     m_showMode       = false;
 
     // Always visible
     QLabel         *m_typeLabel;

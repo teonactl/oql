@@ -131,6 +131,10 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
         m_cues->stopAll();
         sendResponse(sock, 200, "application/json", "{\"ok\":true}");
 
+    } else if (method == "POST" && path == "/api/first-cue") {
+        m_cues->setPlayhead(0);
+        sendResponse(sock, 200, "application/json", "{\"ok\":true}");
+
     } else if (method == "POST" && path.startsWith("/api/cue/")) {
         // /api/cue/<uuid>/<action>
         const QStringList segs = path.split('/');   // ["","api","cue",uuid,action]

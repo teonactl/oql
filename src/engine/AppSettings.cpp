@@ -1,12 +1,14 @@
 #include "AppSettings.h"
+#include <QCoreApplication>
 #include <QKeySequence>
+#include <QTranslator>
 
 AppSettings &AppSettings::instance() {
     static AppSettings inst;
     return inst;
 }
 
-AppSettings::AppSettings() : m_s("OpenQLab", "OpenQLab") {}
+AppSettings::AppSettings() : m_s("OQL", "OQL") {}
 
 double AppSettings::defaultFadeDuration() const {
     return m_s.value("defaultFadeDuration", 2.0).toDouble();
@@ -90,4 +92,77 @@ QString AppSettings::cueListFontFamily() const {
 }
 void AppSettings::setCueListFontFamily(const QString &family) {
     m_s.setValue("cueListFontFamily", family);
+}
+
+int AppSettings::activeCuePanelSide() const {
+    return m_s.value("activeCuePanelSide", 0).toInt();  // 0=left, 1=right
+}
+void AppSettings::setActiveCuePanelSide(int side) {
+    m_s.setValue("activeCuePanelSide", side);
+}
+
+int AppSettings::waveformBuckets() const {
+    return m_s.value("waveformBuckets", 8000).toInt();
+}
+void AppSettings::setWaveformBuckets(int b) {
+    m_s.setValue("waveformBuckets", b);
+}
+
+QString AppSettings::appLanguage() const {
+    return m_s.value("appLanguage", "it").toString();
+}
+void AppSettings::setAppLanguage(const QString &lang) {
+    m_s.setValue("appLanguage", lang);
+}
+
+QKeySequence AppSettings::keyShowMode() const {
+    const QString s = m_s.value("keyShowMode").toString();
+    return s.isEmpty() ? QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_H) : QKeySequence(s);
+}
+void AppSettings::setKeyShowMode(const QKeySequence &k) { m_s.setValue("keyShowMode", k.toString()); }
+
+static QKeySequence defaultAddCueKey(const QString &typeKey) {
+    static const QMap<QString,QKeySequence> defs = {
+        {"audio",       QKeySequence(Qt::CTRL | Qt::Key_1)},
+        {"video",       QKeySequence(Qt::CTRL | Qt::Key_2)},
+        {"text",        QKeySequence(Qt::CTRL | Qt::Key_3)},
+        {"mic",         QKeySequence(Qt::CTRL | Qt::Key_4)},
+        {"record",      QKeySequence(Qt::CTRL | Qt::Key_5)},
+        {"stop",        QKeySequence(Qt::CTRL | Qt::Key_Q)},
+        {"fade",        QKeySequence(Qt::CTRL | Qt::Key_F)},
+        {"pause",       QKeySequence(Qt::CTRL | Qt::Key_P)},
+        {"play",        QKeySequence(Qt::CTRL | Qt::Key_R)},
+        {"effect",      QKeySequence(Qt::CTRL | Qt::Key_E)},
+        {"reseteffect", QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E)},
+        {"script",      QKeySequence(Qt::CTRL | Qt::Key_J)},
+        {"group",       QKeySequence(Qt::CTRL | Qt::Key_G)},
+        {"label",       QKeySequence(Qt::CTRL | Qt::Key_L)},
+    };
+    return defs.value(typeKey, QKeySequence());
+}
+
+QKeySequence AppSettings::keyAddCue(const QString &typeKey) const {
+    const QString stored = m_s.value("keyAddCue/" + typeKey).toString();
+    return stored.isEmpty() ? defaultAddCueKey(typeKey) : QKeySequence(stored);
+}
+void AppSettings::setKeyAddCue(const QString &typeKey, const QKeySequence &k) {
+    m_s.setValue("keyAddCue/" + typeKey, k.toString());
+}
+
+void AppSettings::applyLanguage() {
+    static QTranslator *s_tr = nullptr;
+    if (s_tr) {
+        QCoreApplication::removeTranslator(s_tr);
+        delete s_tr;
+        s_tr = nullptr;
+    }
+    const QString lang = AppSettings::instance().appLanguage();
+    if (lang == "it") return;
+    s_tr = new QTranslator;
+    if (!s_tr->load(":/i18n/oql_" + lang + ".qm")) {
+        delete s_tr;
+        s_tr = nullptr;
+    } else {
+        QCoreApplication::installTranslator(s_tr);
+    }
 }

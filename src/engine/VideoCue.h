@@ -11,7 +11,7 @@ public:
     explicit VideoCue(QObject *parent = nullptr);
 
     Type    type()     const override { return Type::Video; }
-    QString typeName() const override { return "Video"; }
+    QString typeName() const override { return tr("Video"); }
 
     QString filePath() const { return m_filePath; }
     double  volume()   const { return m_volume; }

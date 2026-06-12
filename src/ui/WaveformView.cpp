@@ -1,4 +1,5 @@
 #include "WaveformView.h"
+#include "engine/AppSettings.h"
 #include "engine/miniaudio.h"
 #include <QPainter>
 #include <QMouseEvent>
@@ -35,7 +36,8 @@ WaveformView::~WaveformView() {
 void WaveformView::setFilePath(const QString &path) {
     if (m_filePath == path) return;
     m_filePath   = path;
-    m_waveform.clear();
+    m_wfMin.clear();
+    m_wfMax.clear();
     m_zoom       = 1.0;
     m_viewOffset = 0.0;
     m_trimStart  = -1.0;
@@ -86,6 +88,11 @@ void WaveformView::setTrimEnd(double secs) {
     update();
 }
 
+void WaveformView::setInteractive(bool interactive) {
+    m_interactive = interactive;
+    setCursor(interactive ? Qt::CrossCursor : Qt::ArrowCursor);
+}
+
 // ── Decode ────────────────────────────────────────────────────────────────────
 
 void WaveformView::startDecode(const QString &path) {
@@ -96,7 +103,8 @@ void WaveformView::startDecode(const QString &path) {
         delete m_decodeThread;
         m_decodeThread = nullptr;
     }
-    m_waveform.clear();
+    m_wfMin.clear();
+    m_wfMax.clear();
     update();
 
     if (path.isEmpty()) return;
@@ -118,7 +126,7 @@ void WaveformView::startDecode(const QString &path) {
             ma_uint64 framesRead = 0;
             ma_decoder_read_pcm_frames(&dec, buf, kBufFrames, &framesRead);
             for (ma_uint64 i = 0; i < framesRead; ++i)
-                raw.append(qAbs(buf[i]));
+                raw.append(buf[i]);   // signed — keep polarity for two-sided display
             if (framesRead < static_cast<ma_uint64>(kBufFrames)) break;
         }
         ma_decoder_uninit(&dec);
@@ -126,23 +134,28 @@ void WaveformView::startDecode(const QString &path) {
         if (QThread::currentThread()->isInterruptionRequested()) return;
 
         const int N = raw.size();
-        QVector<float> waveform;
+        QVector<float> wfMin, wfMax;
         if (N > 0) {
-            constexpr int kBuckets = 2000;
-            waveform.resize(kBuckets);
+            const int kBuckets = AppSettings::instance().waveformBuckets();
+            wfMin.resize(kBuckets);
+            wfMax.resize(kBuckets);
             for (int i = 0; i < kBuckets; ++i) {
                 const int s = int(qint64(i)   * N / kBuckets);
                 const int e = int(qint64(i+1) * N / kBuckets);
-                float peak = 0.0f;
-                for (int j = s; j < e && j < N; ++j)
-                    peak = qMax(peak, raw[j]);
-                waveform[i] = peak;
+                float bmin = 0.0f, bmax = 0.0f;
+                for (int j = s; j < e && j < N; ++j) {
+                    bmin = qMin(bmin, raw[j]);
+                    bmax = qMax(bmax, raw[j]);
+                }
+                wfMin[i] = bmin;
+                wfMax[i] = bmax;
             }
         }
 
-        QMetaObject::invokeMethod(this, [this, gen, wv = std::move(waveform)]() mutable {
+        QMetaObject::invokeMethod(this, [this, gen, mn = std::move(wfMin), mx = std::move(wfMax)]() mutable {
             if (gen != m_decodeGeneration) return;
-            m_waveform    = std::move(wv);
+            m_wfMin = std::move(mn);
+            m_wfMax = std::move(mx);
             m_decodeThread = nullptr;
             update();
         }, Qt::QueuedConnection);
@@ -181,14 +194,29 @@ void WaveformView::paintEvent(QPaintEvent *) {
     }
 
     // ── Waveform ──────────────────────────────────────────────────────────────
-    if (!m_waveform.isEmpty()) {
-        const int N = m_waveform.size();
+    if (!m_wfMin.isEmpty()) {
+        const int N    = m_wfMin.size();
+        const int half = midY - 2;
+        const QColor baseColor(0x1a, 0x72, 0x4e);
+        const QColor peakColor(0x44, 0xdd, 0x88);
+        p.setRenderHint(QPainter::Antialiasing, false);
         for (int x = 0; x < W; ++x) {
-            const double t = xToNorm(x);
-            if (t < 0.0 || t > 1.0) continue;
-            const int idx = qBound(0, int(t * N), N - 1);
-            const int h   = qMax(1, int(m_waveform[idx] * (midY - 2)));
-            p.fillRect(x, midY - h, 1, 2 * h, QColor(0x1e, 0x55, 0x38));
+            const double tL = xToNorm(x);
+            const double tR = xToNorm(x + 1);
+            if (tR < 0.0 || tL > 1.0) continue;
+            const int iL = qBound(0, int(tL * N), N - 1);
+            const int iR = qBound(0, int(tR * N), N - 1);
+            float bmax = m_wfMax[iL], bmin = m_wfMin[iL];
+            for (int i = iL + 1; i <= iR && i < N; ++i) {
+                bmax = qMax(bmax, m_wfMax[i]);
+                bmin = qMin(bmin, m_wfMin[i]);
+            }
+            const int yTop = midY - qMax(1, int(bmax * half));
+            const int yBot = midY - qMin(-1, int(bmin * half));
+            if (yBot > yTop + 1)
+                p.fillRect(x, yTop + 1, 1, yBot - yTop - 1, baseColor);
+            p.fillRect(x, yTop, 1, 1, peakColor);
+            p.fillRect(x, yBot, 1, 1, peakColor);
         }
     }
 
@@ -391,6 +419,7 @@ void WaveformView::paintEvent(QPaintEvent *) {
 // ── Mouse ─────────────────────────────────────────────────────────────────────
 
 void WaveformView::mousePressEvent(QMouseEvent *event) {
+    if (!m_interactive) return;
     const QPointF pos = event->position();
 
     if (event->button() == Qt::MiddleButton) {
@@ -443,6 +472,7 @@ void WaveformView::mousePressEvent(QMouseEvent *event) {
 }
 
 void WaveformView::mouseMoveEvent(QMouseEvent *event) {
+    if (!m_interactive) return;
     const QPointF pos = event->position();
 
     if (m_panning) {
@@ -520,6 +550,7 @@ void WaveformView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void WaveformView::mouseReleaseEvent(QMouseEvent *event) {
+    if (!m_interactive) return;
     if (event->button() == Qt::MiddleButton) {
         m_panning = false;
         setCursor(Qt::CrossCursor);
@@ -535,6 +566,7 @@ void WaveformView::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void WaveformView::contextMenuEvent(QContextMenuEvent *event) {
+    if (!m_interactive) return;
     const QPointF pos = event->pos();
     const int volIdx   = hitPoint(pos);
     const int sliceIdx = hitSlice(pos);
@@ -619,6 +651,7 @@ void WaveformView::contextMenuEvent(QContextMenuEvent *event) {
 }
 
 void WaveformView::wheelEvent(QWheelEvent *event) {
+    if (!m_interactive) { event->ignore(); return; }
     const double cursorNorm = xToNorm(event->position().x());
     const double factor     = event->angleDelta().y() > 0 ? 1.25 : (1.0 / 1.25);
 

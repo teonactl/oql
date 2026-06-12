@@ -7,7 +7,7 @@
 #include <QFont>
 
 AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent) {
-    setWindowTitle("Informazioni su OpenQLab");
+    setWindowTitle(tr("Informazioni su OQL"));
     setFixedWidth(380);
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
@@ -16,7 +16,7 @@ AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent) {
     layout->setContentsMargins(24, 24, 24, 20);
 
     // App name
-    auto *nameLabel = new QLabel("OpenQLab", this);
+    auto *nameLabel = new QLabel("OQL", this);
     QFont nameFont = nameLabel->font();
     nameFont.setPointSize(22);
     nameFont.setBold(true);
@@ -25,7 +25,7 @@ AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent) {
     layout->addWidget(nameLabel);
 
     // Subtitle
-    auto *subLabel = new QLabel("Show Control Software", this);
+    auto *subLabel = new QLabel(tr("Show Control Software"), this);
     subLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(subLabel);
 

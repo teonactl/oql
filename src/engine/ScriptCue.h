@@ -6,7 +6,7 @@ class ScriptCue : public Cue {
 public:
     explicit ScriptCue(QObject *parent = nullptr);
     Type    type()     const override { return Type::Script; }
-    QString typeName() const override { return "Script"; }
+    QString typeName() const override { return tr("Script"); }
     void    go()             override;
     void    stop()           override;
     void    pause()          override {}

@@ -11,7 +11,7 @@ public:
     ~MicCue() override;
 
     Type    type()     const override { return Type::Mic; }
-    QString typeName() const override { return "Microfono"; }
+    QString typeName() const override { return tr("Microfono"); }
 
     void   go()              override;
     void   stop()            override;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(OpenQLab VERSION 0.1.0 LANGUAGES CXX)
+project(OQL VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,14 +10,14 @@ if(UNIX AND NOT APPLE)
     list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml LinguistTools)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
 if(UNIX AND NOT APPLE)
     pkg_check_modules(SUIL REQUIRED suil-0)
 endif()
 
-qt_add_executable(openqlab
+qt_add_executable(oql
     resources/resources.qrc
     src/main.cpp
     src/engine/Cue.h
@@ -88,7 +88,7 @@ qt_add_executable(openqlab
     src/engine/RecordCue.cpp
 )
 
-target_link_libraries(openqlab PRIVATE
+target_link_libraries(oql PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Multimedia
@@ -99,17 +99,17 @@ target_link_libraries(openqlab PRIVATE
     ${LILV_LIBRARIES}
 )
 if(UNIX AND NOT APPLE)
-    target_link_libraries(openqlab PRIVATE ${SUIL_LIBRARIES})
+    target_link_libraries(oql PRIVATE ${SUIL_LIBRARIES})
 endif()
 
 if(UNIX AND NOT APPLE)
-    target_link_libraries(openqlab PRIVATE
+    target_link_libraries(oql PRIVATE
         dl       # dlopen/dlsym for VST2 loading
         pthread  # std::mutex/thread in AudioEngine
         X11      # XSetErrorHandler + XQueryTree (LV2/VST2 UI)
     )
 elseif(APPLE)
-    target_link_libraries(openqlab PRIVATE
+    target_link_libraries(oql PRIVATE
         "-framework CoreAudio"
         "-framework CoreFoundation"
         "-framework AudioUnit"
@@ -117,33 +117,41 @@ elseif(APPLE)
     )
 endif()
 
-target_include_directories(openqlab PRIVATE
+target_include_directories(oql PRIVATE
     src
     ${LILV_INCLUDE_DIRS}
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_INCLUDE_DIRS}>
 )
 
-target_link_directories(openqlab PRIVATE
+target_link_directories(oql PRIVATE
     ${LILV_LIBRARY_DIRS}
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_LIBRARY_DIRS}>
 )
 
-target_compile_options(openqlab PRIVATE
+target_compile_options(oql PRIVATE
     ${LILV_CFLAGS_OTHER}
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_CFLAGS_OTHER}>
 )
 
 # miniaudio needs these on Linux
-target_compile_definitions(openqlab PRIVATE
+target_compile_definitions(oql PRIVATE
     MA_NO_VORBIS    # use built-in vorbis if needed (stb_vorbis not included here)
 )
 
-set_target_properties(openqlab PROPERTIES
+qt_add_translations(oql
+    TS_FILES
+        translations/oql_en.ts
+        translations/oql_es.ts
+        translations/oql_fr.ts
+    RESOURCE_PREFIX "/i18n"
+)
+
+set_target_properties(oql PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE   TRUE
 )
 if(APPLE)
-    set_target_properties(openqlab PROPERTIES
+    set_target_properties(oql PROPERTIES
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/MacOSXBundleInfo.plist.in"
     )
 endif()

@@ -10,7 +10,7 @@ public:
     ~RecordCue() override;
 
     Type    type()     const override { return Type::Record; }
-    QString typeName() const override { return "Registrazione"; }
+    QString typeName() const override { return tr("Registrazione"); }
 
     void   go()              override;
     void   stop()            override;

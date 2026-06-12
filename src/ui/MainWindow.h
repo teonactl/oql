@@ -2,6 +2,8 @@
 #include <QMainWindow>
 #include <QUndoStack>
 #include <QVector>
+#include <QMap>
+#include <QString>
 #include <functional>
 #include "engine/Workspace.h"
 #include "engine/Cue.h"
@@ -18,6 +20,8 @@ class QLabel;
 class QAction;
 class QMenu;
 class QSplitter;
+class QToolButton;
+class QShortcut;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -27,6 +31,7 @@ public:
 protected:
     void closeEvent(QCloseEvent *event)  override;
     void keyPressEvent(QKeyEvent *event) override;
+    void changeEvent(QEvent *event)      override;
 
 private slots:
     void newWorkspace();
@@ -85,13 +90,20 @@ private:
     CueInfoBar        *m_infoBar         = nullptr;
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;
+    QToolButton       *m_goBtn           = nullptr;
     QAction           *m_stopAction      = nullptr;
     QAction           *m_firstCueAction  = nullptr;
     QMenu             *m_recentMenu      = nullptr;
     QUndoStack        *m_undoStack       = nullptr;
     WebServer         *m_webServer       = nullptr;
-    QAction           *m_webAction       = nullptr;
-    QLabel            *m_webUrlLabel     = nullptr;
+    QAction           *m_webAction        = nullptr;
+    QLabel            *m_webUrlLabel      = nullptr;
+    bool               m_showMode         = false;
+    QToolButton       *m_showModeBtn      = nullptr;
+    QShortcut         *m_showModeShortcut = nullptr;
+    QVector<QToolButton*> m_cueAddBtns;
+    QSplitter         *m_topSplit        = nullptr;
+    QMap<QString, QShortcut*> m_addCueShortcuts;
 
     static constexpr int kMaxRecent = 8;
 
@@ -102,4 +114,5 @@ private:
     bool m_programmaticSelect = false;
 
     void applyWebServer();
+    void applyPanelLayout();
 };

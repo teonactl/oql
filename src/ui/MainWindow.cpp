@@ -31,11 +31,13 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QCloseEvent>
+#include <QEvent>
 #include <QKeyEvent>
 #include <QVideoWidget>
 #include <QFileInfo>
 #include <QSettings>
 #include <QPainter>
+#include <QPainterPath>
 #include <QToolButton>
 #include <QUndoStack>
 #include <QTimer>
@@ -89,8 +91,9 @@ public:
 };
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("OpenQLab");
-    resize(1100, 650);
+    setWindowTitle("OQL");
+    resize(1440, 900);
+    setWindowState(Qt::WindowMaximized);
 
     m_videoOut  = new VideoOutputWindow(this);
     m_textOut   = new TextOutputWindow(this);
@@ -111,10 +114,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Web remote server
     m_webServer = new WebServer(m_workspace.cueList(), this);
     connect(m_webServer, &WebServer::started, this, [this](quint16) {
-        m_webUrlLabel->setText("  🌐 " + m_webServer->localUrl());
+        const QString url = m_webServer->localUrl();
+        m_webUrlLabel->setText("  🌐 " + url);
         m_webUrlLabel->show();
         const QSignalBlocker b(m_webAction);
         m_webAction->setChecked(true);
+        QMessageBox::information(this, "Web Remote",
+            "Server remoto avviato!\n\nConnettiti da smartphone o tablet:\n" + url);
     });
     connect(m_webServer, &WebServer::stopped, this, [this]() {
         m_webUrlLabel->hide();
@@ -174,14 +180,14 @@ void MainWindow::buildUi() {
     m_infoBar    = new CueInfoBar(this);
     m_activeCues = new ActiveCuesPanel(m_workspace.cueList(), this);
 
-    // Top: active cues panel (left) + cue list (center/right)
-    auto *topSplit = new QSplitter(Qt::Horizontal);
-    topSplit->addWidget(m_activeCues);
-    topSplit->addWidget(m_cueView);
-    topSplit->setStretchFactor(0, 0);
-    topSplit->setStretchFactor(1, 1);
-    topSplit->setHandleWidth(3);
-    topSplit->setSizes({230, 800});
+    // Top: active cues panel + cue list (order set by applyPanelLayout)
+    m_topSplit = new QSplitter(Qt::Horizontal);
+    m_topSplit->addWidget(m_activeCues);
+    m_topSplit->addWidget(m_cueView);
+    m_topSplit->setStretchFactor(0, 0);
+    m_topSplit->setStretchFactor(1, 1);
+    m_topSplit->setHandleWidth(3);
+    m_topSplit->setSizes({230, 800});
 
     // Inspector in a scroll area at bottom (for narrow windows)
     auto *inspScroll = new QScrollArea;
@@ -192,7 +198,7 @@ void MainWindow::buildUi() {
 
     // Vertical split: content area (top) + inspector (bottom)
     m_mainSplit = new QSplitter(Qt::Vertical);
-    m_mainSplit->addWidget(topSplit);
+    m_mainSplit->addWidget(m_topSplit);
     m_mainSplit->addWidget(inspScroll);
     m_mainSplit->setStretchFactor(0, 1);
     m_mainSplit->setStretchFactor(1, 0);
@@ -287,11 +293,12 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::cueDoubleClicked, this, [this](int row) {
         Cue *cue = m_model->cueForRow(row);
         if (!cue) return;
-        // Expand inspector if collapsed
+        // Always ensure inspector is open to at least 420px
         const QList<int> sz = m_mainSplit->sizes();
-        if (sz.size() >= 2 && sz[1] < 50) {
+        if (sz.size() >= 2) {
             const int total = sz[0] + sz[1];
-            m_mainSplit->setSizes({ qMax(0, total - 280), 280 });
+            const int inspH = qMax(sz[1], 420);
+            m_mainSplit->setSizes({ qMax(0, total - inspH), inspH });
         }
         m_inspector->setCue(cue);
     });
@@ -339,6 +346,29 @@ void MainWindow::buildUi() {
                 vc->setFilePath(path);
         });
     });
+
+    // Add-cue shortcuts (key sequences set in applyShortcuts)
+    auto makeSc = [&](const QString &key) {
+        auto *sc = new QShortcut(QKeySequence(), this);
+        m_addCueShortcuts[key] = sc;
+        return sc;
+    };
+    connect(makeSc("audio"),       &QShortcut::activated, this, &MainWindow::addAudioCue);
+    connect(makeSc("video"),       &QShortcut::activated, this, &MainWindow::addVideoCue);
+    connect(makeSc("text"),        &QShortcut::activated, this, &MainWindow::addTextCue);
+    connect(makeSc("mic"),         &QShortcut::activated, this, &MainWindow::addMicCue);
+    connect(makeSc("record"),      &QShortcut::activated, this, &MainWindow::addRecordCue);
+    connect(makeSc("stop"),        &QShortcut::activated, this, &MainWindow::addStopCue);
+    connect(makeSc("fade"),        &QShortcut::activated, this, &MainWindow::addFadeCue);
+    connect(makeSc("pause"),       &QShortcut::activated, this, &MainWindow::addPauseCue);
+    connect(makeSc("play"),        &QShortcut::activated, this, &MainWindow::addPlayCue);
+    connect(makeSc("effect"),      &QShortcut::activated, this, &MainWindow::addEffectCue);
+    connect(makeSc("reseteffect"), &QShortcut::activated, this, &MainWindow::addResetEffectCue);
+    connect(makeSc("script"),      &QShortcut::activated, this, &MainWindow::addScriptCue);
+    connect(makeSc("group"),       &QShortcut::activated, this, &MainWindow::addGroupCue);
+    connect(makeSc("label"),       &QShortcut::activated, this, &MainWindow::addLabelCue);
+
+    applyPanelLayout();
 }
 
 static QAction* menuAction(QMenu *menu, const QString &text,
@@ -352,254 +382,283 @@ static QAction* menuAction(QMenu *menu, const QString &text,
 
 void MainWindow::buildMenus() {
     // File
-    auto *file = menuBar()->addMenu("&File");
-    menuAction(file, "&Nuovo",       QKeySequence::New,    this, &MainWindow::newWorkspace);
-    menuAction(file, "&Apri…",       QKeySequence::Open,   this, &MainWindow::openWorkspace);
-    m_recentMenu = file->addMenu("Apri &recenti");
+    auto *file = menuBar()->addMenu(tr("&File"));
+    menuAction(file, tr("&Nuovo"),       QKeySequence::New,    this, &MainWindow::newWorkspace);
+    menuAction(file, tr("&Apri…"),       QKeySequence::Open,   this, &MainWindow::openWorkspace);
+    m_recentMenu = file->addMenu(tr("Apri &recenti"));
     rebuildRecentMenu();
     file->addSeparator();
-    menuAction(file, "&Salva",       QKeySequence::Save,   this, &MainWindow::saveWorkspace);
-    menuAction(file, "Salva &come…", QKeySequence::SaveAs, this, &MainWindow::saveWorkspaceAs);
+    menuAction(file, tr("&Salva"),       QKeySequence::Save,   this, &MainWindow::saveWorkspace);
+    menuAction(file, tr("Salva &come…"), QKeySequence::SaveAs, this, &MainWindow::saveWorkspaceAs);
     file->addSeparator();
-    menuAction(file, "&Esci",        QKeySequence::Quit,   qApp, &QApplication::quit);
+    menuAction(file, tr("&Esci"),        QKeySequence::Quit,   qApp, &QApplication::quit);
 
     // Modifica
-    auto *edit = menuBar()->addMenu("&Modifica");
+    auto *edit = menuBar()->addMenu(tr("&Modifica"));
 
-    auto *undoAct = m_undoStack->createUndoAction(this, "&Annulla");
+    auto *undoAct = m_undoStack->createUndoAction(this, tr("&Annulla"));
     undoAct->setShortcut(QKeySequence::Undo);
     edit->addAction(undoAct);
 
-    auto *redoAct = m_undoStack->createRedoAction(this, "&Ripeti");
+    auto *redoAct = m_undoStack->createRedoAction(this, tr("&Ripeti"));
     redoAct->setShortcut(QKeySequence("Ctrl+Shift+Z"));
     edit->addAction(redoAct);
 
     edit->addSeparator();
 
-    menuAction(edit, "Aggiungi &Audio Cue", QKeySequence("Ctrl+Shift+A"), this, &MainWindow::addAudioCue);
-    menuAction(edit, "Aggiungi &Video Cue", QKeySequence("Ctrl+Shift+V"), this, &MainWindow::addVideoCue);
+    menuAction(edit, tr("Aggiungi &Audio Cue"), QKeySequence("Ctrl+Shift+A"), this, &MainWindow::addAudioCue);
+    menuAction(edit, tr("Aggiungi &Video Cue"), QKeySequence("Ctrl+Shift+V"), this, &MainWindow::addVideoCue);
     edit->addSeparator();
-    menuAction(edit, "Aggiungi &Stop Cue",         QKeySequence("Ctrl+Shift+S"), this, &MainWindow::addStopCue);
-    menuAction(edit, "Aggiungi &Fade Cue",         QKeySequence("Ctrl+Shift+F"), this, &MainWindow::addFadeCue);
-    menuAction(edit, "Aggiungi &Pause Cue",        QKeySequence("Ctrl+Shift+P"), this, &MainWindow::addPauseCue);
-    menuAction(edit, "Aggiungi cue &Velocizza",    QKeySequence("Ctrl+Shift+U"), this, &MainWindow::addSpeedUpCue);
-    menuAction(edit, "Aggiungi cue &Rallenta",     QKeySequence("Ctrl+Shift+D"), this, &MainWindow::addSpeedDownCue);
-    menuAction(edit, "Aggiungi cue &Play",         QKeySequence("Ctrl+Shift+L"), this, &MainWindow::addPlayCue);
-    menuAction(edit, "Aggiungi cue &Microfono",    QKeySequence("Ctrl+Shift+M"), this, &MainWindow::addMicCue);
+    menuAction(edit, tr("Aggiungi &Stop Cue"),          QKeySequence("Ctrl+Shift+S"), this, &MainWindow::addStopCue);
+    menuAction(edit, tr("Aggiungi &Fade Cue"),          QKeySequence("Ctrl+Shift+F"), this, &MainWindow::addFadeCue);
+    menuAction(edit, tr("Aggiungi &Pause Cue"),         QKeySequence("Ctrl+Shift+P"), this, &MainWindow::addPauseCue);
+    menuAction(edit, tr("Aggiungi cue &Velocizza"),     QKeySequence("Ctrl+Shift+U"), this, &MainWindow::addSpeedUpCue);
+    menuAction(edit, tr("Aggiungi cue &Rallenta"),      QKeySequence("Ctrl+Shift+D"), this, &MainWindow::addSpeedDownCue);
+    menuAction(edit, tr("Aggiungi cue &Play"),          QKeySequence("Ctrl+Shift+L"), this, &MainWindow::addPlayCue);
+    menuAction(edit, tr("Aggiungi cue &Microfono"),     QKeySequence("Ctrl+Shift+M"), this, &MainWindow::addMicCue);
     edit->addSeparator();
-    menuAction(edit, "Aggiungi &Gruppo",           QKeySequence("Ctrl+Shift+G"), this, &MainWindow::addGroupCue);
-    menuAction(edit, "Aggiungi &Etichetta",        QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
-    menuAction(edit, "Aggiungi &Testo",            QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
+    menuAction(edit, tr("Aggiungi &Gruppo"),            QKeySequence("Ctrl+Shift+G"), this, &MainWindow::addGroupCue);
+    menuAction(edit, tr("Aggiungi &Etichetta"),         QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
+    menuAction(edit, tr("Aggiungi &Testo"),             QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
     edit->addSeparator();
-    menuAction(edit, "Aggiungi cue E&ffetto",      QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
-    menuAction(edit, "Aggiungi cue &Reset Effetti",QKeySequence("Ctrl+Shift+R"), this, &MainWindow::addResetEffectCue);
+    menuAction(edit, tr("Aggiungi cue E&ffetto"),       QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
+    menuAction(edit, tr("Aggiungi cue &Reset Effetti"), QKeySequence("Ctrl+Shift+R"), this, &MainWindow::addResetEffectCue);
     edit->addSeparator();
-    menuAction(edit, "&Elimina cue", QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+    menuAction(edit, tr("&Elimina cue"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
     // Finestra
-    auto *win = menuBar()->addMenu("&Finestra");
-    menuAction(win, "Mostra/nascondi output video", QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
+    auto *win = menuBar()->addMenu(tr("&Finestra"));
+    menuAction(win, tr("Mostra/nascondi output video"), QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
 
     // Strumenti
-    auto *tools = menuBar()->addMenu("&Strumenti");
-    menuAction(tools, "&Impostazioni…", QKeySequence("Ctrl+,"), this, &MainWindow::openSettings);
+    auto *tools = menuBar()->addMenu(tr("&Strumenti"));
+    menuAction(tools, tr("&Impostazioni…"), QKeySequence("Ctrl+,"), this, &MainWindow::openSettings);
 
     // Aiuto
-    auto *help = menuBar()->addMenu("&Aiuto");
-    menuAction(help, "Informazioni su OpenQLab…", QKeySequence(), this, &MainWindow::showAbout);
+    auto *help = menuBar()->addMenu(tr("&Aiuto"));
+    menuAction(help, tr("Informazioni su OQL…"), QKeySequence(), this, &MainWindow::showAbout);
 }
 
 void MainWindow::buildToolBar() {
     auto *tb = addToolBar("Principale");
     tb->setMovable(false);
-    tb->setIconSize({20, 20});
+    tb->setIconSize({32, 32});
+    tb->setStyleSheet(
+        "QToolBar { spacing: 2px; padding: 3px; }"
+        "QToolBar::separator { width: 9px; }"
+        "QToolButton { min-width: 38px; min-height: 38px; border-radius: 5px; }"
+        "QToolButton:hover   { background: rgba(255,255,255,18); }"
+        "QToolButton:pressed { background: rgba(0,0,0,30); }");
 
-    QFont bigFont;
-    bigFont.setPointSize(13);
-    bigFont.setBold(true);
+    // ── GO button — large, no colored background ──────────────────────────────
+    m_goBtn = new QToolButton;
+    m_goBtn->setText("▶  GO");
+    QFont goFont;
+    goFont.setPointSize(16);
+    goFont.setBold(true);
+    m_goBtn->setFont(goFont);
+    m_goBtn->setFixedSize(100, 54);
+    m_goBtn->setStyleSheet(
+        "QToolButton { background:transparent; color:white; border-radius:7px;"
+        "              border:1px solid rgba(255,255,255,22); }"
+        "QToolButton:pressed { background: rgba(0,0,0,40); }"
+        "QToolButton:hover   { background: rgba(255,255,255,16); }");
+    m_goBtn->setToolTip("Vai");
+    connect(m_goBtn, &QToolButton::clicked, this, &MainWindow::go);
+    tb->addWidget(m_goBtn);
 
-    m_goAction = tb->addAction("▶  GO");
-    m_goAction->setFont(bigFont);
-    m_goAction->setToolTip("Vai");
+    // m_goAction: keyboard shortcut only (window-level, not in toolbar visually)
+    m_goAction = new QAction("GO", this);
     connect(m_goAction, &QAction::triggered, this, &MainWindow::go);
+    addAction(m_goAction);
 
     tb->addSeparator();
 
-    m_stopAction = tb->addAction("■");
-    m_stopAction->setFont(bigFont);
-    m_stopAction->setToolTip("Ferma tutto");
-    connect(m_stopAction, &QAction::triggered, this, &MainWindow::stopAll);
-
-    m_firstCueAction = tb->addAction("");
-    m_firstCueAction->setToolTip("Torna alla prima cue");
-    connect(m_firstCueAction, &QAction::triggered, this, &MainWindow::goToFirstCue);
-
-    tb->addSeparator();
-
+    // ── Icon helper with rounded bg (for add-cue buttons) ─────────────────────
     auto makeTbIcon = [](const QColor &bg, auto drawFn) -> QIcon {
-        QPixmap px(20, 20);
+        QPixmap px(28, 28);
         px.fill(Qt::transparent);
         QPainter p(&px);
         p.setRenderHint(QPainter::Antialiasing);
         p.setBrush(bg);
         p.setPen(Qt::NoPen);
-        p.drawRoundedRect(0, 0, 20, 20, 4, 4);
+        p.drawRoundedRect(0, 0, 28, 28, 6, 6);
         p.setBrush(Qt::white);
         drawFn(p);
         return QIcon(px);
     };
 
-    // ⏮ drawn as pixel icon: left bar + two left-pointing triangles
-    m_firstCueAction->setIcon(makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
-        p.drawRect(2, 3, 2, 14);                                          // left bar
-        QPolygon t1; t1 << QPoint(11, 3) << QPoint(11, 17) << QPoint(5, 10);
-        QPolygon t2; t2 << QPoint(18, 3) << QPoint(18, 17) << QPoint(12, 10);
-        p.drawPolygon(t1);
-        p.drawPolygon(t2);
+    // ── Flat icon helper (no bg) for transport buttons ────────────────────────
+    auto makeTbIconFlat = [](auto drawFn) -> QIcon {
+        QPixmap px(28, 28);
+        px.fill(Qt::transparent);
+        QPainter p(&px);
+        p.setRenderHint(QPainter::Antialiasing);
+        drawFn(p);
+        return QIcon(px);
+    };
+
+    // ── Stop All + First Cue — flat, no colored bg ────────────────────────────
+    m_stopAction = new QAction(this);
+    m_stopAction->setIcon(makeTbIconFlat([](QPainter &p) {
+        p.setBrush(QColor(0xff, 0x55, 0x55)); p.setPen(Qt::NoPen);
+        p.drawRoundedRect(5, 5, 18, 18, 2, 2);
     }));
+    m_stopAction->setToolTip("Ferma tutto");
+    connect(m_stopAction, &QAction::triggered, this, &MainWindow::stopAll);
+    tb->addAction(m_stopAction);
+    addAction(m_stopAction);
 
-    // Audio: play triangle
-    auto audioIcon = makeTbIcon(QColor(0x2a, 0x6d, 0xcc), [](QPainter &p) {
-        QPolygon t; t << QPoint(5,3) << QPoint(5,17) << QPoint(16,10); p.drawPolygon(t);
-    });
-    // Video: frame + play triangle
-    auto videoIcon = makeTbIcon(QColor(0x2a, 0x88, 0x44), [](QPainter &p) {
-        p.setBrush(Qt::NoBrush); p.setPen(QPen(Qt::white, 1.5));
-        p.drawRoundedRect(2,4,16,12,2,2);
-        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
-        QPolygon t; t << QPoint(7,6) << QPoint(7,14) << QPoint(14,10); p.drawPolygon(t);
-    });
-    // Stop: filled square
-    auto stopIcon = makeTbIcon(QColor(0xcc, 0x33, 0x33), [](QPainter &p) {
-        p.drawRect(4,4,12,12);
-    });
-    // Fade: fade envelope (right triangle)
-    auto fadeIcon = makeTbIcon(QColor(0xcc, 0x77, 0x22), [](QPainter &p) {
-        QPolygon e; e << QPoint(3,17) << QPoint(17,3) << QPoint(17,17); p.drawPolygon(e);
-    });
-    // Pause: two vertical bars
-    auto pauseIcon = makeTbIcon(QColor(0x88, 0x55, 0xcc), [](QPainter &p) {
-        p.drawRect(4,4,5,12); p.drawRect(11,4,5,12);
-    });
-    // SpeedUp: two forward triangles >>
-    auto speedUpIcon = makeTbIcon(QColor(0x11, 0x99, 0x99), [](QPainter &p) {
-        QPolygon t1, t2;
-        t1 << QPoint(2,5) << QPoint(2,15) << QPoint(9,10);
-        t2 << QPoint(10,5) << QPoint(10,15) << QPoint(17,10);
+    m_firstCueAction = new QAction(this);
+    m_firstCueAction->setIcon(makeTbIconFlat([](QPainter &p) {
+        p.setBrush(QColor(200, 200, 215)); p.setPen(Qt::NoPen);
+        p.drawRect(2, 4, 3, 20);
+        QPolygon t1; t1 << QPoint(13, 4) << QPoint(13, 24) << QPoint(7, 14);
+        QPolygon t2; t2 << QPoint(23, 4) << QPoint(23, 24) << QPoint(16, 14);
         p.drawPolygon(t1); p.drawPolygon(t2);
-        p.drawRect(18,5,2,10);
-    });
-    // SpeedDown: two back triangles <<
-    auto speedDownIcon = makeTbIcon(QColor(0x11, 0x77, 0x77), [](QPainter &p) {
-        QPolygon t1, t2;
-        t1 << QPoint(18,5) << QPoint(18,15) << QPoint(11,10);
-        t2 << QPoint(10,5) << QPoint(10,15) << QPoint(3,10);
-        p.drawPolygon(t1); p.drawPolygon(t2);
-        p.drawRect(0,5,2,10);
-    });
+    }));
+    m_firstCueAction->setToolTip("Torna alla prima cue");
+    connect(m_firstCueAction, &QAction::triggered, this, &MainWindow::goToFirstCue);
+    tb->addAction(m_firstCueAction);
+    addAction(m_firstCueAction);
 
+    tb->addSeparator();
+
+    // ── Cue add buttons (tracked for Show Mode) ───────────────────────────────
     auto addCueBtn = [&](const QIcon &icon, const QString &tooltip, auto slot) {
         auto *btn = new QToolButton;
         btn->setIcon(icon);
-        btn->setIconSize({20, 20});
+        btn->setIconSize({32, 32});
+        btn->setFixedSize(40, 40);
         btn->setToolTip(tooltip);
         connect(btn, &QToolButton::clicked, this, slot);
         tb->addWidget(btn);
+        m_cueAddBtns.append(btn);
     };
 
-    // Play: |▶ (green #22aa55)
-    auto playCueIcon = makeTbIcon(QColor(0x22, 0xaa, 0x55), [](QPainter &p) {
-        p.drawRect(2, 3, 3, 14);   // vertical bar
-        QPolygon t; t << QPoint(7,3) << QPoint(7,17) << QPoint(17,10); p.drawPolygon(t);
+    // ── Media: Audio (♪), Video, Text ────────────────────────────────────────
+    auto audioIcon = makeTbIcon(QColor(0x2a, 0x6d, 0xcc), [](QPainter &p) {
+        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
+        p.save(); p.translate(10.0, 21.0); p.rotate(-20.0);
+        p.drawEllipse(QRectF(-5.0, -3.5, 10.0, 7.0)); p.restore();
+        p.drawRect(15, 3, 2, 19);
+        QPainterPath fp;
+        fp.moveTo(17, 3); fp.quadTo(26, 7, 18, 14);
+        fp.quadTo(22, 10, 17, 8); fp.closeSubpath();
+        p.drawPath(fp);
     });
-
-    // Group: folder shape
-    auto groupIcon = makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
-        p.drawRect(1, 5, 7, 3);    // tab
-        p.drawRect(1, 7, 18, 11);  // body
+    auto videoIcon = makeTbIcon(QColor(0x2a, 0x88, 0x44), [](QPainter &p) {
+        p.setBrush(Qt::NoBrush); p.setPen(QPen(Qt::white, 1.5));
+        p.drawRoundedRect(2, 6, 24, 16, 2, 2);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        QPolygon t; t << QPoint(10,9) << QPoint(10,19) << QPoint(20,14); p.drawPolygon(t);
     });
-
-    // Label: three horizontal lines (note lines)
-    auto labelIcon = makeTbIcon(QColor(0x60, 0x55, 0x10), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 2));
-        p.setBrush(Qt::NoBrush);
-        p.drawLine(3, 6,  17, 6);
-        p.drawLine(3, 10, 17, 10);
-        p.drawLine(3, 14, 12, 14);
-    });
-
-    // Text: bold "T"
     auto textIcon = makeTbIcon(QColor(0x0a, 0x72, 0x8a), [](QPainter &p) {
-        p.drawRect(2, 3, 16, 3);   // top bar
-        p.drawRect(8, 3, 4, 13);   // stem
+        p.drawRect(2, 4, 24, 4); p.drawRect(10, 4, 6, 20);
     });
 
-    // Mic: capsule + stand
+    addCueBtn(audioIcon, "+ Audio Cue", &MainWindow::addAudioCue);
+    addCueBtn(videoIcon, "+ Video Cue", &MainWindow::addVideoCue);
+    addCueBtn(textIcon,  "+ Testo",     &MainWindow::addTextCue);
+    tb->addSeparator();
+
+    // ── Controllo: Fade prima, poi Stop/Pause/Play ────────────────────────────
+    auto fadeIcon = makeTbIcon(QColor(0xcc, 0x77, 0x22), [](QPainter &p) {
+        QPolygon e; e << QPoint(3,25) << QPoint(25,3) << QPoint(25,25); p.drawPolygon(e);
+    });
+    auto stopCueIcon = makeTbIcon(QColor(0xcc, 0x33, 0x33), [](QPainter &p) {
+        p.drawRect(6, 6, 16, 16);
+    });
+    auto pauseIcon = makeTbIcon(QColor(0x88, 0x55, 0xcc), [](QPainter &p) {
+        p.drawRect(6, 6, 6, 16); p.drawRect(16, 6, 6, 16);
+    });
+    auto playCueIcon = makeTbIcon(QColor(0x22, 0xaa, 0x55), [](QPainter &p) {
+        p.drawRect(4, 4, 4, 20);
+        QPolygon t; t << QPoint(10,4) << QPoint(10,24) << QPoint(24,14); p.drawPolygon(t);
+    });
+
+    addCueBtn(fadeIcon,    "+ Fade Cue",  &MainWindow::addFadeCue);
+    addCueBtn(stopCueIcon, "+ Stop Cue",  &MainWindow::addStopCue);
+    addCueBtn(pauseIcon,   "+ Pause Cue", &MainWindow::addPauseCue);
+    addCueBtn(playCueIcon, "+ Play Cue",  &MainWindow::addPlayCue);
+    tb->addSeparator();
+
+    // ── Velocità ──────────────────────────────────────────────────────────────
+    auto speedUpIcon = makeTbIcon(QColor(0x11, 0x99, 0x99), [](QPainter &p) {
+        QPolygon t1, t2;
+        t1 << QPoint(2,7) << QPoint(2,21) << QPoint(12,14);
+        t2 << QPoint(14,7) << QPoint(14,21) << QPoint(24,14);
+        p.drawPolygon(t1); p.drawPolygon(t2);
+    });
+    auto speedDownIcon = makeTbIcon(QColor(0x11, 0x77, 0x77), [](QPainter &p) {
+        QPolygon t1, t2;
+        t1 << QPoint(26,7) << QPoint(26,21) << QPoint(16,14);
+        t2 << QPoint(14,7) << QPoint(14,21) << QPoint(4,14);
+        p.drawPolygon(t1); p.drawPolygon(t2);
+    });
+
+    addCueBtn(speedUpIcon,   "+ Velocizza", &MainWindow::addSpeedUpCue);
+    addCueBtn(speedDownIcon, "+ Rallenta",  &MainWindow::addSpeedDownCue);
+    tb->addSeparator();
+
+    // ── Ingresso ──────────────────────────────────────────────────────────────
     auto micIcon = makeTbIcon(QColor(0xcc, 0x22, 0x88), [](QPainter &p) {
         p.setBrush(Qt::white);
-        p.drawRoundedRect(7, 2, 6, 9, 3, 3);
-        p.setPen(QPen(Qt::white, 1.5));
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(4, 6, 12, 8, 0, -180 * 16);
-        p.drawLine(10, 14, 10, 17);
-        p.drawLine(6, 17, 14, 17);
+        p.drawRoundedRect(9, 2, 10, 14, 5, 5);
+        p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
+        p.drawArc(4, 9, 20, 12, 0, -180 * 16);
+        p.drawLine(14, 21, 14, 26);
+        p.drawLine(8, 26, 20, 26);
+    });
+    auto recordIcon = makeTbIcon(QColor(0xaa, 0x22, 0x22), [](QPainter &p) {
+        p.drawEllipse(5, 5, 18, 18);
     });
 
-    addCueBtn(audioIcon,     "+ Audio Cue",    &MainWindow::addAudioCue);
-    addCueBtn(videoIcon,     "+ Video Cue",    &MainWindow::addVideoCue);
-    addCueBtn(stopIcon,      "+ Stop Cue",     &MainWindow::addStopCue);
-    addCueBtn(fadeIcon,      "+ Fade Cue",     &MainWindow::addFadeCue);
-    addCueBtn(pauseIcon,     "+ Pause Cue",    &MainWindow::addPauseCue);
-    addCueBtn(playCueIcon,   "+ Play Cue",     &MainWindow::addPlayCue);
-    addCueBtn(micIcon,       "+ Mic Cue",      &MainWindow::addMicCue);
-    addCueBtn(groupIcon,     "+ Gruppo",       &MainWindow::addGroupCue);
-    addCueBtn(labelIcon,     "+ Etichetta",    &MainWindow::addLabelCue);
-    addCueBtn(textIcon,      "+ Testo",        &MainWindow::addTextCue);
-    addCueBtn(speedUpIcon,   "+ Velocizza",    &MainWindow::addSpeedUpCue);
-    addCueBtn(speedDownIcon, "+ Rallenta",     &MainWindow::addSpeedDownCue);
+    addCueBtn(micIcon,    "+ Mic Cue",    &MainWindow::addMicCue);
+    addCueBtn(recordIcon, "+ Record Cue", &MainWindow::addRecordCue);
+    tb->addSeparator();
 
-    // Effect: lightning bolt (purple #7b359e)
+    // ── Struttura ─────────────────────────────────────────────────────────────
+    auto groupIcon = makeTbIcon(QColor(0x44, 0x48, 0x58), [](QPainter &p) {
+        p.drawRect(1, 9, 11, 4); p.drawRect(1, 12, 26, 14);
+    });
+    auto labelIcon = makeTbIcon(QColor(0x60, 0x55, 0x10), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2)); p.setBrush(Qt::NoBrush);
+        p.drawLine(3, 8, 25, 8);
+        p.drawLine(3, 14, 25, 14);
+        p.drawLine(3, 20, 17, 20);
+    });
+
+    addCueBtn(groupIcon, "+ Gruppo",    &MainWindow::addGroupCue);
+    addCueBtn(labelIcon, "+ Etichetta", &MainWindow::addLabelCue);
+    tb->addSeparator();
+
+    // ── Effetti / Script ──────────────────────────────────────────────────────
     auto effectIcon = makeTbIcon(QColor(0x7b, 0x35, 0x9e), [](QPainter &p) {
         QPolygon bolt;
-        bolt << QPoint(11, 2) << QPoint(5, 11) << QPoint(9, 11)
-             << QPoint(7, 18) << QPoint(15, 9) << QPoint(11, 9);
+        bolt << QPoint(16,2) << QPoint(7,16) << QPoint(13,16)
+             << QPoint(10,26) << QPoint(21,12) << QPoint(15,12);
         p.drawPolygon(bolt);
     });
-    // ResetEffect: circular undo arrow (blue-gray #357b9e)
     auto resetEffectIcon = makeTbIcon(QColor(0x35, 0x7b, 0x9e), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 2.0));
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(3, 3, 14, 14, 50*16, 250*16);
-        p.setPen(Qt::NoPen);
-        p.setBrush(Qt::white);
-        QPolygon arr;
-        arr << QPoint(3, 6) << QPoint(8, 2) << QPoint(8, 10);
+        p.setPen(QPen(Qt::white, 2.5)); p.setBrush(Qt::NoBrush);
+        p.drawArc(3, 3, 22, 22, 50*16, 250*16);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        QPolygon arr; arr << QPoint(3,8) << QPoint(12,2) << QPoint(12,14);
         p.drawPolygon(arr);
     });
-
-    addCueBtn(effectIcon,      "+ Effetto",      &MainWindow::addEffectCue);
-    addCueBtn(resetEffectIcon, "+ Reset Effetti",&MainWindow::addResetEffectCue);
-
     auto scriptIcon = makeTbIcon(QColor(0x5a, 0x8a, 0x3a), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 2.0));
-        p.setBrush(Qt::NoBrush);
-        // curly braces { }
-        p.drawArc(5, 3, 4, 5, 90*16, 180*16);
-        p.drawArc(5, 11, 4, 5, 180*16, 180*16);
-        p.drawArc(11, 3, 4, 5, 270*16, 180*16);
-        p.drawArc(11, 11, 4, 5, 0*16, 180*16);
-        p.drawLine(9, 5, 9, 10);
-        p.drawLine(11, 5, 11, 10);
+        p.setPen(QPen(Qt::white, 2.5)); p.setBrush(Qt::NoBrush);
+        p.drawArc(5, 3, 7, 8, 90*16, 180*16);
+        p.drawArc(5, 17, 7, 8, 180*16, 180*16);
+        p.drawArc(16, 3, 7, 8, 270*16, 180*16);
+        p.drawArc(16, 17, 7, 8, 0*16, 180*16);
+        p.drawLine(12, 7, 12, 14); p.drawLine(16, 7, 16, 14);
     });
-    addCueBtn(scriptIcon, "+ Script Cue", &MainWindow::addScriptCue);
 
-    auto recordIcon = makeTbIcon(QColor(0xaa, 0x22, 0x22), [](QPainter &p) {
-        p.setBrush(Qt::white);
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(5, 5, 10, 10);
-    });
-    addCueBtn(recordIcon, "+ Record Cue", &MainWindow::addRecordCue);
-
+    addCueBtn(effectIcon,      "+ Effetto",       &MainWindow::addEffectCue);
+    addCueBtn(resetEffectIcon, "+ Reset Effetti",  &MainWindow::addResetEffectCue);
+    addCueBtn(scriptIcon,      "+ Script Cue",     &MainWindow::addScriptCue);
     tb->addSeparator();
 
     m_webAction = tb->addAction("🌐 Remote");
@@ -611,8 +670,6 @@ void MainWindow::buildToolBar() {
         else    m_webServer->stop();
     });
 
-    tb->addSeparator();
-
     auto *videoWin = tb->addAction("📺 Video Out");
     connect(videoWin, &QAction::triggered, this, &MainWindow::toggleVideoOutput);
     auto *textWin = tb->addAction("📝 Text Out");
@@ -620,19 +677,101 @@ void MainWindow::buildToolBar() {
         if (m_textOut->isVisible()) m_textOut->hide();
         else                        m_textOut->show();
     });
+
+    // ── Expanding spacer → Show Mode isolated far right ───────────────────────
+    auto *tbSpacer = new QWidget;
+    tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    tb->addWidget(tbSpacer);
+
+    auto showModeIcon = makeTbIcon(QColor(0x33, 0x55, 0x66), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
+        QPainterPath eyePath;
+        eyePath.moveTo(2, 14); eyePath.quadTo(14, 3, 26, 14);
+        eyePath.quadTo(14, 25, 2, 14);
+        p.drawPath(eyePath);
+        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(14, 14), 4.5, 4.5);
+    });
+    auto *showBtn = new QToolButton;
+    showBtn->setIcon(showModeIcon);
+    showBtn->setIconSize({32, 32});
+    showBtn->setFixedSize(40, 40);
+    showBtn->setToolTip("Modalità Show — visualizzazione senza modifiche");
+    showBtn->setCheckable(true);
+    showBtn->setStyleSheet(
+        "QToolButton { border-radius:5px; }"
+        "QToolButton:checked { background:#1e5a3a; border:2px solid #3ccc77; }"
+        "QToolButton:hover   { background:rgba(255,255,255,18); }");
+    connect(showBtn, &QToolButton::toggled, this, [this](bool on) {
+        m_showMode = on;
+        m_inspector->setShowMode(on);
+        for (auto *btn : m_cueAddBtns)
+            btn->setEnabled(!on);
+        if (on) {
+            const QList<int> sz = m_mainSplit->sizes();
+            if (sz.size() >= 2) {
+                const int total = sz[0] + sz[1];
+                const int inspH = qMax(sz[1], 420);
+                m_mainSplit->setSizes({ qMax(0, total - inspH), inspH });
+            }
+            m_mainSplit->setCollapsible(1, false);
+        } else {
+            m_mainSplit->setCollapsible(1, true);
+        }
+    });
+    tb->addWidget(showBtn);
+
+    m_showModeBtn = showBtn;
+    m_showModeShortcut = new QShortcut(AppSettings::instance().keyShowMode(), this);
+    connect(m_showModeShortcut, &QShortcut::activated, showBtn, &QToolButton::toggle);
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
 
 void MainWindow::go() {
     const auto sel = m_cueView->selectionModel()->selectedRows();
+
+    // RecordCue in registrazione: secondo GO ferma la registrazione e sposta il
+    // focus sulla cue successiva (il playhead è già avanzato dopo il primo GO).
     if (!sel.isEmpty()) {
         const int actual = m_model->actualRowForVisible(sel.first().row());
         Cue *selCue = actual >= 0 ? m_workspace.cueList()->cueAt(actual) : nullptr;
-        if (!selCue || selCue->state() == Cue::State::Idle)
+        if (selCue && selCue->type() == Cue::Type::Record
+                   && selCue->state() == Cue::State::Playing) {
+            selCue->stop();
+            const int ph    = m_workspace.cueList()->playheadIndex();
+            const int phVis = m_model->visibleRowForActual(ph);
+            if (phVis >= 0) {
+                m_programmaticSelect = true;
+                m_cueView->selectRow(phVis);
+                m_programmaticSelect = false;
+            }
+            return;
+        }
+    }
+
+    int keepVisRow = -1;  // if >= 0, keep selection here after go (RecordCue starting)
+    if (!sel.isEmpty()) {
+        const int actual = m_model->actualRowForVisible(sel.first().row());
+        Cue *selCue = actual >= 0 ? m_workspace.cueList()->cueAt(actual) : nullptr;
+        if (!selCue || selCue->state() == Cue::State::Idle) {
             m_workspace.cueList()->setPlayhead(actual >= 0 ? actual : 0);
+            if (selCue && selCue->type() == Cue::Type::Record)
+                keepVisRow = sel.first().row();
+        }
     }
     m_workspace.cueList()->go();
+
+    // If we just started a RecordCue, keep selection on it so user can stop recording.
+    if (keepVisRow >= 0) {
+        Cue *recCue = m_model->cueForRow(keepVisRow);
+        if (recCue && recCue->state() == Cue::State::Playing) {
+            m_programmaticSelect = true;
+            m_cueView->selectRow(keepVisRow);
+            m_programmaticSelect = false;
+            return;
+        }
+    }
 
     // Safety net: select the new playhead row immediately if visible.
     // Covers cases where playheadChanged fired but the row was not yet visible.
@@ -661,11 +800,17 @@ void MainWindow::goToFirstCue() {
 void MainWindow::applyShortcuts() {
     const auto &s = AppSettings::instance();
     m_goAction->setShortcut(s.keyGo());
-    m_goAction->setToolTip(QString("Vai (%1)").arg(s.keyGo().toString()));
+    if (m_goBtn) m_goBtn->setToolTip(QString("Vai (%1)").arg(s.keyGo().toString()));
     m_stopAction->setShortcut(s.keyStopAll());
     m_stopAction->setToolTip(QString("Ferma tutto (%1)").arg(s.keyStopAll().toString()));
     m_firstCueAction->setShortcut(s.keyFirstCue());
     m_firstCueAction->setToolTip(QString("Torna alla prima cue (%1)").arg(s.keyFirstCue().toString()));
+    for (auto it = m_addCueShortcuts.cbegin(); it != m_addCueShortcuts.cend(); ++it)
+        it.value()->setKey(s.keyAddCue(it.key()));
+    if (m_showModeShortcut)
+        m_showModeShortcut->setKey(s.keyShowMode());
+    if (m_showModeBtn)
+        m_showModeBtn->setToolTip(QString("Modalità Show — visualizzazione senza modifiche (%1)").arg(s.keyShowMode().toString()));
 }
 
 // ── Cue management ────────────────────────────────────────────────────────────
@@ -806,6 +951,7 @@ void MainWindow::showAbout() {
 void MainWindow::openSettings() {
     SettingsDialog dlg(&m_workspace, this);
     dlg.exec();
+    AppSettings::applyLanguage();   // reinstall translator if language changed
     applyProjectSettings();
     applyShortcuts();
     applyWebServer();
@@ -826,6 +972,22 @@ void MainWindow::applyWebServer() {
 
 void MainWindow::applyProjectSettings() {
     m_cueView->setColumnHidden(CueListModel::ColNumber, !m_workspace.showCueNumbers());
+    applyPanelLayout();
+}
+
+void MainWindow::applyPanelLayout() {
+    if (!m_topSplit) return;
+    const int side = AppSettings::instance().activeCuePanelSide();
+    // 0 = active cues on left (index 0), 1 = active cues on right (index 1)
+    const int desired = (side == 1) ? 1 : 0;
+    // m_activeCues is always one of the two widgets; find its current index
+    for (int i = 0; i < m_topSplit->count(); ++i) {
+        if (m_topSplit->widget(i) == m_activeCues) {
+            if (i != desired)
+                m_topSplit->insertWidget(desired, m_activeCues);
+            break;
+        }
+    }
 }
 
 QString MainWindow::nextCueNumber() {
@@ -851,6 +1013,7 @@ void MainWindow::assignVideoSinkToAll() {
 }
 
 void MainWindow::deleteSelectedCue() {
+    if (m_showMode) return;
     const auto sel = m_cueView->selectionModel()->selectedRows();
     if (sel.isEmpty()) return;
     m_inspector->setCue(nullptr);
@@ -1058,6 +1221,15 @@ void MainWindow::onSelectionChanged() {
     Cue *cue = sel.isEmpty() ? nullptr : m_model->cueForRow(sel.first().row());
     m_inspector->setCue(cue);
     m_infoBar->setCue(cue);
+
+    // In show mode, auto-open inspector when a cue is selected
+    if (m_showMode && cue) {
+        const QList<int> sz = m_mainSplit->sizes();
+        if (sz.size() >= 2 && sz[1] < 300) {
+            const int total = sz[0] + sz[1];
+            m_mainSplit->setSizes({ qMax(0, total - 420), 420 });
+        }
+    }
 }
 
 // ── File I/O ──────────────────────────────────────────────────────────────────
@@ -1072,7 +1244,7 @@ void MainWindow::newWorkspace() {
 void MainWindow::openWorkspace() {
     if (!confirmUnsaved()) return;
     const QString path = QFileDialog::getOpenFileName(
-        this, "Apri workspace", {}, "OpenQLab (*.oqlab);;JSON (*.json)");
+        this, "Apri workspace", {}, "OQL (*.oqlab);;JSON (*.json)");
     if (path.isEmpty()) return;
     if (!m_workspace.load(path)) {
         QMessageBox::warning(this, "Errore", "Impossibile aprire il file.");
@@ -1095,7 +1267,7 @@ bool MainWindow::saveWorkspaceAs() {
     QString selectedFilter;
     QString path = QFileDialog::getSaveFileName(
         this, "Salva workspace", {},
-        "OpenQLab (*.oqlab);;JSON (*.json)",
+        "OQL (*.oqlab);;JSON (*.json)",
         &selectedFilter);
     if (path.isEmpty()) return false;
 
@@ -1175,7 +1347,7 @@ void MainWindow::rebuildRecentMenu() {
         m_recentMenu->addAction("(nessun file recente)")->setEnabled(false);
     m_recentMenu->addSeparator();
     m_recentMenu->addAction("Svuota recenti", this, [this]() {
-        QSettings("OpenQLab", "OpenQLab").setValue("recentFiles", QStringList{});
+        QSettings("OQL", "OQL").setValue("recentFiles", QStringList{});
         rebuildRecentMenu();
     });
 }
@@ -1198,7 +1370,7 @@ void MainWindow::openRecentFile(const QString &path) {
 }
 
 void MainWindow::updateTitle() {
-    QString title = "OpenQLab";
+    QString title = "OQL";
     const QString fp = m_workspace.filePath();
     if (!fp.isEmpty()) title += " — " + QFileInfo(fp).fileName();
     if (!m_undoStack->isClean() || m_workspace.isModified()) title += " *";
@@ -1215,4 +1387,12 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 void MainWindow::keyPressEvent(QKeyEvent *event) {
     // Spacebar go is handled by QAction shortcut — pass others through
     QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::changeEvent(QEvent *event) {
+    if (event->type() == QEvent::LanguageChange) {
+        menuBar()->clear();
+        buildMenus();
+    }
+    QMainWindow::changeEvent(event);
 }

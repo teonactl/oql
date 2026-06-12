@@ -42,9 +42,12 @@
 // ── VU meter widget ───────────────────────────────────────────────────────────
 
 class VuMeter : public QWidget {
+    static constexpr int kBarW = 14;
+    static constexpr int kGapW = 2;
+    static constexpr int kSclW = 24;  // tick + label area
 public:
     explicit VuMeter(QWidget *parent = nullptr) : QWidget(parent) {
-        setFixedWidth(14);
+        setFixedWidth(kBarW + kGapW + kSclW);
         setMinimumHeight(80);
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     }
@@ -64,33 +67,59 @@ private:
     int   m_holdTicks = 0;
 
     static float frac(float db) { return (db + 60.0f) / 66.0f; }
+    static int   dbY(float db, int H) {
+        return int((1.0f - std::clamp(frac(db), 0.0f, 1.0f)) * float(H - 1));
+    }
 
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
-        const int W = width(), H = height();
-        p.fillRect(0, 0, W, H, QColor(18, 18, 18));
+        const int H = height();
+        p.fillRect(0, 0, width(), H, QColor(18, 18, 18));
 
+        // ── bar ──────────────────────────────────────────────
         const float f = std::clamp(frac(m_env), 0.0f, 1.0f);
-        if (f < 0.001f) return;
-        const int bY = H - int(f * H);
-
-        const int yRed    = H - int(frac(-6.0f)  * H);
-        const int yYellow = H - int(frac(-18.0f) * H);
-
-        if (bY < yRed)
-            p.fillRect(0, bY, W, yRed - bY, QColor(220, 40, 40));
-        const int yT = std::max(bY, yRed);
-        if (yT < yYellow)
-            p.fillRect(0, yT, W, yYellow - yT, QColor(200, 170, 20));
-        const int gT = std::max(bY, yYellow);
-        if (gT < H)
-            p.fillRect(0, gT, W, H - gT, QColor(40, 180, 40));
-
+        if (f >= 0.001f) {
+            const int bY     = H - int(f * H);
+            const int yRed   = H - int(frac(-6.0f)  * H);
+            const int yYel   = H - int(frac(-18.0f) * H);
+            if (bY < yRed)   p.fillRect(0, bY,               kBarW, yRed - bY,   QColor(220, 40,  40));
+            const int yT = std::max(bY, yRed);
+            if (yT < yYel)   p.fillRect(0, yT,               kBarW, yYel - yT,   QColor(200, 170, 20));
+            const int gT = std::max(bY, yYel);
+            if (gT < H)      p.fillRect(0, gT,               kBarW, H    - gT,   QColor(40,  180, 40));
+        }
+        // peak hold
         const float fp = std::clamp(frac(m_peak), 0.0f, 1.0f);
         if (fp > 0.01f) {
             const int pY = std::clamp(H - int(fp * H) - 1, 0, H - 2);
-            p.fillRect(0, pY, W, 2,
-                       fp > frac(-6.0f) ? QColor(255, 100, 100) : QColor(220, 220, 60));
+            p.fillRect(0, pY, kBarW, 2, fp > frac(-6.0f) ? QColor(255,100,100) : QColor(220,220,60));
+        }
+
+        // ── scale ─────────────────────────────────────────────
+        // separator
+        p.setPen(QColor(45, 45, 45));
+        p.drawLine(kBarW, 0, kBarW, H - 1);
+
+        const int sX = kBarW + kGapW;
+        QFont scaleFont;
+        scaleFont.setFamily("monospace");
+        scaleFont.setPixelSize(8);
+        p.setFont(scaleFont);
+
+        // ticks every 6 dB; labels every 12 dB
+        static const int kDbs[] = {0, -6, -12, -18, -24, -30, -36, -42, -48, -54};
+        for (int db : kDbs) {
+            const int y = dbY(float(db), H);
+            const bool major = (db % 12 == 0);
+            const int  tLen  = major ? 5 : 3;
+            p.setPen(QColor(major ? 155 : 75, major ? 155 : 75, major ? 155 : 75));
+            p.drawLine(sX, y, sX + tLen - 1, y);
+            if (major) {
+                p.setPen(QColor(170, 170, 170));
+                const QString lbl = (db == 0) ? " 0" : QString::number(db);
+                p.drawText(QRect(sX + tLen + 1, y - 4, kSclW - tLen - 1, 9),
+                           Qt::AlignLeft | Qt::AlignVCenter, lbl);
+            }
         }
     }
 };
@@ -119,6 +148,20 @@ InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
         connect(m_cueList, &CueList::cueAdded,           this, &InspectorPanel::populateTargetCombo);
         connect(m_cueList, &CueList::cueRemoved,         this, &InspectorPanel::populateTargetCombo);
         connect(m_cueList, &CueList::cuePropertyChanged, this, &InspectorPanel::populateTargetCombo);
+
+        // Refresh AudioCue source label when any RecordCue changes its linked target
+        connect(m_cueList, &CueList::cuePropertyChanged, this, [this](int idx) {
+            if (!m_cue || m_cue->type() != Cue::Type::Audio) return;
+            if (m_cueList->cueAt(idx) == m_cue) return;
+            if (qobject_cast<RecordCue*>(m_cueList->cueAt(idx)))
+                updateMediaSection();
+        });
+        connect(m_cueList, &CueList::cueAdded,   this, [this](int) {
+            if (m_cue && m_cue->type() == Cue::Type::Audio) updateMediaSection();
+        });
+        connect(m_cueList, &CueList::cueRemoved, this, [this](int) {
+            if (m_cue && m_cue->type() == Cue::Type::Audio) updateMediaSection();
+        });
     }
 }
 
@@ -241,15 +284,9 @@ void InspectorPanel::buildUi() {
     m_loopSpin->setToolTip("Ripetizioni: 0 = loop infinito, 1 = una volta");
     m_loopSpin->setFixedWidth(60);
 
-    m_recSourceLabel = new QLabel;
-    m_recSourceLabel->setStyleSheet("color:#e07020; font-size:10px;");
-    m_recSourceLabel->setWordWrap(true);
-    m_recSourceLabel->setVisible(false);
-
     mediaForm->addRow("File:", fileRow);
     mediaForm->addRow("Volume:", m_volumeSpin);
     mediaForm->addRow("Loop:", m_loopSpin);
-    mediaForm->addRow("", m_recSourceLabel);
     groupsLay->addWidget(m_mediaGroup);
 
     // Fade group (audio only) — with enable/disable checkboxes
@@ -384,6 +421,12 @@ void InspectorPanel::buildUi() {
     audioLay->setContentsMargins(0, 2, 0, 0);
     audioLay->setSpacing(4);
 
+    m_recSourceLabel = new QLabel;
+    m_recSourceLabel->setStyleSheet("color:#e07020; font-size:10px; padding:1px 3px;");
+    m_recSourceLabel->setWordWrap(true);
+    m_recSourceLabel->setVisible(false);
+    audioLay->addWidget(m_recSourceLabel);
+
     auto *chanRow = new QWidget;
     auto *chanLay = new QHBoxLayout(chanRow);
     chanLay->setContentsMargins(0, 0, 0, 0);
@@ -405,10 +448,10 @@ void InspectorPanel::buildUi() {
     m_vuR->setToolTip("R");
 
     auto makeDbLabel = [](QWidget *parent = nullptr) {
-        auto *lbl = new QLabel("-∞", parent);
+        auto *lbl = new QLabel("-∞ dB", parent);
         lbl->setAlignment(Qt::AlignHCenter);
-        lbl->setStyleSheet("color:#aaa; font-size:8px;");
-        lbl->setFixedWidth(14);
+        lbl->setStyleSheet("color:#aaa; font-size:9px;");
+        lbl->setFixedWidth(40);
         return lbl;
     };
     m_vuLDbLabel = makeDbLabel();
@@ -515,12 +558,13 @@ void InspectorPanel::buildUi() {
     sliceHdrLay->addStretch();
     sliceLay->addWidget(sliceHdrRow);
 
-    // Slice table: Seg # | Inizio | Loop
-    m_sliceTable = new QTableWidget(0, 3);
-    m_sliceTable->setHorizontalHeaderLabels({"Seg", "Inizio", "Loop"});
+    // Slice table: Seg # | Inizio | Loop | Del
+    m_sliceTable = new QTableWidget(0, 4);
+    m_sliceTable->setHorizontalHeaderLabels({"Seg", "Inizio", "Loop", ""});
     m_sliceTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_sliceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_sliceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_sliceTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_sliceTable->verticalHeader()->setVisible(false);
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -632,10 +676,10 @@ void InspectorPanel::buildUi() {
     // Input level meter
     m_recVuMono  = new VuMeter;
     m_recVuMono->setToolTip("Livello ingresso");
-    m_recVuDbLabel = new QLabel("-∞");
+    m_recVuDbLabel = new QLabel("-∞ dB");
     m_recVuDbLabel->setAlignment(Qt::AlignHCenter);
-    m_recVuDbLabel->setStyleSheet("color:#aaa; font-size:8px;");
-    m_recVuDbLabel->setFixedWidth(14);
+    m_recVuDbLabel->setStyleSheet("color:#aaa; font-size:9px;");
+    m_recVuDbLabel->setFixedWidth(40);
     auto *recVuCol = new QWidget;
     auto *recVuColLay = new QVBoxLayout(recVuCol);
     recVuColLay->setContentsMargins(0, 0, 0, 0);
@@ -673,8 +717,11 @@ void InspectorPanel::buildUi() {
     connect(m_vuTimer, &QTimer::timeout, this, [this]() {
         m_vuL->setLevel(AudioEngine::instance().peakL());
         m_vuR->setLevel(AudioEngine::instance().peakR());
-        m_vuLDbLabel->setText(dbLabel(m_vuL->currentDb()));
-        m_vuRDbLabel->setText(dbLabel(m_vuR->currentDb()));
+        const auto fmtDb = [](float db) {
+            return db <= -59.5f ? QString("-∞ dB") : QString::number(int(db)) + " dB";
+        };
+        m_vuLDbLabel->setText(fmtDb(m_vuL->currentDb()));
+        m_vuRDbLabel->setText(fmtDb(m_vuR->currentDb()));
     });
     m_vuTimer->start();
 
@@ -684,7 +731,8 @@ void InspectorPanel::buildUi() {
         auto *rc = qobject_cast<RecordCue*>(m_cue);
         if (!rc) { m_recVuTimer->stop(); return; }
         m_recVuMono->setLevel(rc->inputLevel());
-        m_recVuDbLabel->setText(dbLabel(m_recVuMono->currentDb()));
+        const float d = m_recVuMono->currentDb();
+        m_recVuDbLabel->setText(d <= -59.5f ? "-∞ dB" : QString::number(int(d)) + " dB");
     });
 
     // ── Stack ────────────────────────────────────────────────
@@ -1468,7 +1516,94 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             }
         });
         m_sliceTable->setCellWidget(i, 2, spin);
+
+        // Delete button — only for divider rows (i > 0); row 0 is the implicit start
+        if (i > 0) {
+            auto *delBtn = new QPushButton("×");
+            delBtn->setFixedSize(20, 20);
+            delBtn->setToolTip("Elimina questa slice");
+            delBtn->setStyleSheet("color:#c44; font-weight:bold; padding:0; border:none;");
+            connect(delBtn, &QPushButton::clicked, this, [this, row]() {
+                auto *a2 = qobject_cast<AudioCue*>(m_cue);
+                if (!a2) return;
+                auto sl = a2->slices();
+                if (row >= sl.size()) return;
+                sl.remove(row);
+                // If only segment 0 remains, clear entirely
+                a2->setSlices(sl.size() <= 1 ? QVector<AudioSlice>{} : sl);
+                const QVector<double> markers = buildSliceMarkers(a2);
+                m_waveformView->setSliceMarkers(markers);
+                rebuildSliceTable(a2);
+            });
+            m_sliceTable->setCellWidget(i, 3, delBtn);
+        }
     }
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
+}
+
+// ── Show Mode ─────────────────────────────────────────────────────────────────
+
+void InspectorPanel::setShowMode(bool showMode) {
+    m_showMode = showMode;
+    const bool edit = !showMode;
+
+    // General / timing / common fields
+    m_numberEdit->setEnabled(edit);
+    m_nameEdit->setEnabled(edit);
+    m_notesEdit->setEnabled(edit);
+    m_preWaitSpin->setEnabled(edit);
+    m_postWaitSpin->setEnabled(edit);
+    m_autoContinueCheck->setEnabled(edit);
+    m_autoFollowCheck->setEnabled(edit);
+
+    // Media
+    m_browseBtn->setEnabled(edit);
+    m_volumeSpin->setEnabled(edit);
+    if (m_loopSpin)  m_loopSpin->setEnabled(edit);
+
+    // Fade
+    m_fadeInCheck->setEnabled(edit);
+    m_fadeInSpin->setEnabled(edit);
+    m_fadeOutCheck->setEnabled(edit);
+    m_fadeOutSpin->setEnabled(edit);
+    m_channelCombo->setEnabled(edit);
+
+    // Slice controls
+    if (m_addSliceBtn)    m_addSliceBtn->setEnabled(edit);
+    if (m_clearSlicesBtn) m_clearSlicesBtn->setEnabled(edit);
+    if (m_rateSpin)       m_rateSpin->setEnabled(edit);
+    if (m_sliceTable)     m_sliceTable->setEnabled(edit);
+
+    // Control cue
+    m_targetCombo->setEnabled(edit);
+    m_fadeTargetVolSpin->setEnabled(edit);
+    m_fadeDurationSpin->setEnabled(edit);
+    if (m_fadeStopAtEndCheck) m_fadeStopAtEndCheck->setEnabled(edit);
+    if (m_speedRateSpin)      m_speedRateSpin->setEnabled(edit);
+    if (m_effectDurSpin)      m_effectDurSpin->setEnabled(edit);
+    if (m_effectFxBtn)        m_effectFxBtn->setEnabled(edit);
+
+    // Mic
+    if (m_micDeviceCombo) m_micDeviceCombo->setEnabled(edit);
+    if (m_micVolumeSpin)  m_micVolumeSpin->setEnabled(edit);
+
+    // Text
+    if (m_textContent)    m_textContent->setEnabled(edit);
+    if (m_fontFamilyCombo)m_fontFamilyCombo->setEnabled(edit);
+    if (m_fontSizeSpin)   m_fontSizeSpin->setEnabled(edit);
+    if (m_textBoldCheck)  m_textBoldCheck->setEnabled(edit);
+    if (m_textItalicCheck)m_textItalicCheck->setEnabled(edit);
+    if (m_textColorBtn)   m_textColorBtn->setEnabled(edit);
+    if (m_textBgColorBtn) m_textBgColorBtn->setEnabled(edit);
+    if (m_textAlignCombo) m_textAlignCombo->setEnabled(edit);
+
+    // Script / Record
+    if (m_scriptRunBtn)   m_scriptRunBtn->setEnabled(edit);
+    if (m_fxBtn)          m_fxBtn->setEnabled(edit);
+    if (m_recDeviceCombo) m_recDeviceCombo->setEnabled(edit);
+    if (m_recTargetCombo) m_recTargetCombo->setEnabled(edit);
+
+    // Waveform: always visible, interactive only in edit mode
+    m_waveformView->setInteractive(edit);
 }

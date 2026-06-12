@@ -31,7 +31,7 @@ public:
     explicit StopCue(QObject *parent = nullptr) : ControlCue(parent) {}
 
     Type    type()     const override { return Type::Stop; }
-    QString typeName() const override { return "Stop"; }
+    QString typeName() const override { return tr("Stop"); }
     void    go()             override;
     void    stop()           override { setState(State::Idle); }
     double  duration() const override { return 0.0; }
@@ -46,7 +46,7 @@ public:
     explicit FadeCue(QObject *parent = nullptr);
 
     Type    type()     const override { return Type::Fade; }
-    QString typeName() const override { return "Fade"; }
+    QString typeName() const override { return tr("Fade"); }
     void    go()             override;
     void    stop()           override;
     double  duration() const override { return m_fadeDuration; }
@@ -80,7 +80,7 @@ public:
     explicit PauseCue(QObject *parent = nullptr) : ControlCue(parent) {}
 
     Type    type()     const override { return Type::Pause; }
-    QString typeName() const override { return "Pausa"; }
+    QString typeName() const override { return tr("Pausa"); }
     void    go()             override;
     void    stop()           override { setState(State::Idle); }
     double  duration() const override { return 0.0; }
@@ -95,7 +95,7 @@ public:
     explicit PlayCue(QObject *parent = nullptr) : ControlCue(parent) {}
 
     Type    type()     const override { return Type::Play; }
-    QString typeName() const override { return "Play"; }
+    QString typeName() const override { return tr("Play"); }
     void    go()             override;
     void    stop()           override { setState(State::Idle); }
     double  duration() const override { return 0.0; }
@@ -111,7 +111,7 @@ public:
         : ControlCue(parent), m_rate(rate) {}
 
     Type    type()     const override { return Type::Speed; }
-    QString typeName() const override { return m_rate >= 1.0 ? "Velocizza" : "Rallenta"; }
+    QString typeName() const override { return m_rate >= 1.0 ? tr("Velocizza") : tr("Rallenta"); }
     void    go()             override;
     void    stop()           override { setState(State::Idle); }
     double  duration() const override { return 0.0; }
@@ -133,7 +133,7 @@ public:
     explicit EffectCue(QObject *parent = nullptr);
 
     Type    type()     const override { return Type::Effect; }
-    QString typeName() const override { return "Effetto"; }
+    QString typeName() const override { return tr("Effetto"); }
     void    go()             override;
     void    stop()           override;
     double  duration() const override { return m_duration; }
@@ -166,7 +166,7 @@ public:
     explicit ResetEffectCue(QObject *parent = nullptr) : ControlCue(parent) {}
 
     Type    type()     const override { return Type::ResetEffect; }
-    QString typeName() const override { return "Reset Effetti"; }
+    QString typeName() const override { return tr("Reset Effetti"); }
     void    go()             override;
     void    stop()           override { setState(State::Idle); }
     double  duration() const override { return 0.0; }

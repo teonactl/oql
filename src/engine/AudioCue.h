@@ -26,7 +26,7 @@ public:
     ~AudioCue() override;
 
     Type    type()     const override { return Type::Audio; }
-    QString typeName() const override { return "Audio"; }
+    QString typeName() const override { return tr("Audio"); }
 
     // ── Properties ────────────────────────────────────────────────────────────
     QString  filePath()        const { return m_filePath; }

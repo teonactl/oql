@@ -28,6 +28,7 @@ public:
     bool hasTrimEnd()   const { return m_trimEnd   >= 0.0; }
 
     void setSliceMarkers(const QVector<double> &normPositions); // normalized [0,1], sorted
+    void setInteractive(bool interactive);
 
 signals:
     void volumePointsChanged(const QVector<QPointF> &pts);
@@ -70,7 +71,8 @@ private:
     double           m_playPos    = 0.0;
     double           m_trimStart  = -1.0; // normalised [0,1]; -1 = not set
     double           m_trimEnd    = -1.0; // normalised [0,1]; -1 = not set
-    QVector<float>   m_waveform;
+    QVector<float>   m_wfMin;
+    QVector<float>   m_wfMax;
     QVector<QPointF> m_points;  // x=normalised time [0,1], y=volume [0,1]
 
     // Zoom / pan
@@ -87,6 +89,8 @@ private:
     bool m_dragFadeOut   = false;
     bool m_dragTrimStart = false;
     bool m_dragTrimEnd   = false;
+
+    bool m_interactive      = true;
 
     // Pan state (middle button)
     bool   m_panning        = false;

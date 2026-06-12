@@ -2,6 +2,7 @@
 #include <QIcon>
 #include "ui/MainWindow.h"
 #include "engine/AudioEngine.h"
+#include "engine/AppSettings.h"
 #include "engine/ScriptEngine.h"
 #include "engine/Lv2Plugin.h"
 #include <cstdlib>
@@ -17,10 +18,12 @@ int main(int argc, char *argv[]) {
         setenv("QT_QPA_PLATFORM", "xcb", 0);
 
     QApplication app(argc, argv);
-    app.setApplicationName("OpenQLab");
+    app.setApplicationName("OQL");
     app.setApplicationVersion("0.1.0");
-    app.setOrganizationName("OpenQLab");
+    app.setOrganizationName("OQL");
     app.setWindowIcon(QIcon(":/icons/openqlab.svg"));
+
+    AppSettings::applyLanguage();
 
     AudioEngine::instance().init();
 

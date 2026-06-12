@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e0e0e">
-<title>OpenQLab Remote</title>
+<title>OQL Remote</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -26,20 +26,41 @@ header{
   display:flex;align-items:center;gap:8px;
   border-bottom:1px solid rgba(255,255,255,.07);
 }
-.logo{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
-.logo svg{width:28px;height:28px;flex-shrink:0;border-radius:6px}
-.logo-name{font-size:.95rem;font-weight:700;white-space:nowrap}
+.logo{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.logo svg{width:26px;height:26px;flex-shrink:0;border-radius:6px}
+.logo-name{font-size:.85rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
 .logo-name em{color:var(--orange);font-style:normal}
+.hbtns{display:flex;gap:6px;margin-left:auto;flex-shrink:0}
 .hbtn{
   border:none;border-radius:9px;padding:9px 14px;
   font-size:.85rem;font-weight:700;cursor:pointer;touch-action:manipulation;
   flex-shrink:0;
 }
 .hbtn:active{filter:brightness(.6)}
-.hbtn-go      {background:var(--accent);color:#000}
-.hbtn-stop    {background:var(--danger);color:#fff}
-.hbtn-shutdown{background:rgba(255,255,255,.1);color:var(--dim);font-size:.75rem;padding:9px 10px}
-.hbtn-shutdown:active{filter:brightness(.6)}
+.hbtn-home{background:var(--surf2);color:var(--text)}
+.hbtn-go  {background:var(--accent);color:#000}
+.hbtn-stop{background:var(--danger);color:#fff}
+
+/* ── ACTIVE CUES BAR (sticky below header) ── */
+#activebar{
+  position:sticky;top:47px;z-index:19;
+  background:rgba(20,20,26,.97);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  padding:4px 12px;
+  display:flex;align-items:center;gap:8px;min-height:32px;
+  overflow-x:auto;white-space:nowrap;
+  -webkit-overflow-scrolling:touch;
+}
+#activebar:empty::before{content:'—';color:var(--dim);font-size:.72rem}
+.acard{
+  display:inline-flex;align-items:center;gap:5px;
+  background:var(--surf2);border-radius:6px;padding:3px 8px;
+  border-left:3px solid var(--accent);font-size:.72rem;flex-shrink:0;
+}
+.acard.paused{border-left-color:var(--blue)}
+.acard-name{color:var(--text);font-weight:600;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.acard-pos{color:var(--dim);font-variant-numeric:tabular-nums}
 
 /* ── PLAYHEAD BAR ── */
 #phbar{
@@ -131,12 +152,16 @@ header{
       <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
       <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
     </svg>
-    <span class="logo-name">Open<em>QLab</em></span>
+    <span class="logo-name"><em>OQL</em></span>
   </div>
-  <button class="hbtn hbtn-go"       ontouchstart="" onclick="doGo()">&#9654; GO</button>
-  <button class="hbtn hbtn-stop"     ontouchstart="" onclick="doStopAll()">&#9632; Stop</button>
-  <button class="hbtn hbtn-shutdown" ontouchstart="" onclick="doShutdown()" title="Spegni server">⏻</button>
+  <div class="hbtns">
+    <button class="hbtn hbtn-home" ontouchstart="" onclick="doFirstCue()">&#9664;&#9664;</button>
+    <button class="hbtn hbtn-go"   ontouchstart="" onclick="doGo()">&#9654; GO</button>
+    <button class="hbtn hbtn-stop" ontouchstart="" onclick="doStopAll()">&#9632; Stop</button>
+  </div>
 </header>
+
+<div id="activebar"></div>
 
 <div id="phbar">
   <span class="ph-arrow">&#9658;</span>
@@ -150,7 +175,7 @@ const TL = {
   audio:'Audio', video:'Video', text:'Testo', mic:'Mic',
   stop:'Stop', pause:'Pausa', play:'Play', fade:'Fade',
   speed:'Velocità', effect:'Effetto', reseteffect:'Reset FX',
-  group:'Gruppo', label:'Sezione'
+  group:'Gruppo', label:'Sezione', record:'Reg.'
 };
 
 function fmt(s) {
@@ -225,6 +250,20 @@ function updateCard(el, c) {
   if (spans[1]) spans[1].textContent = fmt(c.duration);
 }
 
+function updateActivebar(cues) {
+  const bar = document.getElementById('activebar');
+  const active = cues.filter(c => c.state === 'playing' || c.state === 'paused');
+  if (active.length === 0) { bar.innerHTML = ''; return; }
+  bar.innerHTML = active.map(c => {
+    const pct = c.duration > 0 ? Math.min(100, (c.position / c.duration) * 100).toFixed(0) : null;
+    const posStr = pct !== null ? `${fmt(c.position)} / ${fmt(c.duration)}` : '';
+    return `<div class="acard${c.state === 'paused' ? ' paused' : ''}">
+      <span class="acard-name">${c.number ? '#' + c.number + ' ' : ''}${c.name || '—'}</span>
+      ${posStr ? `<span class="acard-pos">${posStr}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
 let lastIds = null;
 let connErr = false;
 
@@ -243,6 +282,8 @@ function render(cues) {
       if (el) updateCard(el, c);
     });
   }
+
+  updateActivebar(cues);
 
   const ph = cues.find(c => c.playhead);
   const phbar = document.getElementById('phbar');
@@ -278,24 +319,9 @@ async function post(url) {
 const cueGo    = id => post('/api/cue/' + id + '/go');
 const cueStop  = id => post('/api/cue/' + id + '/stop');
 const cuePause = id => post('/api/cue/' + id + '/pause');
-const doGo     = ()  => post('/api/go');
-const doStopAll= ()  => post('/api/stop-all');
-
-async function doShutdown() {
-  if (!confirm('Spegnere il server remoto?\nPotrai riattivarlo dall\'applicazione desktop.')) return;
-  try { await fetch('/api/shutdown', { method: 'POST', cache: 'no-store' }); } catch {}
-  clearInterval(refreshTimer);
-  document.getElementById('list').innerHTML = '';
-  document.getElementById('ph-text').textContent = 'Server spento';
-  document.getElementById('phbar').className = '';
-  document.querySelector('header').style.opacity = '.4';
-  document.querySelector('header').style.pointerEvents = 'none';
-  document.getElementById('list').innerHTML =
-    '<div style="text-align:center;padding:3rem 1rem;color:var(--dim);font-size:.95rem;">' +
-    '⏻ Server remoto spento.<br><br>' +
-    '<span style="font-size:.8rem;">Per riattivarlo apri OpenQLab sul desktop<br>e premi il pulsante Remote nella toolbar.</span>' +
-    '</div>';
-}
+const doGo       = ()  => post('/api/go');
+const doStopAll  = ()  => post('/api/stop-all');
+const doFirstCue = ()  => post('/api/first-cue');
 
 const refreshTimer = setInterval(refresh, 800);
 refresh();

@@ -1,6 +1,6 @@
-# OpenQLab
+# OQL
 
-**OpenQLab** is a free and open-source show-control application inspired by QLab, built with C++20 and Qt6. It is designed for live theatre, concerts, and events — letting you build and fire cue lists with precision timing, audio/video playback, and flexible automation.
+**OQL** is a free and open-source show-control application inspired by QLab, built with C++20 and Qt6. It is designed for live theatre, concerts, and events — letting you build and fire cue lists with precision timing, audio/video playback, and flexible automation.
 
 > **This project is open to external contributions.** Whether you're a developer, sound designer, or live-events professional, your input is welcome.
 
@@ -8,19 +8,25 @@
 
 ## Features
 
-- **Audio cues** — playback via QMediaPlayer; per-cue volume, loop count, fade in/out curves, trim start/end, channel routing (stereo / L / R)
+- **Audio cues** — playback via QMediaPlayer; per-cue volume, loop count, fade in/out curves, trim start/end, channel routing (stereo / L / R), waveform editor with per-slice loop/rate control
 - **Video cues** — fullscreen output on a dedicated window; loop support
-- **Waveform view** — zoomable waveform with visual trim handles, fade envelope, and per-point volume automation
+- **Text cues** — fullscreen text overlay on a dedicated output window
+- **Waveform view** — zoomable waveform with visual trim handles, fade envelope, and per-point volume automation; configurable detail level (1000–16000 buckets)
+- **Recording cues** — capture microphone input to a WAV file; first GO starts recording, second GO stops and links the result to a new Audio cue automatically
+- **Microphone cues** — live audio passthrough from any input device to output; VU meter, input level and RecordCue source selector
 - **Fade cues** — smooth volume interpolation on any audio/video cue; optional auto-stop at end of fade
-- **Stop / Pause / Play / Speed cues** — full transport control over any running cue
-- **Microphone cues** — live audio passthrough from any input device to output
-- **Group cues** — collapsible organisational containers; collapse a group to a single row in the cue list
+- **Stop / Pause / Play / Speed / Effect / Reset Effect cues** — full transport and DSP control over any running cue
+- **Script cues** — JavaScript automation via QJSEngine; inline editor with syntax highlighting
+- **Group cues** — collapsible organisational containers; collapse to a single row
 - **Label cues** — visual-only markers for annotating your cue list
 - **Pre-wait / post-wait / auto-continue / auto-follow** — flexible timing chains
+- **Show Mode** — dedicated performance mode that hides editing UI; configurable keyboard shortcut
+- **Web remote** — built-in HTTP server with a touch-friendly web interface (GO, STOP, HOME, active cue display)
+- **Multi-language UI** — Italian, English, Spanish, French; switching is live (no restart needed)
+- **Configurable shortcuts** — all add-cue shortcuts (Ctrl+1–5 etc.) and transport shortcuts are user-assignable in Settings
 - **Undo / redo** — full snapshot-based undo stack
 - **Recent files** — quick access to recent workspaces
-- **Project settings** — show-level defaults for fades and cue numbering
-- **Drag-and-drop** reordering and target assignment in the cue list
+- **Project settings** — show-level defaults for fades, cue numbering, row height, font, and column layout
 
 ---
 
@@ -35,17 +41,27 @@
 ### Requirements
 
 - CMake ≥ 3.20
-- Qt 6.4+ (Core, Widgets, Multimedia, MultimediaWidgets)
+- Qt 6.4+ (Core, Widgets, Multimedia, MultimediaWidgets, Svg, Network, Qml, LinguistTools)
 - A C++20-capable compiler (GCC 11+, Clang 14+, MSVC 2022+)
+- lilv (LV2 plugin host)
+- suil (LV2 UI loader, Linux only)
 
-### Linux / macOS
+### Linux
 
 ```bash
 git clone https://github.com/teonactl/oql.git
 cd oql
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-./build/openqlab
+./build/oql
+```
+
+### macOS
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(sysctl -n hw.logicalcpu)
+open build/oql.app
 ```
 
 ### Windows
@@ -65,32 +81,69 @@ cmake --build build --config Release
 src/
 ├── engine/          # Core logic — no UI dependencies
 │   ├── Cue.h/cpp          Base cue class
-│   ├── AudioCue           QMediaPlayer-based audio playback
+│   ├── AudioCue           QMediaPlayer-based audio playback + slice system
 │   ├── VideoCue           Video playback with QVideoWidget
-│   ├── ControlCues        Stop, Fade, Pause, Speed, Play
-│   ├── MicCue             Live microphone passthrough
+│   ├── TextCue            Text output cue
+│   ├── ControlCues        Stop, Fade, Pause, Speed, Play, Effect, ResetEffect
+│   ├── MicCue             Live microphone passthrough with VU meter
+│   ├── RecordCue          Microphone → WAV recording → AudioCue link
+│   ├── ScriptCue          QJSEngine JavaScript automation
 │   ├── GroupCue           Collapsible cue container
 │   ├── LabelCue           Visual-only label
 │   ├── CueList            Flat cue list with playhead and autofollow
-│   ├── Workspace          File I/O (.oqlab JSON format)
+│   ├── Workspace          File I/O (.oql JSON format)
 │   └── AppSettings        Per-user settings via QSettings
 └── ui/              # Qt Widgets UI
-    ├── MainWindow         Main application window
+    ├── MainWindow         Main application window + toolbar + Show Mode
     ├── CueListView        Custom table view with drag-and-drop
     ├── CueListModel       QAbstractTableModel with visible-row mapping
     ├── InspectorPanel     Per-cue property editor
-    ├── WaveformView       Waveform rendering and editing
+    ├── WaveformView       Waveform rendering and editing (configurable resolution)
     ├── ActiveCuesPanel    Live view of currently playing cues
     ├── CueInfoBar         Bottom status bar
     ├── VideoOutputWindow  Dedicated fullscreen video output
-    └── SettingsDialog     Project and app settings
+    ├── TextOutputWindow   Dedicated fullscreen text output
+    ├── WebServer          Built-in HTTP server for web remote
+    ├── ScriptEditorDialog JavaScript editor for Script cues
+    └── SettingsDialog     Project and app settings (shortcuts, language, waveform)
+translations/
+    oql_en.ts / oql_es.ts / oql_fr.ts   Qt Linguist translation files
+resources/
+    webui.html             Touch-friendly web remote interface
 ```
 
 ---
 
 ## Workspace Format
 
-Workspaces are saved as `.oqlab` files (JSON). The format is intentionally simple and human-readable — you can inspect and edit them with any text editor.
+Workspaces are saved as `.oql` files (JSON). The format is intentionally simple and human-readable — you can inspect and edit them with any text editor.
+
+---
+
+## Keyboard Shortcuts (defaults)
+
+| Action | Default |
+|---|---|
+| GO | Space |
+| Stop All | Escape |
+| First Cue | Home |
+| Show Mode | Ctrl+Shift+H |
+| Add Audio Cue | Ctrl+1 |
+| Add Video Cue | Ctrl+2 |
+| Add Text Cue | Ctrl+3 |
+| Add Mic Cue | Ctrl+4 |
+| Add Record Cue | Ctrl+5 |
+| Add Stop Cue | Ctrl+Q |
+| Add Fade Cue | Ctrl+F |
+| Add Pause Cue | Ctrl+P |
+| Add Play Cue | Ctrl+R |
+| Add Effect Cue | Ctrl+E |
+| Add Reset Effect Cue | Ctrl+Shift+E |
+| Add Script Cue | Ctrl+J |
+| Add Group | Ctrl+G |
+| Add Label | Ctrl+L |
+
+All shortcuts are configurable in **Settings → Shortcuts**.
 
 ---
 
@@ -99,16 +152,16 @@ Workspaces are saved as `.oqlab` files (JSON). The format is intentionally simpl
 - [ ] MIDI / OSC trigger support
 - [ ] Multi-output audio routing
 - [ ] Network sync between multiple instances
-- [ ] Scripted cues (Lua or QJSEngine)
 - [ ] macOS / Windows packaging
 - [ ] Dark theme polish and HiDPI improvements
 - [ ] Inspector combo for assigning cues to groups
+- [ ] Inline editing in the cue list
 
 ---
 
 ## Contributing
 
-**OpenQLab is actively looking for contributors.** All skill levels and backgrounds are welcome.
+**OQL is actively looking for contributors.** All skill levels and backgrounds are welcome.
 
 ### Ways to contribute
 
@@ -116,7 +169,7 @@ Workspaces are saved as `.oqlab` files (JSON). The format is intentionally simpl
 - **Feature requests** — describe the use case in an issue before writing code
 - **Code** — fork the repo, work on a branch, open a pull request
 - **Testing** — try it on your platform and report what breaks
-- **Documentation** — improve this README, add inline comments, write a wiki page
+- **Documentation** — improve this README or write a wiki page
 - **Design** — UI/UX feedback and mockups are very valuable
 
 ### Code style
@@ -141,10 +194,10 @@ Open an issue or start a discussion if you want to talk through an idea before d
 
 ## License
 
-OpenQLab is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+OQL is released under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
 
 ## Acknowledgements
 
-Inspired by [QLab](https://qlab.app/) by Figure 53 — the gold standard for show control. OpenQLab is an independent project with no affiliation to Figure 53.
+Inspired by [QLab](https://qlab.app/) by Figure 53 — the gold standard for show control. OQL is an independent project with no affiliation to Figure 53.
