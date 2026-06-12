@@ -446,7 +446,7 @@ void MainWindow::buildToolBar() {
     tb->setMovable(false);
     tb->setIconSize({32, 32});
     tb->setStyleSheet(
-        "QToolBar { spacing: 2px; padding: 3px; }"
+        "QToolBar { spacing: 2px; padding: 3px; min-height: 90px; }"
         "QToolBar::separator { width: 9px; }"
         "QToolButton { min-width: 38px; min-height: 38px; border-radius: 5px; }"
         "QToolButton:hover   { background: rgba(255,255,255,18); }"
@@ -461,10 +461,11 @@ void MainWindow::buildToolBar() {
     m_goBtn->setFont(goFont);
     m_goBtn->setFixedSize(84, 84);
     m_goBtn->setStyleSheet(
-        "QToolButton { background:transparent; color:white; border-radius:7px; border:none; }"
+        "QToolButton { background:transparent; color:white; border-radius:7px; border:none;"
+        " min-width:84px; max-width:84px; min-height:84px; max-height:84px; }"
         "QToolButton:pressed { background: rgba(0,0,0,40); }"
         "QToolButton:hover   { background: rgba(255,255,255,16); }");
-    m_goBtn->setToolTip("Vai");
+    m_goBtn->setToolTip(tr("Vai"));
     connect(m_goBtn, &QToolButton::clicked, this, &MainWindow::go);
     tb->addWidget(m_goBtn);
 
@@ -505,7 +506,7 @@ void MainWindow::buildToolBar() {
         p.setBrush(Qt::white); p.setPen(Qt::NoPen);
         p.drawRoundedRect(5, 5, 18, 18, 2, 2);
     }));
-    m_stopAction->setToolTip("Ferma tutto");
+    m_stopAction->setToolTip(tr("Ferma tutto"));
     connect(m_stopAction, &QAction::triggered, this, &MainWindow::stopAll);
     tb->addAction(m_stopAction);
     addAction(m_stopAction);
@@ -518,7 +519,7 @@ void MainWindow::buildToolBar() {
         QPolygon t2; t2 << QPoint(23, 4) << QPoint(23, 24) << QPoint(16, 14);
         p.drawPolygon(t1); p.drawPolygon(t2);
     }));
-    m_firstCueAction->setToolTip("Torna alla prima cue");
+    m_firstCueAction->setToolTip(tr("Torna alla prima cue"));
     connect(m_firstCueAction, &QAction::triggered, this, &MainWindow::goToFirstCue);
     tb->addAction(m_firstCueAction);
     addAction(m_firstCueAction);
@@ -558,9 +559,9 @@ void MainWindow::buildToolBar() {
         p.drawRect(2, 4, 24, 4); p.drawRect(10, 4, 6, 20);
     });
 
-    addCueBtn(audioIcon, "+ Audio Cue", &MainWindow::addAudioCue);
-    addCueBtn(videoIcon, "+ Video Cue", &MainWindow::addVideoCue);
-    addCueBtn(textIcon,  "+ Testo",     &MainWindow::addTextCue);
+    addCueBtn(audioIcon, tr("+ Audio Cue"), &MainWindow::addAudioCue);
+    addCueBtn(videoIcon, tr("+ Video Cue"), &MainWindow::addVideoCue);
+    addCueBtn(textIcon,  tr("+ Testo"),     &MainWindow::addTextCue);
     tb->addSeparator();
 
     // ── Controllo: Fade prima, poi Stop/Pause/Play ────────────────────────────
@@ -578,10 +579,10 @@ void MainWindow::buildToolBar() {
         QPolygon t; t << QPoint(10,4) << QPoint(10,24) << QPoint(24,14); p.drawPolygon(t);
     });
 
-    addCueBtn(fadeIcon,    "+ Fade Cue",  &MainWindow::addFadeCue);
-    addCueBtn(stopCueIcon, "+ Stop Cue",  &MainWindow::addStopCue);
-    addCueBtn(pauseIcon,   "+ Pause Cue", &MainWindow::addPauseCue);
-    addCueBtn(playCueIcon, "+ Play Cue",  &MainWindow::addPlayCue);
+    addCueBtn(fadeIcon,    tr("+ Fade Cue"),  &MainWindow::addFadeCue);
+    addCueBtn(stopCueIcon, tr("+ Stop Cue"),  &MainWindow::addStopCue);
+    addCueBtn(pauseIcon,   tr("+ Pause Cue"), &MainWindow::addPauseCue);
+    addCueBtn(playCueIcon, tr("+ Play Cue"),  &MainWindow::addPlayCue);
     tb->addSeparator();
 
     // ── Velocità ──────────────────────────────────────────────────────────────
@@ -598,8 +599,8 @@ void MainWindow::buildToolBar() {
         p.drawPolygon(t1); p.drawPolygon(t2);
     });
 
-    addCueBtn(speedUpIcon,   "+ Velocizza", &MainWindow::addSpeedUpCue);
-    addCueBtn(speedDownIcon, "+ Rallenta",  &MainWindow::addSpeedDownCue);
+    addCueBtn(speedUpIcon,   tr("+ Velocizza"), &MainWindow::addSpeedUpCue);
+    addCueBtn(speedDownIcon, tr("+ Rallenta"),  &MainWindow::addSpeedDownCue);
     tb->addSeparator();
 
     // ── Ingresso ──────────────────────────────────────────────────────────────
@@ -615,8 +616,8 @@ void MainWindow::buildToolBar() {
         p.drawEllipse(5, 5, 18, 18);
     });
 
-    addCueBtn(micIcon,    "+ Mic Cue",    &MainWindow::addMicCue);
-    addCueBtn(recordIcon, "+ Record Cue", &MainWindow::addRecordCue);
+    addCueBtn(micIcon,    tr("+ Mic Cue"),    &MainWindow::addMicCue);
+    addCueBtn(recordIcon, tr("+ Record Cue"), &MainWindow::addRecordCue);
     tb->addSeparator();
 
     // ── Struttura ─────────────────────────────────────────────────────────────
@@ -630,8 +631,8 @@ void MainWindow::buildToolBar() {
         p.drawLine(3, 20, 17, 20);
     });
 
-    addCueBtn(groupIcon, "+ Gruppo",    &MainWindow::addGroupCue);
-    addCueBtn(labelIcon, "+ Etichetta", &MainWindow::addLabelCue);
+    addCueBtn(groupIcon, tr("+ Gruppo"),    &MainWindow::addGroupCue);
+    addCueBtn(labelIcon, tr("+ Etichetta"), &MainWindow::addLabelCue);
     tb->addSeparator();
 
     // ── Effetti / Script ──────────────────────────────────────────────────────
@@ -657,14 +658,14 @@ void MainWindow::buildToolBar() {
         p.drawLine(12, 7, 12, 14); p.drawLine(16, 7, 16, 14);
     });
 
-    addCueBtn(effectIcon,      "+ Effetto",       &MainWindow::addEffectCue);
-    addCueBtn(resetEffectIcon, "+ Reset Effetti",  &MainWindow::addResetEffectCue);
-    addCueBtn(scriptIcon,      "+ Script Cue",     &MainWindow::addScriptCue);
+    addCueBtn(effectIcon,      tr("+ Effetto"),       &MainWindow::addEffectCue);
+    addCueBtn(resetEffectIcon, tr("+ Reset Effetti"),  &MainWindow::addResetEffectCue);
+    addCueBtn(scriptIcon,      tr("+ Script Cue"),     &MainWindow::addScriptCue);
     tb->addSeparator();
 
     m_webAction = tb->addAction("🌐 Remote");
     m_webAction->setCheckable(true);
-    m_webAction->setToolTip("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)");
+    m_webAction->setToolTip(tr("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)"));
     connect(m_webAction, &QAction::toggled, this, [this](bool on) {
         if (on == m_webServer->isRunning()) return;
         if (on) m_webServer->start(AppSettings::instance().webPort());
@@ -697,7 +698,7 @@ void MainWindow::buildToolBar() {
     showBtn->setIcon(showModeIcon);
     showBtn->setIconSize({32, 32});
     showBtn->setFixedSize(40, 40);
-    showBtn->setToolTip("Modalità Show — visualizzazione senza modifiche");
+    showBtn->setToolTip(tr("Modalità Show — visualizzazione senza modifiche"));
     showBtn->setCheckable(true);
     showBtn->setStyleSheet(
         "QToolButton { border-radius:5px; }"
@@ -801,17 +802,17 @@ void MainWindow::goToFirstCue() {
 void MainWindow::applyShortcuts() {
     const auto &s = AppSettings::instance();
     m_goAction->setShortcut(s.keyGo());
-    if (m_goBtn) m_goBtn->setToolTip(QString("Vai (%1)").arg(s.keyGo().toString()));
+    if (m_goBtn) m_goBtn->setToolTip(tr("Vai (%1)").arg(s.keyGo().toString()));
     m_stopAction->setShortcut(s.keyStopAll());
-    m_stopAction->setToolTip(QString("Ferma tutto (%1)").arg(s.keyStopAll().toString()));
+    m_stopAction->setToolTip(tr("Ferma tutto (%1)").arg(s.keyStopAll().toString()));
     m_firstCueAction->setShortcut(s.keyFirstCue());
-    m_firstCueAction->setToolTip(QString("Torna alla prima cue (%1)").arg(s.keyFirstCue().toString()));
+    m_firstCueAction->setToolTip(tr("Torna alla prima cue (%1)").arg(s.keyFirstCue().toString()));
     for (auto it = m_addCueShortcuts.cbegin(); it != m_addCueShortcuts.cend(); ++it)
         it.value()->setKey(s.keyAddCue(it.key()));
     if (m_showModeShortcut)
         m_showModeShortcut->setKey(s.keyShowMode());
     if (m_showModeBtn)
-        m_showModeBtn->setToolTip(QString("Modalità Show — visualizzazione senza modifiche (%1)").arg(s.keyShowMode().toString()));
+        m_showModeBtn->setToolTip(tr("Modalità Show — visualizzazione senza modifiche (%1)").arg(s.keyShowMode().toString()));
 }
 
 // ── Cue management ────────────────────────────────────────────────────────────

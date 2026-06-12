@@ -120,33 +120,6 @@ Workspaces are saved as `.oql` files (JSON). The format is intentionally simple 
 
 ---
 
-## Keyboard Shortcuts (defaults)
-
-| Action | Default |
-|---|---|
-| GO | Space |
-| Stop All | Escape |
-| First Cue | Home |
-| Show Mode | Ctrl+Shift+H |
-| Add Audio Cue | Ctrl+1 |
-| Add Video Cue | Ctrl+2 |
-| Add Text Cue | Ctrl+3 |
-| Add Mic Cue | Ctrl+4 |
-| Add Record Cue | Ctrl+5 |
-| Add Stop Cue | Ctrl+Q |
-| Add Fade Cue | Ctrl+F |
-| Add Pause Cue | Ctrl+P |
-| Add Play Cue | Ctrl+R |
-| Add Effect Cue | Ctrl+E |
-| Add Reset Effect Cue | Ctrl+Shift+E |
-| Add Script Cue | Ctrl+J |
-| Add Group | Ctrl+G |
-| Add Label | Ctrl+L |
-
-All shortcuts are configurable in **Settings → Shortcuts**.
-
----
-
 ## Roadmap
 
 - [ ] MIDI / OSC trigger support

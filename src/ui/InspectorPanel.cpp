@@ -444,8 +444,8 @@ void InspectorPanel::buildUi() {
 
     m_vuL = new VuMeter;
     m_vuR = new VuMeter;
-    m_vuL->setToolTip("L");
-    m_vuR->setToolTip("R");
+    m_vuL->setToolTip(tr("L"));
+    m_vuR->setToolTip(tr("R"));
 
     auto makeDbLabel = [](QWidget *parent = nullptr) {
         auto *lbl = new QLabel("-∞ dB", parent);
@@ -675,7 +675,7 @@ void InspectorPanel::buildUi() {
 
     // Input level meter
     m_recVuMono  = new VuMeter;
-    m_recVuMono->setToolTip("Livello ingresso");
+    m_recVuMono->setToolTip(tr("Livello ingresso"));
     m_recVuDbLabel = new QLabel("-∞ dB");
     m_recVuDbLabel->setAlignment(Qt::AlignHCenter);
     m_recVuDbLabel->setStyleSheet("color:#aaa; font-size:9px;");
@@ -1526,7 +1526,7 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
         spin->setRange(0, 99);
         spin->setValue(slices[i].loopCount);
         spin->setSpecialValueText("skip");
-        spin->setToolTip("0 = salta, 1 = riproduci una volta, N = ripeti N volte");
+        spin->setToolTip(tr("0 = salta, 1 = riproduci una volta, N = ripeti N volte"));
         spin->setFrame(false);
         const int row = i;
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, row](int v) {
@@ -1544,7 +1544,7 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
         if (i > 0) {
             auto *delBtn = new QPushButton("×");
             delBtn->setFixedSize(20, 20);
-            delBtn->setToolTip("Elimina questa slice");
+            delBtn->setToolTip(tr("Elimina questa slice"));
             delBtn->setStyleSheet("color:#c44; font-weight:bold; padding:0; border:none;");
             connect(delBtn, &QPushButton::clicked, this, [this, row]() {
                 auto *a2 = qobject_cast<AudioCue*>(m_cue);
