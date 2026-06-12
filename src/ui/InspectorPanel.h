@@ -176,4 +176,10 @@ private:
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
+
+    // Show-mode visibility references
+    QWidget        *m_groupsRow   = nullptr;
+    QWidget        *m_chanRow     = nullptr;
+    QWidget        *m_fxRow       = nullptr;
+    QWidget        *m_headerRow   = nullptr;
 };

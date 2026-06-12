@@ -175,7 +175,7 @@ void InspectorPanel::buildUi() {
     // ── Empty state ──────────────────────────────────────────
     m_emptyWidget = new QWidget;
     auto *emptyLay = new QHBoxLayout(m_emptyWidget);
-    auto *emptyLbl = new QLabel("Seleziona una cue per vedere le proprietà");
+    auto *emptyLbl = new QLabel(tr("Seleziona una cue per vedere le proprietà"));
     emptyLbl->setAlignment(Qt::AlignCenter);
     emptyLbl->setStyleSheet("color: #888; font-style: italic;");
     emptyLay->addWidget(emptyLbl);
@@ -187,27 +187,27 @@ void InspectorPanel::buildUi() {
     propsLay->setSpacing(4);
 
     // Header row: type label + stop + play/pause buttons
-    auto *headerRow = new QWidget;
-    auto *headerLay = new QHBoxLayout(headerRow);
+    m_headerRow = new QWidget;
+    auto *headerLay = new QHBoxLayout(m_headerRow);
     headerLay->setContentsMargins(0, 0, 0, 0);
     headerLay->setSpacing(4);
     m_typeLabel = new QLabel;
     m_typeLabel->setStyleSheet("font-weight: bold; font-size: 12px; color: #555;");
     m_stopBtn = new QPushButton("■");
     m_stopBtn->setFixedWidth(32);
-    m_stopBtn->setToolTip("Stop");
-    m_playBtn = new QPushButton("▶  Play");
+    m_stopBtn->setToolTip(tr("Stop"));
+    m_playBtn = new QPushButton("▶  " + tr("Play"));
     m_playBtn->setFixedWidth(100);
-    m_playBtn->setToolTip("Play / Pausa / Riprendi");
+    m_playBtn->setToolTip(tr("Play / Pausa / Riprendi"));
     headerLay->addWidget(m_typeLabel);
     headerLay->addStretch();
     headerLay->addWidget(m_stopBtn);
     headerLay->addWidget(m_playBtn);
-    propsLay->addWidget(headerRow);
+    propsLay->addWidget(m_headerRow);
 
     // ── Groups row (horizontal) ──────────────────────────────
-    auto *groupsRow = new QWidget;
-    auto *groupsLay = new QHBoxLayout(groupsRow);
+    m_groupsRow = new QWidget;
+    auto *groupsLay = new QHBoxLayout(m_groupsRow);
     groupsLay->setContentsMargins(0, 0, 0, 0);
     groupsLay->setSpacing(6);
 
@@ -221,7 +221,7 @@ void InspectorPanel::buildUi() {
     };
 
     // General group
-    auto *genGroup = new QGroupBox("Generale");
+    auto *genGroup = new QGroupBox(tr("Generale"));
     genGroup->setMinimumWidth(185);
     auto *genForm  = new QFormLayout(genGroup);
     genForm->setSpacing(3);
@@ -231,32 +231,32 @@ void InspectorPanel::buildUi() {
     m_nameEdit   = new QLineEdit;
     m_notesEdit  = new QTextEdit;
     m_notesEdit->setMaximumHeight(38);
-    m_notesEdit->setPlaceholderText("Note...");
+    m_notesEdit->setPlaceholderText(tr("Note..."));
 
-    genForm->addRow("Numero:", m_numberEdit);
-    genForm->addRow("Nome:",   m_nameEdit);
-    genForm->addRow("Note:",   m_notesEdit);
+    genForm->addRow(tr("Numero:"), m_numberEdit);
+    genForm->addRow(tr("Nome:"),   m_nameEdit);
+    genForm->addRow(tr("Note:"),   m_notesEdit);
     groupsLay->addWidget(genGroup);
 
     // Timing group
-    auto *timeGroup = new QGroupBox("Timing");
+    auto *timeGroup = new QGroupBox(tr("Timing"));
     timeGroup->setMinimumWidth(195);
     auto *timeForm  = new QFormLayout(timeGroup);
     timeForm->setSpacing(3);
 
     m_preWaitSpin  = makeSpin();
     m_postWaitSpin = makeSpin();
-    m_autoContinueCheck = new QCheckBox("Auto-continue");
-    m_autoFollowCheck   = new QCheckBox("Auto-follow");
+    m_autoContinueCheck = new QCheckBox(tr("Auto-continue"));
+    m_autoFollowCheck   = new QCheckBox(tr("Auto-follow"));
 
-    timeForm->addRow("Pre-wait:",  m_preWaitSpin);
-    timeForm->addRow("Post-wait:", m_postWaitSpin);
+    timeForm->addRow(tr("Pre-wait:"),  m_preWaitSpin);
+    timeForm->addRow(tr("Post-wait:"), m_postWaitSpin);
     timeForm->addRow(m_autoContinueCheck);
     timeForm->addRow(m_autoFollowCheck);
     groupsLay->addWidget(timeGroup);
 
     // Media group (audio + video)
-    m_mediaGroup = new QGroupBox("File sorgente");
+    m_mediaGroup = new QGroupBox(tr("File sorgente"));
     m_mediaGroup->setMinimumWidth(220);
     auto *mediaForm = new QFormLayout(m_mediaGroup);
     mediaForm->setSpacing(3);
@@ -266,7 +266,7 @@ void InspectorPanel::buildUi() {
     fileRLay->setContentsMargins(0, 0, 0, 0);
     m_fileEdit  = new QLineEdit;
     m_fileEdit->setReadOnly(true);
-    m_fileEdit->setPlaceholderText("Nessun file...");
+    m_fileEdit->setPlaceholderText(tr("Nessun file..."));
     m_browseBtn = new QPushButton("...");
     m_browseBtn->setFixedWidth(30);
     fileRLay->addWidget(m_fileEdit);
@@ -281,16 +281,16 @@ void InspectorPanel::buildUi() {
     m_loopSpin = new QSpinBox;
     m_loopSpin->setRange(0, 99);
     m_loopSpin->setSpecialValueText("∞");
-    m_loopSpin->setToolTip("Ripetizioni: 0 = loop infinito, 1 = una volta");
+    m_loopSpin->setToolTip(tr("Ripetizioni: 0 = loop infinito, 1 = una volta"));
     m_loopSpin->setFixedWidth(60);
 
-    mediaForm->addRow("File:", fileRow);
-    mediaForm->addRow("Volume:", m_volumeSpin);
-    mediaForm->addRow("Loop:", m_loopSpin);
+    mediaForm->addRow(tr("File:"), fileRow);
+    mediaForm->addRow(tr("Volume:"), m_volumeSpin);
+    mediaForm->addRow(tr("Loop:"), m_loopSpin);
     groupsLay->addWidget(m_mediaGroup);
 
     // Fade group (audio only) — with enable/disable checkboxes
-    m_fadeGroup = new QGroupBox("Fade");
+    m_fadeGroup = new QGroupBox(tr("Fade"));
     m_fadeGroup->setMinimumWidth(175);
     auto *fadeForm = new QFormLayout(m_fadeGroup);
     fadeForm->setSpacing(3);
@@ -308,12 +308,12 @@ void InspectorPanel::buildUi() {
         fadeForm->addRow(label, row);
     };
 
-    makeFadeRow(m_fadeInCheck,  m_fadeInSpin,  "In:");
-    makeFadeRow(m_fadeOutCheck, m_fadeOutSpin, "Out:");
+    makeFadeRow(m_fadeInCheck,  m_fadeInSpin,  tr("In:"));
+    makeFadeRow(m_fadeOutCheck, m_fadeOutSpin, tr("Out:"));
     groupsLay->addWidget(m_fadeGroup);
 
     groupsLay->addStretch();
-    propsLay->addWidget(groupsRow);
+    propsLay->addWidget(m_groupsRow);
 
     // ── Control cue section (Stop / Fade / Pause) ────────────
     m_controlSection = new QWidget;
@@ -326,15 +326,15 @@ void InspectorPanel::buildUi() {
     ctrlRowLay->setContentsMargins(0, 0, 0, 0);
     ctrlRowLay->setSpacing(6);
 
-    auto *targetGroup = new QGroupBox("Cue Target");
+    auto *targetGroup = new QGroupBox(tr("Cue Target"));
     auto *targetForm  = new QFormLayout(targetGroup);
     targetForm->setSpacing(3);
     m_targetCombo = new QComboBox;
     m_targetCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    targetForm->addRow("Target:", m_targetCombo);
+    targetForm->addRow(tr("Target:"), m_targetCombo);
     ctrlRowLay->addWidget(targetGroup);
 
-    m_fadeParamsGroup = new QGroupBox("Parametri Fade");
+    m_fadeParamsGroup = new QGroupBox(tr("Parametri Fade"));
     auto *fadeParamsForm = new QFormLayout(m_fadeParamsGroup);
     fadeParamsForm->setSpacing(3);
     m_fadeTargetVolSpin = new QDoubleSpinBox;
@@ -347,13 +347,13 @@ void InspectorPanel::buildUi() {
     m_fadeDurationSpin->setSingleStep(0.1);
     m_fadeDurationSpin->setDecimals(2);
     m_fadeDurationSpin->setSuffix(" s");
-    m_fadeStopAtEndCheck = new QCheckBox("Stop al termine del fade");
-    fadeParamsForm->addRow("Volume target:", m_fadeTargetVolSpin);
-    fadeParamsForm->addRow("Durata:",        m_fadeDurationSpin);
+    m_fadeStopAtEndCheck = new QCheckBox(tr("Stop al termine del fade"));
+    fadeParamsForm->addRow(tr("Volume target:"), m_fadeTargetVolSpin);
+    fadeParamsForm->addRow(tr("Durata:"),        m_fadeDurationSpin);
     fadeParamsForm->addRow(m_fadeStopAtEndCheck);
     ctrlRowLay->addWidget(m_fadeParamsGroup);
 
-    m_speedGroup = new QGroupBox("Velocità");
+    m_speedGroup = new QGroupBox(tr("Velocità"));
     auto *speedForm = new QFormLayout(m_speedGroup);
     speedForm->setSpacing(3);
     m_speedRateSpin = new QDoubleSpinBox;
@@ -361,15 +361,15 @@ void InspectorPanel::buildUi() {
     m_speedRateSpin->setSingleStep(0.1);
     m_speedRateSpin->setDecimals(2);
     m_speedRateSpin->setSuffix(" ×");
-    m_speedRateSpin->setToolTip("< 1 = rallenta, > 1 = velocizza");
-    speedForm->addRow("Fattore:", m_speedRateSpin);
+    m_speedRateSpin->setToolTip(tr("< 1 = rallenta, > 1 = velocizza"));
+    speedForm->addRow(tr("Fattore:"), m_speedRateSpin);
     ctrlRowLay->addWidget(m_speedGroup);
     ctrlRowLay->addStretch();
 
     ctrlLay->addWidget(ctrlRow);
 
     // Effect cue: duration + button to open the plugin chain editor
-    m_effectGroup = new QGroupBox("Parametri Effetto");
+    m_effectGroup = new QGroupBox(tr("Parametri Effetto"));
     auto *effectForm = new QFormLayout(m_effectGroup);
     effectForm->setSpacing(3);
     m_effectDurSpin = new QDoubleSpinBox;
@@ -377,11 +377,11 @@ void InspectorPanel::buildUi() {
     m_effectDurSpin->setSingleStep(0.1);
     m_effectDurSpin->setDecimals(2);
     m_effectDurSpin->setSuffix(" s");
-    m_effectDurSpin->setSpecialValueText("∞ (nessun reset auto)");
-    m_effectDurSpin->setToolTip("0 = effetto permanente fino a Reset Effetti; > 0 = reset automatico dopo N secondi");
-    m_effectFxBtn = new QPushButton("⚙ Catena Effetti...");
-    m_effectFxBtn->setToolTip("Apri la catena di plugin da applicare al target");
-    effectForm->addRow("Durata:", m_effectDurSpin);
+    m_effectDurSpin->setSpecialValueText(tr("∞ (nessun reset auto)"));
+    m_effectDurSpin->setToolTip(tr("0 = effetto permanente fino a Reset Effetti; > 0 = reset automatico dopo N secondi"));
+    m_effectFxBtn = new QPushButton(tr("⚙ Catena Effetti..."));
+    m_effectFxBtn->setToolTip(tr("Apri la catena di plugin da applicare al target"));
+    effectForm->addRow(tr("Durata:"), m_effectDurSpin);
     effectForm->addRow(m_effectFxBtn);
     ctrlLay->addWidget(m_effectGroup);
     propsLay->addWidget(m_controlSection);
@@ -397,19 +397,19 @@ void InspectorPanel::buildUi() {
     micRowLay->setContentsMargins(0, 0, 0, 0);
     micRowLay->setSpacing(6);
 
-    auto *micGroup = new QGroupBox("Ingresso microfono");
+    auto *micGroup = new QGroupBox(tr("Ingresso microfono"));
     auto *micForm  = new QFormLayout(micGroup);
     micForm->setSpacing(3);
     m_micDeviceCombo = new QComboBox;
     m_micDeviceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    micForm->addRow("Dispositivo:", m_micDeviceCombo);
+    micForm->addRow(tr("Dispositivo:"), m_micDeviceCombo);
 
     m_micVolumeSpin = new QDoubleSpinBox;
     m_micVolumeSpin->setRange(-60.0, 0.0);
     m_micVolumeSpin->setSingleStep(0.5);
     m_micVolumeSpin->setDecimals(1);
     m_micVolumeSpin->setSuffix(" dB");
-    micForm->addRow("Volume:", m_micVolumeSpin);
+    micForm->addRow(tr("Volume:"), m_micVolumeSpin);
     micRowLay->addWidget(micGroup);
     micRowLay->addStretch();
     micLay->addWidget(micRow);
@@ -427,17 +427,17 @@ void InspectorPanel::buildUi() {
     m_recSourceLabel->setVisible(false);
     audioLay->addWidget(m_recSourceLabel);
 
-    auto *chanRow = new QWidget;
-    auto *chanLay = new QHBoxLayout(chanRow);
+    m_chanRow = new QWidget;
+    auto *chanLay = new QHBoxLayout(m_chanRow);
     chanLay->setContentsMargins(0, 0, 0, 0);
     chanLay->setSpacing(6);
-    chanLay->addWidget(new QLabel("Uscita:"));
+    chanLay->addWidget(new QLabel(tr("Uscita:")));
     m_channelCombo = new QComboBox;
-    m_channelCombo->addItems({"L + R (stereo)", "Solo L", "Solo R"});
+    m_channelCombo->addItems({tr("L + R (stereo)"), tr("Solo L"), tr("Solo R")});
     m_channelCombo->setFixedWidth(140);
     chanLay->addWidget(m_channelCombo);
     chanLay->addStretch();
-    audioLay->addWidget(chanRow);
+    audioLay->addWidget(m_chanRow);
 
     m_waveformView = new WaveformView;
     m_waveformView->setMinimumHeight(110);
@@ -489,15 +489,15 @@ void InspectorPanel::buildUi() {
         if (m_cue) emit m_cue->propertyChanged();
     });
 
-    auto *fxRow    = new QWidget;
-    auto *fxRowLay = new QHBoxLayout(fxRow);
+    m_fxRow    = new QWidget;
+    auto *fxRowLay = new QHBoxLayout(m_fxRow);
     fxRowLay->setContentsMargins(0, 2, 0, 0);
     fxRowLay->setSpacing(6);
-    m_fxBtn = new QPushButton("⚙ Effetti...");
-    m_fxBtn->setToolTip("Apri catena effetti per questa cue");
+    m_fxBtn = new QPushButton(tr("⚙ Effetti..."));
+    m_fxBtn->setToolTip(tr("Apri catena effetti per questa cue"));
     fxRowLay->addWidget(m_fxBtn);
     fxRowLay->addStretch();
-    audioLay->addWidget(fxRow);
+    audioLay->addWidget(m_fxRow);
 
     connect(m_fxBtn, &QPushButton::clicked, this, [this]() {
         if (!m_fxDialog) {
@@ -525,7 +525,7 @@ void InspectorPanel::buildUi() {
     auto *rateRowLay = new QHBoxLayout(rateRow);
     rateRowLay->setContentsMargins(0, 0, 0, 0);
     rateRowLay->setSpacing(6);
-    rateRowLay->addWidget(new QLabel("Rate:"));
+    rateRowLay->addWidget(new QLabel(tr("Rate:")));
     m_rateSpin = new QDoubleSpinBox;
     m_rateSpin->setRange(0.1, 4.0);
     m_rateSpin->setSingleStep(0.05);
@@ -533,11 +533,11 @@ void InspectorPanel::buildUi() {
     m_rateSpin->setSuffix(" ×");
     m_rateSpin->setValue(1.0);
     m_rateSpin->setFixedWidth(80);
-    m_rateSpin->setToolTip("Velocità di riproduzione (1.0 = normale)");
+    m_rateSpin->setToolTip(tr("Velocità di riproduzione (1.0 = normale)"));
     rateRowLay->addWidget(m_rateSpin);
-    auto *pitchCheck = new QCheckBox("Mantieni pitch");
+    auto *pitchCheck = new QCheckBox(tr("Mantieni pitch"));
     pitchCheck->setEnabled(false);
-    pitchCheck->setToolTip("Richiede la libreria soundtouch (non disponibile)");
+    pitchCheck->setToolTip(tr("Richiede la libreria soundtouch (non disponibile)"));
     rateRowLay->addWidget(pitchCheck);
     rateRowLay->addStretch();
     sliceLay->addWidget(rateRow);
@@ -547,11 +547,11 @@ void InspectorPanel::buildUi() {
     auto *sliceHdrLay = new QHBoxLayout(sliceHdrRow);
     sliceHdrLay->setContentsMargins(0, 0, 0, 0);
     sliceHdrLay->setSpacing(4);
-    sliceHdrLay->addWidget(new QLabel("Slices:"));
-    m_addSliceBtn = new QPushButton("+ Aggiungi");
+    sliceHdrLay->addWidget(new QLabel(tr("Slices:")));
+    m_addSliceBtn = new QPushButton(tr("+ Aggiungi"));
     m_addSliceBtn->setFixedHeight(22);
-    m_addSliceBtn->setToolTip("Aggiunge una slice alla posizione corrente (Ctrl+Click sulla waveform per aggiungere)");
-    m_clearSlicesBtn = new QPushButton("Rimuovi tutte");
+    m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente (Ctrl+Click sulla waveform per aggiungere)"));
+    m_clearSlicesBtn = new QPushButton(tr("Rimuovi tutte"));
     m_clearSlicesBtn->setFixedHeight(22);
     sliceHdrLay->addWidget(m_addSliceBtn);
     sliceHdrLay->addWidget(m_clearSlicesBtn);
@@ -560,7 +560,7 @@ void InspectorPanel::buildUi() {
 
     // Slice table: Seg # | Inizio | Loop | Del
     m_sliceTable = new QTableWidget(0, 4);
-    m_sliceTable->setHorizontalHeaderLabels({"Seg", "Inizio", "Loop", ""});
+    m_sliceTable->setHorizontalHeaderLabels({tr("Seg"), tr("Inizio"), tr("Loop"), ""});
     m_sliceTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_sliceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_sliceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -586,54 +586,54 @@ void InspectorPanel::buildUi() {
     textRowLay->setContentsMargins(0, 0, 0, 0);
     textRowLay->setSpacing(6);
 
-    auto *textContentGroup = new QGroupBox("Testo");
+    auto *textContentGroup = new QGroupBox(tr("Testo"));
     auto *textContentForm = new QFormLayout(textContentGroup);
     textContentForm->setSpacing(3);
     m_textContent = new QTextEdit;
     m_textContent->setMaximumHeight(70);
-    m_textContent->setPlaceholderText("Inserisci il testo...");
+    m_textContent->setPlaceholderText(tr("Inserisci il testo..."));
     textContentForm->addRow(m_textContent);
     textRowLay->addWidget(textContentGroup, 2);
 
-    auto *textFmtGroup = new QGroupBox("Formattazione");
+    auto *textFmtGroup = new QGroupBox(tr("Formattazione"));
     auto *textFmtForm = new QFormLayout(textFmtGroup);
     textFmtForm->setSpacing(3);
 
     m_fontFamilyCombo = new QFontComboBox;
     m_fontFamilyCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    textFmtForm->addRow("Font:", m_fontFamilyCombo);
+    textFmtForm->addRow(tr("Font:"), m_fontFamilyCombo);
 
     m_fontSizeSpin = new QSpinBox;
     m_fontSizeSpin->setRange(6, 300);
     m_fontSizeSpin->setValue(48);
     m_fontSizeSpin->setSuffix(" pt");
     m_fontSizeSpin->setFixedWidth(80);
-    textFmtForm->addRow("Dimensione:", m_fontSizeSpin);
+    textFmtForm->addRow(tr("Dimensione:"), m_fontSizeSpin);
 
     auto *styleRow = new QWidget;
     auto *styleRowLay = new QHBoxLayout(styleRow);
     styleRowLay->setContentsMargins(0, 0, 0, 0);
     styleRowLay->setSpacing(4);
-    m_textBoldCheck   = new QCheckBox("Grassetto");
-    m_textItalicCheck = new QCheckBox("Corsivo");
+    m_textBoldCheck   = new QCheckBox(tr("Grassetto"));
+    m_textItalicCheck = new QCheckBox(tr("Corsivo"));
     styleRowLay->addWidget(m_textBoldCheck);
     styleRowLay->addWidget(m_textItalicCheck);
     styleRowLay->addStretch();
     textFmtForm->addRow(styleRow);
 
-    m_textColorBtn = new QPushButton("Colore testo");
+    m_textColorBtn = new QPushButton(tr("Colore testo"));
     m_textColorBtn->setFixedHeight(24);
     textFmtForm->addRow(m_textColorBtn);
 
-    m_textBgColorBtn = new QPushButton("Colore sfondo");
+    m_textBgColorBtn = new QPushButton(tr("Colore sfondo"));
     m_textBgColorBtn->setFixedHeight(24);
     textFmtForm->addRow(m_textBgColorBtn);
 
     m_textAlignCombo = new QComboBox;
-    m_textAlignCombo->addItem("Sinistra",  int(Qt::AlignLeft  | Qt::AlignVCenter));
-    m_textAlignCombo->addItem("Centro",    int(Qt::AlignCenter));
-    m_textAlignCombo->addItem("Destra",    int(Qt::AlignRight | Qt::AlignVCenter));
-    textFmtForm->addRow("Allineamento:", m_textAlignCombo);
+    m_textAlignCombo->addItem(tr("Sinistra"), int(Qt::AlignLeft  | Qt::AlignVCenter));
+    m_textAlignCombo->addItem(tr("Centro"),   int(Qt::AlignCenter));
+    m_textAlignCombo->addItem(tr("Destra"),   int(Qt::AlignRight | Qt::AlignVCenter));
+    textFmtForm->addRow(tr("Allineamento:"), m_textAlignCombo);
 
     textRowLay->addWidget(textFmtGroup, 3);
     textLay->addWidget(textRow);
@@ -644,7 +644,7 @@ void InspectorPanel::buildUi() {
     auto *scriptLay = new QVBoxLayout(m_scriptSection);
     scriptLay->setContentsMargins(0, 4, 0, 0);
 
-    m_scriptRunBtn = new QPushButton("✎  Modifica Script…");
+    m_scriptRunBtn = new QPushButton(tr("✎  Modifica Script…"));
     scriptLay->addWidget(m_scriptRunBtn);
 
     propsLay->addWidget(m_scriptSection);
@@ -655,23 +655,23 @@ void InspectorPanel::buildUi() {
     recLay->setContentsMargins(0, 4, 0, 0);
     recLay->setSpacing(4);
 
-    auto *recGroup = new QGroupBox("Registrazione");
+    auto *recGroup = new QGroupBox(tr("Registrazione"));
     auto *recForm  = new QFormLayout(recGroup);
     recForm->setSpacing(3);
 
     m_recDeviceCombo = new QComboBox;
     m_recDeviceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    recForm->addRow("Ingresso:", m_recDeviceCombo);
+    recForm->addRow(tr("Ingresso:"), m_recDeviceCombo);
 
     m_recTargetCombo = new QComboBox;
     m_recTargetCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_recTargetCombo->setToolTip("Cue audio che riceverà il file registrato dopo lo stop");
-    recForm->addRow("Cue audio:", m_recTargetCombo);
+    m_recTargetCombo->setToolTip(tr("Cue audio che riceverà il file registrato dopo lo stop"));
+    recForm->addRow(tr("Cue audio:"), m_recTargetCombo);
 
     m_recPathLabel = new QLabel("—");
     m_recPathLabel->setStyleSheet("color:#888; font-size:10px;");
     m_recPathLabel->setWordWrap(true);
-    recForm->addRow("Ultima rec.:", m_recPathLabel);
+    recForm->addRow(tr("Ultima rec.:"), m_recPathLabel);
 
     // Input level meter
     m_recVuMono  = new VuMeter;
@@ -691,7 +691,7 @@ void InspectorPanel::buildUi() {
     recLevelLay->setContentsMargins(0, 0, 0, 0);
     recLevelLay->setSpacing(4);
     recLevelLay->addWidget(recVuCol);
-    auto *recLevelLbl = new QLabel("Livello ingresso");
+    auto *recLevelLbl = new QLabel(tr("Livello ingresso"));
     recLevelLbl->setStyleSheet("color:#888; font-size:10px;");
     recLevelLbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     recLevelLay->addWidget(recLevelLbl, 1);
@@ -912,6 +912,29 @@ void InspectorPanel::buildUi() {
 }
 
 void InspectorPanel::setCue(Cue *cue) {
+    // In show mode: only update waveform when an Audio cue is explicitly opened
+    if (m_showMode) {
+        if (!cue || cue->type() != Cue::Type::Audio) return;
+        if (cue == m_cue) return;
+        if (m_cue) { disconnect(m_cue, nullptr, this, nullptr); m_playTimer->stop(); }
+        m_cue = cue;
+        auto *a = static_cast<AudioCue*>(cue);
+        m_waveformView->setFilePath(a->filePath());
+        m_waveformView->setDuration(a->duration());
+        m_waveformView->setFadeIn(a->fadeInDuration());
+        m_waveformView->setFadeOut(a->fadeOutDuration());
+        m_waveformView->setVolumePoints(a->volumePoints());
+        m_waveformView->setTrimStart(a->trimStart());
+        m_waveformView->setTrimEnd(a->trimEnd());
+        m_waveformView->setSliceMarkers(buildSliceMarkers(a));
+        m_audioSection->setVisible(true);
+        m_stack->setCurrentIndex(1);
+        connect(m_cue, &Cue::propertyChanged, this, &InspectorPanel::onCuePropertyChanged);
+        connect(m_cue, &Cue::stateChanged,    this, &InspectorPanel::onCueStateChanged);
+        m_playTimer->start();
+        return;
+    }
+
     if (m_cue) {
         disconnect(m_cue, nullptr, this, nullptr);
         m_playTimer->stop();
@@ -1547,6 +1570,29 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
 void InspectorPanel::setShowMode(bool showMode) {
     m_showMode = showMode;
     const bool edit = !showMode;
+
+    // In show mode: collapse inspector to waveform only
+    if (m_groupsRow)  m_groupsRow->setVisible(!showMode);
+    if (m_headerRow)  m_headerRow->setVisible(!showMode);
+    if (m_chanRow)    m_chanRow->setVisible(!showMode);
+    if (m_fxRow)      m_fxRow->setVisible(!showMode);
+    if (m_sliceSection) m_sliceSection->setVisible(!showMode);
+
+    if (showMode) {
+        // Only show audioSection (waveform); hide all others
+        m_controlSection->setVisible(false);
+        m_micSection->setVisible(false);
+        m_textSection->setVisible(false);
+        m_scriptSection->setVisible(false);
+        m_recordSection->setVisible(false);
+        const bool isAudio = m_cue && m_cue->type() == Cue::Type::Audio;
+        m_audioSection->setVisible(isAudio);
+        if (!isAudio) m_stack->setCurrentIndex(0);
+        return;
+    }
+
+    // Leaving show mode: restore visibility via updateMediaSection
+    if (m_cue) updateMediaSection();
 
     // General / timing / common fields
     m_numberEdit->setEnabled(edit);

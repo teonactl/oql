@@ -293,14 +293,16 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::cueDoubleClicked, this, [this](int row) {
         Cue *cue = m_model->cueForRow(row);
         if (!cue) return;
-        // Always ensure inspector is open to at least 420px
+        m_inspector->setCue(cue);
+        // Auto-size inspector to fit content
         const QList<int> sz = m_mainSplit->sizes();
         if (sz.size() >= 2) {
-            const int total = sz[0] + sz[1];
-            const int inspH = qMax(sz[1], 420);
-            m_mainSplit->setSizes({ qMax(0, total - inspH), inspH });
+            const int total  = sz[0] + sz[1];
+            const int needed = qMax(420, m_inspector->sizeHint().height() + 20);
+            const int inspH  = qBound(sz[1], needed, total * 2 / 3);
+            if (inspH > sz[1])
+                m_mainSplit->setSizes({ qMax(0, total - inspH), inspH });
         }
-        m_inspector->setCue(cue);
     });
 
     connect(m_cueView, &CueListView::groupSelectionRequested,
@@ -454,13 +456,12 @@ void MainWindow::buildToolBar() {
     m_goBtn = new QToolButton;
     m_goBtn->setText("▶  GO");
     QFont goFont;
-    goFont.setPointSize(16);
+    goFont.setPointSize(18);
     goFont.setBold(true);
     m_goBtn->setFont(goFont);
-    m_goBtn->setFixedSize(100, 54);
+    m_goBtn->setFixedSize(84, 84);
     m_goBtn->setStyleSheet(
-        "QToolButton { background:transparent; color:white; border-radius:7px;"
-        "              border:1px solid rgba(255,255,255,22); }"
+        "QToolButton { background:transparent; color:white; border-radius:7px; border:none; }"
         "QToolButton:pressed { background: rgba(0,0,0,40); }"
         "QToolButton:hover   { background: rgba(255,255,255,16); }");
     m_goBtn->setToolTip("Vai");
@@ -501,7 +502,7 @@ void MainWindow::buildToolBar() {
     // ── Stop All + First Cue — flat, no colored bg ────────────────────────────
     m_stopAction = new QAction(this);
     m_stopAction->setIcon(makeTbIconFlat([](QPainter &p) {
-        p.setBrush(QColor(0xff, 0x55, 0x55)); p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
         p.drawRoundedRect(5, 5, 18, 18, 2, 2);
     }));
     m_stopAction->setToolTip("Ferma tutto");
@@ -511,7 +512,7 @@ void MainWindow::buildToolBar() {
 
     m_firstCueAction = new QAction(this);
     m_firstCueAction->setIcon(makeTbIconFlat([](QPainter &p) {
-        p.setBrush(QColor(200, 200, 215)); p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
         p.drawRect(2, 4, 3, 20);
         QPolygon t1; t1 << QPoint(13, 4) << QPoint(13, 24) << QPoint(7, 14);
         QPolygon t2; t2 << QPoint(23, 4) << QPoint(23, 24) << QPoint(16, 14);
@@ -1219,17 +1220,21 @@ void MainWindow::onSelectionChanged() {
             m_workspace.cueList()->setPlayhead(actual);
     }
     Cue *cue = sel.isEmpty() ? nullptr : m_model->cueForRow(sel.first().row());
-    m_inspector->setCue(cue);
-    m_infoBar->setCue(cue);
-
-    // In show mode, auto-open inspector when a cue is selected
-    if (m_showMode && cue) {
-        const QList<int> sz = m_mainSplit->sizes();
-        if (sz.size() >= 2 && sz[1] < 300) {
-            const int total = sz[0] + sz[1];
-            m_mainSplit->setSizes({ qMax(0, total - 420), 420 });
+    // In show mode inspector is locked — only audio double-click updates it
+    if (!m_showMode) {
+        m_inspector->setCue(cue);
+        // Auto-open inspector to fit content
+        if (cue) {
+            const QList<int> sz = m_mainSplit->sizes();
+            if (sz.size() >= 2) {
+                const int total  = sz[0] + sz[1];
+                const int needed = qMax(420, m_inspector->sizeHint().height() + 20);
+                if (sz[1] < needed)
+                    m_mainSplit->setSizes({ qMax(0, total - needed), needed });
+            }
         }
     }
+    m_infoBar->setCue(cue);
 }
 
 // ── File I/O ──────────────────────────────────────────────────────────────────

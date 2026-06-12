@@ -211,26 +211,26 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
         QVector<int> rows;
         for (const auto &idx : selIdxs) rows.append(idx.row());
         std::sort(rows.begin(), rows.end());
-        menu.addAction(QString("Raggruppa %1 selezionate").arg(rows.size()),
+        menu.addAction(tr("Raggruppa %1 selezionate").arg(rows.size()),
                        this, [this, rows]() { emit groupSelectionRequested(rows); });
         menu.addSeparator();
     }
 
-    menu.addAction("Aggiungi Audio Cue",     this, &CueListView::addAudioRequested);
-    menu.addAction("Aggiungi Video Cue",     this, &CueListView::addVideoRequested);
+    menu.addAction(tr("Aggiungi Audio Cue"),     this, &CueListView::addAudioRequested);
+    menu.addAction(tr("Aggiungi Video Cue"),     this, &CueListView::addVideoRequested);
     menu.addSeparator();
-    menu.addAction("Aggiungi Stop Cue",      this, &CueListView::addStopRequested);
-    menu.addAction("Aggiungi Fade Cue",      this, &CueListView::addFadeRequested);
-    menu.addAction("Aggiungi Pause Cue",     this, &CueListView::addPauseRequested);
-    menu.addAction("Aggiungi Microfono Cue", this, &CueListView::addMicRequested);
+    menu.addAction(tr("Aggiungi Stop Cue"),      this, &CueListView::addStopRequested);
+    menu.addAction(tr("Aggiungi Fade Cue"),      this, &CueListView::addFadeRequested);
+    menu.addAction(tr("Aggiungi Pause Cue"),     this, &CueListView::addPauseRequested);
+    menu.addAction(tr("Aggiungi Microfono Cue"), this, &CueListView::addMicRequested);
     menu.addSeparator();
-    menu.addAction("Aggiungi Gruppo",               this, &CueListView::addGroupRequested);
-    menu.addAction("Aggiungi Etichetta",            this, &CueListView::addLabelRequested);
-    menu.addAction("Aggiungi Testo",                this, &CueListView::addTextRequested);
+    menu.addAction(tr("Aggiungi Gruppo"),               this, &CueListView::addGroupRequested);
+    menu.addAction(tr("Aggiungi Etichetta"),            this, &CueListView::addLabelRequested);
+    menu.addAction(tr("Aggiungi Testo"),                this, &CueListView::addTextRequested);
     menu.addSeparator();
-    menu.addAction("Aggiungi Effect Cue",           this, &CueListView::addEffectRequested);
-    menu.addAction("Aggiungi Reset Effetti Cue",    this, &CueListView::addResetEffectRequested);
-    menu.addAction("Aggiungi Script Cue",           this, &CueListView::addScriptRequested);
+    menu.addAction(tr("Aggiungi Effect Cue"),           this, &CueListView::addEffectRequested);
+    menu.addAction(tr("Aggiungi Reset Effetti Cue"),    this, &CueListView::addResetEffectRequested);
+    menu.addAction(tr("Aggiungi Script Cue"),           this, &CueListView::addScriptRequested);
     menu.addSeparator();
     // Color palette submenu — visible only when at least one row is selected
     if (!selIdxs.isEmpty()) {
@@ -247,7 +247,7 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
             { "Grigio",   QColor(215, 215, 220) },
         };
 
-        QMenu *colorMenu = menu.addMenu("Colore");
+        QMenu *colorMenu = menu.addMenu(tr("Colore"));
 
         auto makeIcon = [](QColor c) {
             QPixmap px(14, 14);
@@ -266,13 +266,13 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
             });
         }
         colorMenu->addSeparator();
-        colorMenu->addAction("Nessuno", this, [this, targetRows]() {
+        colorMenu->addAction(tr("Nessuno"), this, [this, targetRows]() {
             for (int row : targetRows)
                 if (Cue *cue = m_model->cueForRow(row)) cue->setUserColor(QColor{});
         });
         menu.addSeparator();
     }
-    menu.addAction("Elimina cue",                   this, &CueListView::deleteRequested);
+    menu.addAction(tr("Elimina cue"),                   this, &CueListView::deleteRequested);
     menu.exec(event->globalPos());
 }
 
@@ -316,6 +316,10 @@ void CueListView::mouseDoubleClickEvent(QMouseEvent *event) {
     case CueListModel::ColDuration:
     case CueListModel::ColPostWait:
         edit(idx);
+        return;
+    case CueListModel::ColTarget:
+        emit filePickRequested(idx.row());  // opens file dialog for audio/video; opens inspector for control cues via cueDoubleClicked below
+        emit cueDoubleClicked(idx.row());
         return;
     default:
         break;
