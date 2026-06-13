@@ -107,7 +107,8 @@ jobs:
           export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOQL_EDITION=${{ matrix.edition }}
+            -DOQL_EDITION=${{ matrix.edition }} \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}"
 
       # ── Configure (Windows) ───────────────────────────────────
       - name: Configure (Windows)
@@ -157,8 +158,12 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          macdeployqt build/oql.app -dmg
-          mv build/oql.dmg ${{ matrix.artifact }}.dmg
+          APP=$(find build -name "oql.app" -maxdepth 4 | head -1)
+          echo "Found app bundle: $APP"
+          "${QT_ROOT_DIR}/bin/macdeployqt" "$APP" -dmg
+          DMG=$(find build -name "oql.dmg" -maxdepth 4 | head -1)
+          echo "Found dmg: $DMG"
+          mv "$DMG" ${{ matrix.artifact }}.dmg
 
       # ── Package — Windows (.zip) ──────────────────────────────
       - name: Package (Windows)
