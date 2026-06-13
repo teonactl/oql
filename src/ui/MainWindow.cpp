@@ -242,10 +242,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
 MainWindow::~MainWindow()
 {
-    // Disconnect before Qt's deleteChildren() so the indexChanged lambda cannot
-    // fire on partially-destroyed state (m_undoPropTimer may be gone already).
-    if (m_undoStack)
+    // Set flag first so any lambda that checks m_suppressUndoTracking bails immediately.
+    m_suppressUndoTracking = true;
+
+    // Stop pending timer — avoids flushUndoPropChange() firing during teardown.
+    if (m_undoPropTimer)
+        m_undoPropTimer->stop();
+
+    // blockSignals prevents QUndoStack::clear() (called by ~QUndoStack) from
+    // emitting indexChanged / cleanChanged onto partially-destroyed receivers.
+    // disconnect() removes our explicit lambda connections as extra safety.
+    if (m_undoStack) {
+        m_undoStack->blockSignals(true);
         m_undoStack->disconnect();
+    }
 }
 
 void MainWindow::buildUi() {
