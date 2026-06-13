@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OQL — Software di controllo show</title>
+  <title>OQL — Show Control Software</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%23111420'/%3E%3Ccircle cx='230' cy='230' r='140' fill='none' stroke='%23e88020' stroke-width='50'/%3E%3Cline x1='322' y1='322' x2='428' y2='428' stroke='%23e88020' stroke-width='50' stroke-linecap='round'/%3E%3Cpolygon points='178,162 178,298 312,230' fill='%23e8eaf0'/%3E%3C/svg%3E" />
   <style>
     :root {
       --bg:      #0f1117;
@@ -30,22 +31,25 @@
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* ── NAV ── */
+    /* NAV */
     nav {
       position: sticky; top: 0; z-index: 100;
-      background: rgba(15,17,23,0.85);
+      background: rgba(15,17,23,0.88);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 2rem; height: 56px;
     }
-    .nav-logo { font-weight: 700; font-size: 1.15rem; letter-spacing: -.5px; }
+    .nav-logo {
+      display: flex; align-items: center; gap: .55rem;
+      font-weight: 700; font-size: 1.15rem; letter-spacing: -.5px;
+    }
     .nav-logo span { color: var(--accent); }
-    .nav-links { display: flex; gap: 1.5rem; font-size: .9rem; color: var(--muted); }
+    .nav-links { display: flex; gap: 1.5rem; font-size: .9rem; }
     .nav-links a { color: var(--muted); transition: color .15s; }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
 
-    /* ── HERO ── */
+    /* HERO */
     .hero {
       text-align: center;
       padding: 7rem 1.5rem 5rem;
@@ -81,52 +85,70 @@
     }
     .btn:hover { opacity: .88; transform: translateY(-1px); text-decoration: none; }
     .btn-primary { background: var(--accent); color: #fff; }
-    .btn-outline {
-      background: transparent;
-      border: 1px solid var(--border); color: var(--text);
-    }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
-    /* ── SCREENSHOT placeholder ── */
+    /* MOCKUP */
     .screenshot {
-      max-width: 900px; margin: 4rem auto;
+      max-width: 860px; margin: 0 auto;
       border-radius: 16px; overflow: hidden;
       border: 1px solid var(--border);
       box-shadow: 0 40px 80px rgba(0,0,0,.6);
+      padding: 0 1.5rem;
     }
-    .screenshot-placeholder {
+    .screenshot-inner {
       background: var(--surface);
-      height: 420px; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 1rem;
-      color: var(--muted); font-size: .9rem;
+      display: flex; flex-direction: column;
+      align-items: center;
+    }
+    .mock-toolbar {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%;
+      background: #12151f;
+      padding: .65rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .mock-go {
+      background: #15803d; color: #fff;
+      font-size: .75rem; font-weight: 800;
+      padding: .35em 1em; border-radius: 6px;
+      letter-spacing: .04em; margin-right: auto;
+    }
+    .mock-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .mock-list {
+      width: 100%;
+      background: #0f1117;
+      padding: .6rem .75rem;
+      display: flex; flex-direction: column; gap: 5px;
     }
     .cue-row {
-      display: flex; gap: 12px; align-items: center;
-      background: var(--card); border-radius: 8px;
-      padding: .5rem 1rem; width: 600px;
+      display: flex; gap: 10px; align-items: center;
+      background: var(--card); border-radius: 7px;
+      padding: .45rem .9rem;
     }
-    .cue-num { font-size: .75rem; color: var(--muted); width: 28px; }
+    .cue-row.playing { background: #1a2e1e; }
+    .cue-num { font-size: .72rem; color: var(--muted); width: 22px; text-align: right; flex-shrink: 0; }
     .cue-type {
-      font-size: .7rem; font-weight: 700; letter-spacing: .08em;
-      padding: .2em .6em; border-radius: 4px; color: #fff;
+      font-size: .65rem; font-weight: 800; letter-spacing: .08em;
+      padding: .2em .55em; border-radius: 3px; color: #fff; flex-shrink: 0;
     }
-    .t-audio  { background: #1d4ed8; }
-    .t-fade   { background: #b45309; }
+    .t-audio  { background: #1e40af; }
+    .t-fade   { background: #924007; }
     .t-video  { background: #065f46; }
-    .t-group  { background: #44485a; }
-    .cue-name { flex: 1; font-size: .85rem; }
-    .cue-dur  { font-size: .75rem; color: var(--muted); }
-    .go-pill {
-      background: var(--go); color: #fff;
-      font-size: .7rem; font-weight: 700;
-      padding: .25em .7em; border-radius: 999px;
+    .t-group  { background: #374151; }
+    .cue-name { flex: 1; font-size: .82rem; }
+    .cue-name.playing { color: #4ade80; font-weight: 600; }
+    .cue-dur  { font-size: .72rem; color: var(--muted); }
+    .go-arrow {
+      background: #15803d; color: #fff;
+      font-size: .62rem; font-weight: 800;
+      padding: .2em .55em; border-radius: 3px;
     }
 
-    /* ── FEATURES ── */
+    /* FEATURES */
     section { max-width: 1050px; margin: 0 auto; padding: 5rem 1.5rem; }
     section h2 {
       font-size: clamp(1.6rem, 3.5vw, 2.4rem);
-      font-weight: 800; letter-spacing: -.8px;
-      margin-bottom: .5rem;
+      font-weight: 800; letter-spacing: -.8px; margin-bottom: .5rem;
     }
     section h2 span { color: var(--accent); }
     .section-sub { color: var(--muted); margin-bottom: 3rem; font-size: 1.05rem; }
@@ -137,10 +159,8 @@
       gap: 1.25rem;
     }
     .feat-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
       transition: border-color .2s;
     }
     .feat-card:hover { border-color: var(--accent); }
@@ -148,17 +168,15 @@
     .feat-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
     .feat-card p { font-size: .88rem; color: var(--muted); }
 
-    /* ── EDITIONS ── */
+    /* EDITIONS */
     .editions-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
       gap: 1.5rem;
     }
     .edition-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 2rem;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 2rem;
     }
     .edition-card.featured {
       border-color: var(--accent);
@@ -166,73 +184,59 @@
     }
     .edition-header { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.25rem; }
     .edition-name { font-size: 1.25rem; font-weight: 800; }
-    .edition-price {
-      font-size: 1.6rem; font-weight: 800; margin-bottom: .25rem;
-    }
+    .edition-price { font-size: 1.6rem; font-weight: 800; margin-bottom: .25rem; }
     .edition-price small { font-size: .75rem; font-weight: 400; color: var(--muted); }
     .edition-desc { color: var(--muted); font-size: .88rem; margin-bottom: 1.5rem; }
     .edition-features { list-style: none; margin-bottom: 1.75rem; }
     .edition-features li {
-      padding: .35rem 0;
-      font-size: .9rem;
+      padding: .35rem 0; font-size: .9rem;
       display: flex; align-items: flex-start; gap: .6rem;
     }
     .edition-features li::before { content: "✓"; color: var(--go); font-weight: 700; flex-shrink: 0; }
     .edition-features li.missing::before { content: "—"; color: var(--muted); }
     .edition-features li.missing { color: var(--muted); }
     .pill-free {
-      background: rgba(34,197,94,.15);
-      color: var(--go); border: 1px solid rgba(34,197,94,.3);
+      background: rgba(34,197,94,.15); color: var(--go);
+      border: 1px solid rgba(34,197,94,.3);
       font-size: .7rem; font-weight: 700; letter-spacing: .06em;
       padding: .25em .7em; border-radius: 999px;
     }
     .pill-soon {
-      background: rgba(168,85,247,.12);
-      color: var(--accent2); border: 1px solid rgba(168,85,247,.3);
+      background: rgba(168,85,247,.12); color: var(--accent2);
+      border: 1px solid rgba(168,85,247,.3);
       font-size: .7rem; font-weight: 700; letter-spacing: .06em;
       padding: .25em .7em; border-radius: 999px;
     }
 
-    /* ── DOWNLOAD ── */
+    /* DOWNLOAD */
     #download { background: var(--surface); }
-    #download > div {
-      max-width: 1050px; margin: 0 auto; padding: 5rem 1.5rem;
-    }
+    #download > div { max-width: 1050px; margin: 0 auto; padding: 5rem 1.5rem; }
     .dl-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
       gap: 1.25rem;
     }
     .dl-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.75rem;
-      text-align: center;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.75rem; text-align: center;
     }
     .dl-icon { font-size: 2.5rem; margin-bottom: .75rem; }
     .dl-os { font-size: 1.05rem; font-weight: 700; margin-bottom: .3rem; }
     .dl-note { font-size: .8rem; color: var(--muted); margin-bottom: 1.25rem; min-height: 2.4em; }
     .btn-dl {
       display: inline-flex; align-items: center; justify-content: center;
-      gap: .5rem; width: 100%;
-      padding: .7rem 1rem; border-radius: 8px;
+      gap: .5rem; width: 100%; padding: .7rem 1rem; border-radius: 8px;
       font-weight: 600; font-size: .9rem;
       background: var(--accent); color: #fff;
       transition: opacity .15s, transform .1s;
     }
     .btn-dl:hover { opacity: .88; transform: translateY(-1px); text-decoration: none; }
-    .btn-dl.disabled {
-      background: var(--border); color: var(--muted); pointer-events: none;
-    }
     .dl-ver { font-size: .75rem; color: var(--muted); margin-top: .6rem; }
 
-    /* ── FOOTER ── */
+    /* FOOTER */
     footer {
-      background: var(--bg);
-      border-top: 1px solid var(--border);
-      text-align: center;
-      padding: 2.5rem 1.5rem;
+      background: var(--bg); border-top: 1px solid var(--border);
+      text-align: center; padding: 2.5rem 1.5rem;
       color: var(--muted); font-size: .85rem;
     }
     footer a { color: var(--muted); }
@@ -240,7 +244,6 @@
 
     @media (max-width: 600px) {
       .hero { padding: 5rem 1.25rem 3.5rem; }
-      .cue-row { width: 100%; }
     }
   </style>
 </head>
@@ -248,10 +251,18 @@
 
 <!-- NAV -->
 <nav>
-  <div class="nav-logo"><span>OQL</span></div>
+  <div class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <rect width="512" height="512" rx="80" fill="#111420"/>
+      <circle cx="230" cy="230" r="140" fill="none" stroke="#e88020" stroke-width="50"/>
+      <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
+      <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
+    </svg>
+    <span>OQL</span>
+  </div>
   <div class="nav-links">
-    <a href="#features">Funzionalità</a>
-    <a href="#editions">Edizioni</a>
+    <a href="#features">Features</a>
+    <a href="#editions">Editions</a>
     <a href="#download">Download</a>
     <a href="https://github.com/teonactl/oql">GitHub</a>
   </div>
@@ -259,97 +270,104 @@
 
 <!-- HERO -->
 <div class="hero">
-  <div class="badge">Open Source · Versione Base gratuita</div>
-  <h1>Il tuo show,<br>sotto <span>controllo</span>.</h1>
-  <p>OQL è un software di playback professionale basato su cue list, pensato per teatro, concerti ed eventi live. Audio, video, fade, microfoni — tutto in un'unica timeline.</p>
+  <div class="badge">Open Source · Base edition free</div>
+  <h1>Your show,<br>under <span>control</span>.</h1>
+  <p>OQL is a professional cue-list show control application for theatre, concerts and live events. Audio, video, fades, microphones — all in one timeline.</p>
   <div class="hero-btns">
-    <a class="btn btn-primary" href="#download">⬇ Scarica gratis</a>
-    <a class="btn btn-outline" href="https://github.com/teonactl/oql">Codice sorgente →</a>
+    <a class="btn btn-primary" href="#download">⬇ Download free</a>
+    <a class="btn btn-outline" href="https://github.com/teonactl/oql">Source code →</a>
   </div>
 </div>
 
 <!-- SCREENSHOT MOCKUP -->
-<div class="screenshot" style="margin: 0 auto 0; max-width: 860px; padding: 0 1.5rem;">
-  <div class="screenshot-placeholder">
-    <div style="color: var(--muted); font-size:.8rem; margin-bottom:1rem;">ANTEPRIMA INTERFACCIA</div>
-    <div class="cue-row">
-      <span class="cue-num">1</span>
-      <span class="cue-type t-audio">AUDIO</span>
-      <span class="cue-name">Apertura — Ouverture</span>
-      <span class="cue-dur">2:34</span>
-      <span class="go-pill">▶ GO</span>
+<div class="screenshot">
+  <div class="screenshot-inner">
+    <div class="mock-toolbar">
+      <span class="mock-go">▶  GO</span>
+      <span class="mock-dot"></span>
+      <span class="mock-dot"></span>
+      <span class="mock-dot"></span>
     </div>
-    <div class="cue-row" style="margin-top:6px">
-      <span class="cue-num">2</span>
-      <span class="cue-type t-fade">FADE</span>
-      <span class="cue-name">Fade out musica</span>
-      <span class="cue-dur">3.0s</span>
-    </div>
-    <div class="cue-row" style="margin-top:6px">
-      <span class="cue-num">3</span>
-      <span class="cue-type t-video">VIDEO</span>
-      <span class="cue-name">Proiezione atto I</span>
-      <span class="cue-dur">4:12</span>
-    </div>
-    <div class="cue-row" style="margin-top:6px">
-      <span class="cue-num">4</span>
-      <span class="cue-type t-group">GRUPPO</span>
-      <span class="cue-name">Scena 2 — Bosco</span>
-      <span class="cue-dur">—</span>
+    <div class="mock-list">
+      <div class="cue-row playing">
+        <span class="cue-num">1</span>
+        <span class="cue-type t-audio">AUDIO</span>
+        <span class="cue-name playing">Opening — Overture</span>
+        <span class="cue-dur">2:34</span>
+        <span class="go-arrow">▶</span>
+      </div>
+      <div class="cue-row">
+        <span class="cue-num">2</span>
+        <span class="cue-type t-fade">FADE</span>
+        <span class="cue-name">Fade out music</span>
+        <span class="cue-dur">3.00s</span>
+      </div>
+      <div class="cue-row">
+        <span class="cue-num">3</span>
+        <span class="cue-type t-video">VIDEO</span>
+        <span class="cue-name">Act I projection</span>
+        <span class="cue-dur">4:12</span>
+      </div>
+      <div class="cue-row">
+        <span class="cue-num">4</span>
+        <span class="cue-type t-group">GROUP</span>
+        <span class="cue-name">Scene 2 — Forest</span>
+        <span class="cue-dur">—</span>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- FEATURES -->
 <section id="features">
-  <h2>Tutto quello che serve <span>sul palco</span></h2>
-  <p class="section-sub">Progettato per tecnici del suono, registi e operatori che lavorano sotto pressione.</p>
+  <h2>Everything you need <span>on stage</span></h2>
+  <p class="section-sub">Built for sound engineers, stage managers and operators working under pressure.</p>
 
   <div class="features-grid">
     <div class="feat-card">
       <div class="feat-icon">🎵</div>
-      <h3>Audio multi-traccia</h3>
-      <p>Riproduzione WAV, FLAC, MP3 con fade in/out configurabili, loop, slices, automazione del volume e routing L/R.</p>
+      <h3>Multi-track audio</h3>
+      <p>Playback of WAV, FLAC and MP3 with configurable fade in/out, loop, slices, volume automation and L/R routing.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🎬</div>
       <h3>Video Cue</h3>
-      <p>Proietta video su un monitor secondario in sincronia con la cue list. Supporto H.264, ProRes e tutti i formati Qt Multimedia.</p>
+      <p>Project video to a secondary monitor in sync with the cue list. Supports H.264, ProRes and all Qt Multimedia formats.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🔊</div>
-      <h3>Fade & controllo playback</h3>
-      <p>Cue dedicate per fade volume, stop, pausa, riproduzione e cambio rate in tempo reale su qualsiasi sorgente audio.</p>
+      <h3>Fade &amp; playback control</h3>
+      <p>Dedicated cues for volume fade, stop, pause, play and real-time rate changes on any active audio source.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🎙</div>
-      <h3>Microfono live</h3>
-      <p>Cue microfono per aprire un ingresso audio in tempo reale durante lo show, con routing e plugin chain.</p>
+      <h3>Live microphone</h3>
+      <p>Mic Cue opens a live audio input during the show with full routing and plugin chain support.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">📝</div>
-      <h3>Testo a schermo</h3>
-      <p>Mostra testi, sottotitoli o note su monitor secondario con font, colori e allineamento personalizzabili.</p>
+      <h3>On-screen text</h3>
+      <p>Display lyrics, subtitles or cue notes on a secondary monitor with customisable font, colour and alignment.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🔌</div>
-      <h3>Plugin LV2 &amp; VST2</h3>
-      <p>Catena di effetti per ogni Audio Cue. Supporto plug-in LV2 nativi e VST2 per elaborazione audio in tempo reale.</p>
+      <h3>LV2 &amp; VST2 plugins</h3>
+      <p>Full plugin chain on every Audio Cue. Native LV2 and VST2 support for real-time audio processing.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🌍</div>
-      <h3>Multilingua</h3>
-      <p>Interfaccia disponibile in italiano, inglese, spagnolo e francese. Cambio lingua in tempo reale dalle impostazioni.</p>
+      <h3>Multilingual</h3>
+      <p>UI available in English, Italian, Spanish and French. Switch language at any time from settings.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">🌐</div>
-      <h3>Remote web</h3>
-      <p>Controllo da browser: avvia il server web integrato e gestisci il GO da tablet o smartphone durante lo spettacolo.</p>
+      <h3>Remote web control</h3>
+      <p>Built-in web server lets you trigger GO from a browser on any tablet or phone on the same network.</p>
     </div>
     <div class="feat-card">
       <div class="feat-icon">⚡</div>
       <h3>Auto-continue &amp; follow</h3>
-      <p>Concatena cue in sequenza automatica con pre-wait e post-wait configurabili. Per show complessi senza operatore.</p>
+      <p>Chain cues in automatic sequences with configurable pre-wait and post-wait. Perfect for complex unattended shows.</p>
     </div>
   </div>
 </section>
@@ -357,8 +375,8 @@
 <!-- EDITIONS -->
 <section id="editions" style="background: var(--surface); max-width: 100%; padding: 5rem 0;">
   <div style="max-width: 1050px; margin: 0 auto; padding: 0 1.5rem;">
-    <h2>Due <span>edizioni</span></h2>
-    <p class="section-sub">Base è completamente gratuita e open source. Full è in arrivo per chi ha bisogno di più potenza.</p>
+    <h2>Two <span>editions</span></h2>
+    <p class="section-sub">Base is completely free and open source. Full is coming for productions that need more power.</p>
 
     <div class="editions-grid">
       <!-- BASE -->
@@ -366,27 +384,27 @@
         <div class="edition-header">
           <div>
             <div class="edition-name">Base</div>
-            <span class="pill-free">GRATUITA</span>
+            <span class="pill-free">FREE</span>
           </div>
         </div>
-        <div class="edition-price">€0 <small>per sempre</small></div>
-        <div class="edition-desc">Tutto quello che serve per la maggior parte degli show. Libera, open source, senza limitazioni.</div>
+        <div class="edition-price">€0 <small>forever</small></div>
+        <div class="edition-desc">Everything you need for most shows. Free, open source, no limitations.</div>
         <ul class="edition-features">
           <li>Audio Cue — WAV, FLAC, MP3</li>
           <li>Video Cue</li>
           <li>Fade, Stop, Pause, Play Cue</li>
-          <li>Mic Cue (ingresso microfono)</li>
-          <li>Gruppo, Etichetta, Testo</li>
-          <li>Plugin LV2 e VST2 per cue audio</li>
+          <li>Mic Cue (live microphone input)</li>
+          <li>Group, Label, Text Cue</li>
+          <li>LV2 and VST2 plugins on audio cues</li>
           <li>Slices, loop, rate, trim</li>
-          <li>Remote web</li>
-          <li>Multilingua</li>
-          <li class="missing">Velocizza / Rallenta Cue</li>
+          <li>Remote web control</li>
+          <li>Multilingual UI</li>
+          <li class="missing">Speed Up / Slow Down Cue</li>
           <li class="missing">Effect / Reset Effect Cue</li>
           <li class="missing">Record Cue</li>
           <li class="missing">Script Cue (QJS)</li>
         </ul>
-        <a class="btn btn-primary" href="#download" style="display:flex;justify-content:center;">Scarica Base →</a>
+        <a class="btn btn-primary" href="#download" style="display:flex;justify-content:center;">Download Base →</a>
       </div>
 
       <!-- FULL -->
@@ -394,21 +412,21 @@
         <div class="edition-header">
           <div>
             <div class="edition-name">Full</div>
-            <span class="pill-soon">IN ARRIVO</span>
+            <span class="pill-soon">COMING SOON</span>
           </div>
         </div>
-        <div class="edition-price">— <small>prezzo da definire</small></div>
-        <div class="edition-desc">Per produzioni professionali che richiedono automazione avanzata e integrazione totale.</div>
+        <div class="edition-price">— <small>pricing TBD</small></div>
+        <div class="edition-desc">For professional productions requiring advanced automation and deep integration.</div>
         <ul class="edition-features">
-          <li>Tutto di Base</li>
-          <li>Velocizza / Rallenta Cue (rate dinamico)</li>
-          <li>Effect Cue (applica plugin a cue attiva)</li>
+          <li>Everything in Base</li>
+          <li>Speed Up / Slow Down Cue (dynamic rate)</li>
+          <li>Effect Cue (apply plugin to active cue)</li>
           <li>Reset Effect Cue</li>
-          <li>Record Cue (registrazione mic → WAV)</li>
-          <li>Script Cue (automazione JavaScript)</li>
-          <li>Supporto prioritario</li>
+          <li>Record Cue (mic → WAV recording)</li>
+          <li>Script Cue (JavaScript automation)</li>
+          <li>Priority support</li>
         </ul>
-        <button class="btn btn-outline" style="width:100%;cursor:default;opacity:.6;" disabled>Disponibile presto</button>
+        <button class="btn btn-outline" style="width:100%;cursor:default;opacity:.6;" disabled>Available soon</button>
       </div>
     </div>
   </div>
@@ -418,50 +436,47 @@
 <div id="download">
   <div>
     <h2>Download <span>Base</span></h2>
-    <p class="section-sub" style="margin-bottom:2.5rem;">Versione stabile più recente. Gratuita, nessuna registrazione richiesta.</p>
+    <p class="section-sub" style="margin-bottom:2.5rem;">Latest stable release. Free, no account required.</p>
 
     <div class="dl-grid">
-      <!-- Linux -->
       <div class="dl-card">
         <div class="dl-icon">🐧</div>
         <div class="dl-os">Linux</div>
         <div class="dl-note">Ubuntu 22.04+ · Arch · Fedora<br>x86_64</div>
         <a class="btn-dl"
            href="https://github.com/teonactl/oql/releases/latest/download/oql-linux-base.tar.gz">
-          ⬇ Scarica .tar.gz
+          ⬇ Download .tar.gz
         </a>
-        <div class="dl-ver">Vedi <a href="https://github.com/teonactl/oql/releases">tutte le release →</a></div>
+        <div class="dl-ver">See <a href="https://github.com/teonactl/oql/releases">all releases →</a></div>
       </div>
 
-      <!-- macOS -->
       <div class="dl-card">
         <div class="dl-icon">🍎</div>
         <div class="dl-os">macOS</div>
         <div class="dl-note">macOS 13 Ventura+<br>Apple Silicon &amp; Intel</div>
         <a class="btn-dl"
            href="https://github.com/teonactl/oql/releases/latest/download/oql-macos-base.dmg">
-          ⬇ Scarica .dmg
+          ⬇ Download .dmg
         </a>
-        <div class="dl-ver">Vedi <a href="https://github.com/teonactl/oql/releases">tutte le release →</a></div>
+        <div class="dl-ver">See <a href="https://github.com/teonactl/oql/releases">all releases →</a></div>
       </div>
 
-      <!-- Windows -->
       <div class="dl-card">
         <div class="dl-icon">🪟</div>
         <div class="dl-os">Windows</div>
         <div class="dl-note">Windows 10 / 11<br>x86_64</div>
         <a class="btn-dl"
            href="https://github.com/teonactl/oql/releases/latest/download/oql-windows-base.zip">
-          ⬇ Scarica .zip
+          ⬇ Download .zip
         </a>
-        <div class="dl-ver">Vedi <a href="https://github.com/teonactl/oql/releases">tutte le release →</a></div>
+        <div class="dl-ver">See <a href="https://github.com/teonactl/oql/releases">all releases →</a></div>
       </div>
     </div>
 
     <p style="text-align:center;margin-top:2.5rem;font-size:.85rem;color:var(--muted);">
-      I binari vengono generati automaticamente dalla
+      Binaries are built automatically by
       <a href="https://github.com/teonactl/oql/actions">GitHub Actions CI</a>
-      ad ogni release taggata.
+      on every tagged release.
     </p>
   </div>
 </div>
@@ -469,16 +484,14 @@
 <!-- FOOTER -->
 <footer>
   <p>
-    OQL è rilasciato sotto licenza
-    <a href="https://github.com/teonactl/oql/blob/main/LICENSE">GPL-3.0</a>.
+    OQL is released under the
+    <a href="https://github.com/teonactl/oql/blob/main/LICENSE">GPL-3.0</a> license.
     &nbsp;·&nbsp;
-    <a href="https://github.com/teonactl/oql/issues">Segnala un bug</a>
+    <a href="https://github.com/teonactl/oql/issues">Report a bug</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/teonactl/oql">GitHub</a>
   </p>
-  <p style="margin-top:.5rem;font-size:.75rem;">
-    © 2025 OQL contributors
-  </p>
+  <p style="margin-top:.5rem;font-size:.75rem;">© 2025 OQL contributors</p>
 </footer>
 
 </body>
