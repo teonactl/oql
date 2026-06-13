@@ -586,9 +586,9 @@ void InspectorPanel::buildUi() {
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
     m_sliceTable->horizontalHeader()->setFixedHeight(20);
-    m_sliceTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_sliceTable->setFixedHeight(20 + 22);  // header + 1 row placeholder; updated in rebuildSliceTable
+    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_sliceTable->setStyleSheet(
         "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
         "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
@@ -778,7 +778,7 @@ void InspectorPanel::buildUi() {
     m_stack = new QStackedWidget;
     m_stack->addWidget(m_emptyWidget);  // index 0
     m_stack->addWidget(propsScroll);    // index 1
-    outer->addWidget(m_stack);
+    outer->addWidget(m_stack, 1);  // stretch=1: riempie tutta l'altezza disponibile
 
     if (const auto *scr = QGuiApplication::primaryScreen())
         setMaximumHeight(scr->availableGeometry().height() / 3);
@@ -795,7 +795,7 @@ void InspectorPanel::buildUi() {
     m_showModeContentLay->setSpacing(8);
     m_showModeContentLay->addStretch();
     m_showModeArea->setWidget(smContent);
-    outer->addWidget(m_showModeArea);
+    outer->addWidget(m_showModeArea, 1);
 
     m_showPlayTimer = new QTimer(this);
     m_showPlayTimer->setInterval(80);
@@ -1775,9 +1775,10 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             m_sliceTable->setCellWidget(i, 3, delBtn);
         }
     }
-    // Let AdjustToContents recompute the table height, then tell the parent.
-    m_sliceTable->updateGeometry();
-    m_sliceSection->updateGeometry();
+    // header=20px (setFixedHeight), each row=22px (setDefaultSectionSize)
+    const int h = 20 + 22 * slices.size();
+    m_sliceTable->setFixedHeight(h);
+    m_sliceSection->setFixedHeight(h + 2);  // +2 for sliceLay top margin
 
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
