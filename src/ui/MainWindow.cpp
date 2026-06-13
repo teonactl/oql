@@ -445,9 +445,10 @@ void MainWindow::buildToolBar() {
     auto *tb = addToolBar("Principale");
     tb->setMovable(false);
     tb->setIconSize({32, 32});
+    tb->setFixedHeight(90);
     tb->setStyleSheet(
-        "QToolBar { spacing: 2px; padding: 3px; min-height: 90px; }"
-        "QToolBar::separator { width: 9px; }"
+        "QToolBar { spacing: 2px; padding: 3px; }"
+        "QToolBar::separator { width: 1px; background: rgba(255,255,255,22); margin: 25px 5px; }"
         "QToolButton { min-width: 38px; min-height: 38px; border-radius: 5px; }"
         "QToolButton:hover   { background: rgba(255,255,255,18); }"
         "QToolButton:pressed { background: rgba(0,0,0,30); }");
