@@ -2,8 +2,8 @@
 Name=OpenQLab
 GenericName=Show Control Software
 Comment=Cue-based show control for audio, video and lighting
-Exec=openqlab
-Icon=openqlab
+Exec=oql
+Icon=oql
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Midi;
