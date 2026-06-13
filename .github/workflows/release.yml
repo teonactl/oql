@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux ──────────────────────────────────────────────
+          - os: ubuntu-22.04
+            edition: base
+            artifact: oql-linux-base
+            ext: tar.gz
+
+          - os: ubuntu-22.04
+            edition: full
+            artifact: oql-linux-full
+            ext: tar.gz
+
+          # ── macOS ──────────────────────────────────────────────
+          - os: macos-13
+            edition: base
+            artifact: oql-macos-base
+            ext: dmg
+
+          - os: macos-13
+            edition: full
+            artifact: oql-macos-full
+            ext: dmg
+
+          # ── Windows ────────────────────────────────────────────
+          - os: windows-2022
+            edition: base
+            artifact: oql-windows-base
+            ext: zip
+
+          - os: windows-2022
+            edition: full
+            artifact: oql-windows-full
+            ext: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Qt 6 ──────────────────────────────────────────────────
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtmultimedia qtsvg'
+          cache: true
+
+      # ── Linux deps ────────────────────────────────────────────
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            liblilv-dev libsuil-dev libsoundtouch-dev \
+            libx11-dev pkg-config
+
+      # ── macOS deps ────────────────────────────────────────────
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install lilv sound-touch pkg-config
+
+      # ── Windows deps (vcpkg) ──────────────────────────────────
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install lilv soundtouch --triplet x64-windows
+          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+          echo "VCPKG_TARGET_TRIPLET=x64-windows" >> $env:GITHUB_ENV
+
+      # ── CMake configure ───────────────────────────────────────
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOQL_EDITION=${{ matrix.edition }} \
+            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=%CMAKE_TOOLCHAIN_FILE% -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%' || '' }}
+        shell: bash
+
+      # ── Build ─────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # ── Package — Linux (.tar.gz) ─────────────────────────────
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/oql dist/
+          tar -czf ${{ matrix.artifact }}.tar.gz -C dist oql
+
+      # ── Package — macOS (.dmg) ────────────────────────────────
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Deploy Qt frameworks into the .app bundle
+          macdeployqt build/oql.app -dmg
+          mv build/oql.dmg ${{ matrix.artifact }}.dmg
+
+      # ── Package — Windows (.zip) ──────────────────────────────
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item build\Release\oql.exe dist\
+          windeployqt --release dist\oql.exe
+          # Copy vcpkg DLLs
+          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
+            if (Test-Path "$vcpkgBin\$dll") { Copy-Item "$vcpkgBin\$dll" dist\ }
+          }
+          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
+
+      # ── Upload artifact ───────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.${{ matrix.ext }}
+
+      # ── Create / update GitHub Release ───────────────────────
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.${{ matrix.ext }}
+          generate_release_notes: true
