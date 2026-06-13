@@ -587,9 +587,8 @@ void InspectorPanel::buildUi() {
     m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
     m_sliceTable->horizontalHeader()->setFixedHeight(20);
     m_sliceTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
-    m_sliceTable->setMaximumHeight(116);
-    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     m_sliceTable->setStyleSheet(
         "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
         "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
