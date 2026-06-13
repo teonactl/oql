@@ -1,5 +1,6 @@
 #include "CueListView.h"
 #include "CueListModel.h"
+#include "CueRowDelegate.h"
 #include "engine/ControlCues.h"
 #include "engine/AppSettings.h"
 #include "engine/Cue.h"
@@ -30,8 +31,10 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setEditTriggers(QAbstractItemView::EditKeyPressed);
-    setAlternatingRowColors(true);
+    setAlternatingRowColors(false);
     setShowGrid(false);
+    setItemDelegate(new CueRowDelegate(this));
+    viewport()->setStyleSheet("background: #0f1117;");
     verticalHeader()->setVisible(false);
     verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
     {

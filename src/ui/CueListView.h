@@ -63,7 +63,7 @@ private:
     QVector<int> validTargetRows(int srcRow) const;
     QVector<int> validGroupRows(int srcRow)  const;
 
-    static constexpr char kMime[] = "application/x-openqlab-cuerow";
+    static constexpr char kMime[] = "application/x-oql-cuerow";
 
     CueListModel *m_model;
     bool          m_stretchGuard         = false;

@@ -62,6 +62,8 @@ qt_add_executable(oql
     src/ui/CueListModel.cpp
     src/ui/CueListView.h
     src/ui/CueListView.cpp
+    src/ui/CueRowDelegate.h
+    src/ui/CueRowDelegate.cpp
     src/ui/InspectorPanel.h
     src/ui/InspectorPanel.cpp
     src/ui/VideoOutputWindow.h

@@ -263,6 +263,9 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
     const bool isLabel   = (cue->type() == Cue::Type::Label);
     const bool isText    = (cue->type() == Cue::Type::Text);
 
+    if (role == Qt::UserRole)
+        return static_cast<int>(cue->type());
+
     if (role == Qt::DecorationRole && idx.column() == ColType)
         return makeCueIcon(cue->type());
 
@@ -337,13 +340,13 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
     }
 
     if (role == Qt::BackgroundRole) {
-        if (isGroup) return QColor(42, 44, 56);
-        if (isLabel) return QColor(52, 47, 18);
-        if (isText)  return QColor(8, 48, 58);
+        if (isGroup) return QColor(0x1e, 0x23, 0x3e);
+        if (isLabel) return QColor(0x26, 0x22, 0x0c);
+        if (isText)  return QColor(0x0c, 0x2c, 0x38);
         if (m_visibleRows.value(idx.row(), -1) == m_list->playheadIndex())
-            return QColor(200, 160, 30, 55);
+            return QColor(0x3a, 0x2d, 0x06);
         if (cue->userColor().isValid()) return cue->userColor();
-        if (!cue->parentGroupId().isEmpty()) return QColor(30, 38, 30);
+        if (!cue->parentGroupId().isEmpty()) return QColor(0x16, 0x22, 0x18);
     }
 
     if (idx.column() == ColTarget) {

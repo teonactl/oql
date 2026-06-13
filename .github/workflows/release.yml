@@ -54,15 +54,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # ── Qt 6.5 LTS ────────────────────────────────────────────
-      # v3 dell'action (v4 non esiste); 6.5.3 LTS è ben distribuito.
-      # qtdeclarative → Qt6::Qml  (richiesto da CMakeLists)
-      # qtmultimedia  → Qt6::Multimedia + MultimediaWidgets
-      # qtsvg         → Qt6::Svg
+      # v3 dell'action; 6.5.3 LTS.
+      # qtsvg e qtdeclarative sono nel pacchetto base di Qt 6.5.3.
+      # qtmultimedia è l'unico addon separato necessario.
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.5.3'
-          modules: 'qtmultimedia qtsvg qtdeclarative'
+          modules: 'qtmultimedia'
           cache: true
 
       # ── Linux deps ────────────────────────────────────────────
