@@ -1,149 +1,174 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0e0e0e">
+<meta name="theme-color" content="#0f1117">
 <title>OQL Remote</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
-  --bg:#0e0e0e;--surf:#1c1c1e;--surf2:#252527;
-  --accent:#30d158;--orange:#e88020;--danger:#ff453a;--blue:#0a84ff;
-  --text:#f2f2f7;--dim:#8e8e93;--r:10px;
+  --bg:#0f1117;
+  --surface:#12151f;
+  --card:#1e2334;
+  --card-group:#1e233e;
+  --card-label:#26220c;
+  --card-text:#0c2c38;
+  --card-playhead:#3a2d06;
+  --border:#2a3050;
+  --accent:#4f8ef7;
+  --go:#22c55e;
+  --danger:#ef4444;
+  --pause:#f59e0b;
+  --text:#e2e8f0;
+  --muted:#8892a4;
+  --r:8px;
 }
 html,body{height:100%;overscroll-behavior:none}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
 
-/* ── HEADER ── */
+/* HEADER */
 header{
   position:sticky;top:0;z-index:20;
-  background:rgba(14,14,14,.95);
-  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  padding:10px 12px;
+  background:rgba(15,17,23,.95);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  padding:8px 12px;
   display:flex;align-items:center;gap:8px;
-  border-bottom:1px solid rgba(255,255,255,.07);
+  border-bottom:1px solid var(--border);
 }
-.logo{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.logo svg{width:26px;height:26px;flex-shrink:0;border-radius:6px}
-.logo-name{font-size:.85rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
-.logo-name em{color:var(--orange);font-style:normal}
+.logo{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.logo svg{width:26px;height:26px;border-radius:6px;flex-shrink:0}
+.logo-name{font-size:.9rem;font-weight:800;color:var(--accent);white-space:nowrap}
 .hbtns{display:flex;gap:6px;margin-left:auto;flex-shrink:0}
 .hbtn{
-  border:none;border-radius:9px;padding:9px 14px;
-  font-size:.85rem;font-weight:700;cursor:pointer;touch-action:manipulation;
-  flex-shrink:0;
+  border:none;border-radius:8px;padding:9px 14px;
+  font-size:.82rem;font-weight:700;cursor:pointer;touch-action:manipulation;flex-shrink:0;
 }
-.hbtn:active{filter:brightness(.6)}
-.hbtn-home{background:var(--surf2);color:var(--text)}
-.hbtn-go  {background:var(--accent);color:#000}
-.hbtn-stop{background:var(--danger);color:#fff}
+.hbtn:active{opacity:.65}
+.hbtn-home{background:var(--card);color:var(--text);border:1px solid var(--border)}
+.hbtn-go  {background:transparent;color:var(--text);border:1.5px solid rgba(220,220,220,160);font-size:.9rem}
+.hbtn-stop{background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b}
 
-/* ── ACTIVE CUES BAR (sticky below header) ── */
+/* ACTIVE BAR */
 #activebar{
   position:sticky;top:47px;z-index:19;
-  background:rgba(20,20,26,.97);
+  background:rgba(18,21,31,.97);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-bottom:1px solid rgba(255,255,255,.06);
-  padding:4px 12px;
-  display:flex;align-items:center;gap:8px;min-height:32px;
+  border-bottom:1px solid var(--border);
+  padding:5px 12px;
+  display:flex;align-items:center;gap:7px;min-height:34px;
   overflow-x:auto;white-space:nowrap;
   -webkit-overflow-scrolling:touch;
 }
-#activebar:empty::before{content:'—';color:var(--dim);font-size:.72rem}
+#activebar:empty::before{content:'No active cues';color:var(--muted);font-size:.72rem}
 .acard{
-  display:inline-flex;align-items:center;gap:5px;
-  background:var(--surf2);border-radius:6px;padding:3px 8px;
-  border-left:3px solid var(--accent);font-size:.72rem;flex-shrink:0;
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--card);border-radius:6px;padding:4px 9px;
+  border-left:2px solid var(--go);font-size:.71rem;flex-shrink:0;
 }
-.acard.paused{border-left-color:var(--blue)}
-.acard-name{color:var(--text);font-weight:600;max-width:110px;overflow:hidden;text-overflow:ellipsis}
-.acard-pos{color:var(--dim);font-variant-numeric:tabular-nums}
+.acard.paused{border-left-color:var(--pause)}
+.acard-name{color:var(--text);font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.acard-pos{color:var(--muted);font-variant-numeric:tabular-nums}
 
-/* ── PLAYHEAD BAR ── */
+/* PLAYHEAD BAR */
 #phbar{
   font-size:.72rem;padding:5px 14px 6px;
-  background:var(--surf);border-bottom:1px solid rgba(255,255,255,.05);
-  display:flex;align-items:center;gap:6px;color:var(--dim);
+  background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:6px;color:var(--muted);
 }
 #phbar.active{color:var(--text)}
-.ph-arrow{color:var(--orange);flex-shrink:0}
+.ph-arrow{color:var(--accent);flex-shrink:0;font-size:.8rem}
 
-/* ── CUE LIST ── */
-#list{padding:8px 10px 50px;display:flex;flex-direction:column;gap:4px}
+/* CUE LIST */
+#list{padding:8px 10px 60px;display:flex;flex-direction:column;gap:4px}
 
 .card{
-  background:var(--surf2);border-radius:var(--r);
-  border-left:3px solid rgba(255,255,255,.07);
+  background:var(--card);
+  border-radius:var(--r);
   overflow:hidden;
+  transition:background .15s;
 }
-.card.playhead{border-left-color:var(--orange)}
-.card.playing {border-left-color:var(--accent);background:#182a1c}
-.card.waiting {border-left-color:#ff9f0a}
-.card.paused  {border-left-color:var(--blue);background:#131a26}
-.card-label   {opacity:.4;pointer-events:none}
+.card.playhead {background:var(--card-playhead)}
+.card.playing  {background:#172519}
+.card.waiting  {background:#2a2010}
+.card.paused   {background:#1a1f2e}
+.card.type-group{background:var(--card-group)}
+.card.type-label{background:var(--card-label);opacity:.75}
+.card.type-text {background:var(--card-text)}
 
 .card-row{
-  display:flex;align-items:center;gap:6px;
-  padding:9px 8px 9px 10px;
+  display:flex;align-items:center;gap:7px;
+  padding:10px 10px 10px 12px;
 }
 .ph-dot{
-  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  width:6px;height:6px;border-radius:50%;flex-shrink:0;
   background:transparent;transition:background .15s;
 }
-.card.playhead .ph-dot{background:var(--orange)}
-.num{color:var(--dim);font-size:.78rem;min-width:24px;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
-.info{flex:1;min-width:0;overflow:hidden}
-.name{font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag{display:inline-block;margin-top:2px;font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.card.playhead .ph-dot{background:var(--accent)}
+.num{color:var(--muted);font-size:.75rem;min-width:22px;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.info{flex:1;min-width:0}
+.name{font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card.playing .name{color:#4ade80;font-weight:600}
+.card.paused  .name{color:#fbbf24}
 
+/* TYPE BADGE PILL */
+.badge{
+  display:inline-block;margin-top:3px;
+  font-size:.58rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
+  padding:.18em .55em;border-radius:3px;color:#fff;
+}
+.b-audio      {background:#1e40af}
+.b-video      {background:#065f46}
+.b-fade       {background:#924007}
+.b-stop       {background:#991b1b}
+.b-pause      {background:#783510}
+.b-play       {background:#165334}
+.b-speed      {background:#0e5c6e}
+.b-mic        {background:#6b21a8}
+.b-record     {background:#9f1239}
+.b-group      {background:#374151}
+.b-label      {background:#6b5a0a}
+.b-text       {background:#0e4f5c}
+.b-effect     {background:#5b21b6}
+.b-reseteffect{background:#1e406e}
+.b-script     {background:#166534}
+
+/* CUE BUTTONS */
 .btns{display:flex;gap:4px;flex-shrink:0}
 .ibtn{
-  border:none;border-radius:7px;
-  width:36px;height:34px;font-size:.8rem;font-weight:700;
+  border:none;border-radius:6px;
+  width:36px;height:32px;font-size:.78rem;font-weight:700;
   cursor:pointer;touch-action:manipulation;
   display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
 }
-.ibtn:active{filter:brightness(.6)}
-.ibtn-go    {background:var(--accent);color:#000;min-width:44px;font-size:.82rem}
-.ibtn-pause {background:var(--blue);color:#fff}
-.ibtn-resume{background:var(--accent);color:#000}
-.ibtn-stop  {background:var(--danger);color:#fff}
+.ibtn:active{opacity:.55}
+.ibtn-go    {background:var(--card);color:var(--text);border:1px solid var(--border);min-width:44px;font-size:.8rem}
+.ibtn-pause {background:#78350f;color:#fbbf24}
+.ibtn-resume{background:#14532d;color:#4ade80}
+.ibtn-stop  {background:#7f1d1d;color:#fca5a5}
 
-/* per-state button visibility */
 .card:not(.playing)              .ibtn-pause  {display:none}
 .card:not(.playing):not(.paused) .ibtn-stop   {display:none}
 .card:not(.paused)               .ibtn-resume {display:none}
 
-/* ── PROGRESS ── */
-.prog-wrap{height:3px;background:rgba(255,255,255,.06);display:none}
+/* PROGRESS BAR */
+.prog-wrap{height:2px;background:rgba(255,255,255,.06);display:none}
 .card.playing .prog-wrap{display:block}
-.prog-bar{height:100%;background:var(--accent);transition:width .5s linear;will-change:width}
+.prog-bar{height:100%;background:var(--go);transition:width .5s linear;will-change:width}
 
-/* ── TIME ROW ── */
+/* TIME ROW */
 .time-row{
-  font-size:.65rem;color:var(--dim);padding:0 10px 7px;
+  font-size:.63rem;color:var(--muted);padding:0 12px 8px;
   display:none;font-variant-numeric:tabular-nums;
 }
 .card.playing .time-row{display:flex;justify-content:space-between}
-
-/* ── TYPE TAG COLORS ── */
-.t-audio      {color:#5ac8fa}
-.t-video      {color:#34c759}
-.t-stop       {color:#ff453a}
-.t-fade       {color:#ff9f0a}
-.t-effect     {color:#bf5af2}
-.t-reseteffect{color:var(--dim)}
-.t-label      {color:var(--dim)}
-.t-group      {color:#aaa}
-.t-mic        {color:#ff6b81}
-.t-text       {color:#4fc3f7}
-.t-pause,.t-play,.t-speed{color:#a8e063}
 </style>
 </head>
 <body>
+
 <header>
   <div class="logo">
     <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
@@ -152,7 +177,7 @@ header{
       <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
       <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
     </svg>
-    <span class="logo-name"><em>OQL</em></span>
+    <span class="logo-name">OQL</span>
   </div>
   <div class="hbtns">
     <button class="hbtn hbtn-home" ontouchstart="" onclick="doFirstCue()">&#9664;&#9664;</button>
@@ -171,54 +196,39 @@ header{
 <div id="list"></div>
 
 <script>
-const TL = {
-  audio:'Audio', video:'Video', text:'Testo', mic:'Mic',
-  stop:'Stop', pause:'Pausa', play:'Play', fade:'Fade',
-  speed:'Velocità', effect:'Effetto', reseteffect:'Reset FX',
-  group:'Gruppo', label:'Sezione', record:'Reg.'
+const BADGE = {
+  audio:'AUDIO', video:'VIDEO', text:'TEXT', mic:'MIC',
+  stop:'STOP', pause:'PAUSE', play:'PLAY', fade:'FADE',
+  speed:'SPEED', effect:'FX', reseteffect:'RESET',
+  group:'GROUP', label:'LABEL', record:'REC', script:'SCRIPT'
 };
 
 function fmt(s) {
   if (!s || s < 0) return '0s';
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
-  return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
-}
-
-function contrastColor(hex) {
-  const r = parseInt(hex.slice(1,3),16)/255;
-  const g = parseInt(hex.slice(3,5),16)/255;
-  const b = parseInt(hex.slice(5,7),16)/255;
-  return (0.299*r*r + 0.587*g*g + 0.114*b*b) > 0.25 ? '#141414' : '#ffffff';
+  return m > 0 ? `${m}:${String(sec).padStart(2,'0')}` : `${sec}s`;
 }
 
 function cardClass(c) {
-  return ['card', c.state,
-    c.playhead ? 'playhead' : '',
-    c.type === 'label' ? 'card-label' : ''
+  return ['card',
+    'type-' + c.type,
+    c.state !== 'idle' ? c.state : '',
+    c.playhead ? 'playhead' : ''
   ].filter(Boolean).join(' ');
-}
-
-function applyUserColor(el, c) {
-  const active = c.color && c.state === 'idle' && !c.playhead;
-  el.style.background = active ? c.color : '';
-  const tc = active ? contrastColor(c.color) : '';
-  const nameEl = el.querySelector('.name');
-  const tagEl  = el.querySelector('.tag');
-  if (nameEl) nameEl.style.color = tc;
-  if (tagEl)  tagEl.style.color  = tc ? tc : '';
 }
 
 function buildCard(c) {
   const hasDur = c.duration > 0;
   const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
   const id = c.id;
-  const html = `<div class="${cardClass(c)}" data-id="${id}">
+  const badgeLabel = BADGE[c.type] || c.type.toUpperCase();
+  return `<div class="${cardClass(c)}" data-id="${id}">
   <div class="card-row">
     <span class="ph-dot"></span>
     <span class="num">${c.number || ''}</span>
     <div class="info">
-      <div class="name">${c.name || '<span style="color:#333">—</span>'}</div>
-      <span class="tag t-${c.type}">${TL[c.type] || c.type}</span>
+      <div class="name">${c.name || '<span style="color:var(--muted)">—</span>'}</div>
+      <span class="badge b-${c.type}">${badgeLabel}</span>
     </div>
     <div class="btns">
       <button class="ibtn ibtn-pause"  ontouchstart="" onclick="cuePause('${id}')">&#9646;&#9646;</button>
@@ -230,17 +240,11 @@ function buildCard(c) {
   <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
   <div class="time-row"><span>${fmt(c.position)}</span><span>${fmt(c.duration)}</span></div>
 </div>`;
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  const card = tmp.firstElementChild;
-  applyUserColor(card, c);
-  return card.outerHTML;
 }
 
 function updateCard(el, c) {
   const cls = cardClass(c);
   if (el.className !== cls) el.className = cls;
-  applyUserColor(el, c);
   const hasDur = c.duration > 0;
   const pct = hasDur ? Math.min(100, (c.position / c.duration) * 100).toFixed(1) : 0;
   const pb = el.querySelector('.prog-bar');
@@ -253,19 +257,17 @@ function updateCard(el, c) {
 function updateActivebar(cues) {
   const bar = document.getElementById('activebar');
   const active = cues.filter(c => c.state === 'playing' || c.state === 'paused');
-  if (active.length === 0) { bar.innerHTML = ''; return; }
+  if (!active.length) { bar.innerHTML = ''; return; }
   bar.innerHTML = active.map(c => {
-    const pct = c.duration > 0 ? Math.min(100, (c.position / c.duration) * 100).toFixed(0) : null;
-    const posStr = pct !== null ? `${fmt(c.position)} / ${fmt(c.duration)}` : '';
+    const pos = c.duration > 0 ? `${fmt(c.position)} / ${fmt(c.duration)}` : '';
     return `<div class="acard${c.state === 'paused' ? ' paused' : ''}">
-      <span class="acard-name">${c.number ? '#' + c.number + ' ' : ''}${c.name || '—'}</span>
-      ${posStr ? `<span class="acard-pos">${posStr}</span>` : ''}
+      <span class="acard-name">${c.number ? '#'+c.number+' ' : ''}${c.name || '—'}</span>
+      ${pos ? `<span class="acard-pos">${pos}</span>` : ''}
     </div>`;
   }).join('');
 }
 
-let lastIds = null;
-let connErr = false;
+let lastIds = null, connErr = false;
 
 function render(cues) {
   const ids = cues.map(c => c.id).join(',');
@@ -287,14 +289,9 @@ function render(cues) {
 
   const ph = cues.find(c => c.playhead);
   const phbar = document.getElementById('phbar');
-  const phtext = document.getElementById('ph-text');
-  if (ph) {
-    phtext.textContent = (ph.number ? '#' + ph.number + ' ' : '') + (ph.name || '—');
-    phbar.className = 'active';
-  } else {
-    phtext.textContent = '—';
-    phbar.className = '';
-  }
+  document.getElementById('ph-text').textContent =
+    ph ? (ph.number ? '#'+ph.number+' ' : '') + (ph.name || '—') : '—';
+  phbar.className = ph ? 'active' : '';
   connErr = false;
 }
 
@@ -313,17 +310,17 @@ async function refresh() {
 }
 
 async function post(url) {
-  try { await fetch(url, { method: 'POST', cache: 'no-store' }); } catch {}
+  try { await fetch(url, { method:'POST', cache:'no-store' }); } catch {}
   refresh();
 }
-const cueGo    = id => post('/api/cue/' + id + '/go');
-const cueStop  = id => post('/api/cue/' + id + '/stop');
-const cuePause = id => post('/api/cue/' + id + '/pause');
-const doGo       = ()  => post('/api/go');
-const doStopAll  = ()  => post('/api/stop-all');
-const doFirstCue = ()  => post('/api/first-cue');
+const cueGo    = id => post('/api/cue/'+id+'/go');
+const cueStop  = id => post('/api/cue/'+id+'/stop');
+const cuePause = id => post('/api/cue/'+id+'/pause');
+const doGo       = () => post('/api/go');
+const doStopAll  = () => post('/api/stop-all');
+const doFirstCue = () => post('/api/first-cue');
 
-const refreshTimer = setInterval(refresh, 800);
+setInterval(refresh, 800);
 refresh();
 </script>
 </body>

@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QIcon>
 #include <QPalette>
+#include <QByteArray>
 #include "ui/MainWindow.h"
 #include "engine/AudioEngine.h"
 #include "engine/AppSettings.h"
@@ -118,14 +119,13 @@ static void applyDarkTheme(QApplication &app)
 }
 
 int main(int argc, char *argv[]) {
-    // VST/LV2 native editors require X11 window embedding (XCreateWindow with
-    // a real X11 parent). On Wayland, Qt's winId() creates windows through a
-    // path that cannot be synced via QNativeInterface::QX11Application, so DPF/
-    // Pugl sees BadWindow on the parent before the X server processes it.
-    // Force xcb (X11 via XWayland) so Qt uses a single XCB connection we can
-    // sync with XSync before passing the window ID to the plugin.
-    if (!getenv("QT_QPA_PLATFORM"))
-        setenv("QT_QPA_PLATFORM", "xcb", 0);
+#ifdef Q_OS_LINUX
+    // VST/LV2 native editors require X11 window embedding. Force xcb so Qt
+    // uses a single XCB connection we can sync with XSync before passing the
+    // window ID to the plugin (Wayland's winId() path triggers BadWindow).
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "xcb");
+#endif
 
     QApplication app(argc, argv);
     app.setApplicationName("OQL");

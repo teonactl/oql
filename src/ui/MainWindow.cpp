@@ -505,10 +505,11 @@ void MainWindow::buildToolBar() {
     m_goBtn->setFont(goFont);
     m_goBtn->setFixedSize(84, 84);
     m_goBtn->setStyleSheet(
-        "QToolButton { background:#15803d; color:white; border-radius:10px; border:none;"
+        "QToolButton { background:transparent; color:white; border-radius:10px;"
+        " border:2px solid rgba(220,220,220,140);"
         " min-width:84px; max-width:84px; min-height:84px; max-height:84px; }"
-        "QToolButton:pressed { background:#0f6030; }"
-        "QToolButton:hover   { background:#16a34a; }");
+        "QToolButton:pressed { background:rgba(0,0,0,40); border-color:rgba(220,220,220,210); }"
+        "QToolButton:hover   { background:rgba(255,255,255,10); border-color:rgba(220,220,220,200); }");
     m_goBtn->setToolTip(tr("Vai"));
     connect(m_goBtn, &QToolButton::clicked, this, &MainWindow::go);
     tb->addWidget(m_goBtn);

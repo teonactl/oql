@@ -69,10 +69,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             liblilv-dev libsuil-dev libsoundtouch-dev \
-            libx11-dev pkg-config \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            libx11-dev pkg-config
 
       # ── macOS deps ────────────────────────────────────────────
       - name: Install dependencies (macOS)
