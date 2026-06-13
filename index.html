@@ -207,6 +207,16 @@
       font-size: .7rem; font-weight: 700; letter-spacing: .06em;
       padding: .25em .7em; border-radius: 999px;
     }
+    .pill-custom {
+      background: rgba(232,128,32,.12); color: #e88020;
+      border: 1px solid rgba(232,128,32,.3);
+      font-size: .7rem; font-weight: 700; letter-spacing: .06em;
+      padding: .25em .7em; border-radius: 999px;
+    }
+    .edition-card.custom {
+      border-color: #e88020;
+      background: linear-gradient(135deg, rgba(232,128,32,.07) 0%, var(--card) 60%);
+    }
 
     /* DOWNLOAD */
     #download { background: var(--surface); }
@@ -375,10 +385,10 @@
 <!-- EDITIONS -->
 <section id="editions" style="background: var(--surface); max-width: 100%; padding: 5rem 0;">
   <div style="max-width: 1050px; margin: 0 auto; padding: 0 1.5rem;">
-    <h2>Two <span>editions</span></h2>
-    <p class="section-sub">Base is completely free and open source. Full is coming for productions that need more power.</p>
+    <h2>Three <span>editions</span></h2>
+    <p class="section-sub">Base is free and open source. Full brings advanced automation. Custom is built around your production.</p>
 
-    <div class="editions-grid">
+    <div class="editions-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
       <!-- BASE -->
       <div class="edition-card featured">
         <div class="edition-header">
@@ -427,6 +437,30 @@
           <li>Priority support</li>
         </ul>
         <button class="btn btn-outline" style="width:100%;cursor:default;opacity:.6;" disabled>Available soon</button>
+      </div>
+
+      <!-- CUSTOM -->
+      <div class="edition-card custom">
+        <div class="edition-header">
+          <div>
+            <div class="edition-name">Custom</div>
+            <span class="pill-custom">BY CONTRACT</span>
+          </div>
+        </div>
+        <div class="edition-price" style="color:#e88020;">— <small>on request</small></div>
+        <div class="edition-desc">Features developed specifically for your production. Discuss requirements and pricing directly with the developer.</div>
+        <ul class="edition-features">
+          <li>Everything in Full</li>
+          <li>Bespoke cue types for your workflow</li>
+          <li>Hardware integration (DMX, OSC, MIDI)</li>
+          <li>Custom UI panels and branding</li>
+          <li>Dedicated on-site or remote support</li>
+          <li>Delivery timeline agreed by contract</li>
+        </ul>
+        <a class="btn" href="mailto:teonactl@hotmail.it?subject=OQL Custom Edition"
+           style="display:flex;justify-content:center;background:#e88020;color:#fff;">
+          ✉ Write to discuss →
+        </a>
       </div>
     </div>
   </div>
@@ -491,7 +525,7 @@
     &nbsp;·&nbsp;
     <a href="https://github.com/teonactl/oql">GitHub</a>
   </p>
-  <p style="margin-top:.5rem;font-size:.75rem;">© 2025 OQL contributors</p>
+  <p style="margin-top:.5rem;font-size:.75rem;">© 2026 OQL contributors</p>
 </footer>
 
 </body>
