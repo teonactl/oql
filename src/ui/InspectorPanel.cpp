@@ -586,7 +586,9 @@ void InspectorPanel::buildUi() {
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
     m_sliceTable->horizontalHeader()->setFixedHeight(20);
-    m_sliceTable->setMaximumHeight(120);
+    m_sliceTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    m_sliceTable->setMaximumHeight(116);
     m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     m_sliceTable->setStyleSheet(
         "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
@@ -1774,10 +1776,9 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             m_sliceTable->setCellWidget(i, 3, delBtn);
         }
     }
-    // Fit height exactly to content — no empty scrollable area below last row.
-    // Use hardcoded row/header sizes (header()->height() returns 0 before first show).
-    const int targetH = 20 + 22 * slices.size() + 2;
-    m_sliceTable->setFixedHeight(qMin(targetH, 114));
+    // Let AdjustToContents recompute the table height, then tell the parent.
+    m_sliceTable->updateGeometry();
+    m_sliceSection->updateGeometry();
 
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
