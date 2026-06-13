@@ -252,8 +252,39 @@
     footer a { color: var(--muted); }
     footer a:hover { color: var(--text); }
 
+    /* ── Mobile overflow fixes ───────────────────────────────────── */
+    html, body { overflow-x: hidden; }
+
     @media (max-width: 600px) {
       .hero { padding: 5rem 1.25rem 3.5rem; }
+
+      /* Nav: shrink gap and font so links fit on narrow screens */
+      nav { padding: 0 1rem; }
+      .nav-links { gap: .75rem; font-size: .8rem; }
+
+      /* Screenshot mockup: no lateral padding, tighter rows */
+      .screenshot { padding: 0; width: calc(100% - 2rem); }
+      .mock-list { padding: .4rem .5rem; }
+      .cue-row { gap: 6px; padding: .35rem .6rem; }
+      /* cue-name must be able to shrink below its text min-width */
+      .cue-name { min-width: 0; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+      /* Hide less-critical columns to save space */
+      .cue-dur { display: none; }
+
+      /* Grids: force single column below 420px */
+      .features-grid,
+      .editions-grid,
+      .dl-grid { grid-template-columns: 1fr; }
+
+      /* Buttons stack nicely */
+      .hero-btns { flex-direction: column; align-items: center; }
+      .btn { width: 100%; max-width: 300px; justify-content: center; }
+    }
+
+    @media (max-width: 380px) {
+      /* On very narrow phones hide nav links entirely */
+      .nav-links { display: none; }
     }
   </style>
 </head>
