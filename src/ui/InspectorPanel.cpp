@@ -56,7 +56,7 @@ public:
     }
     void setLevel(float linear) {
         const float db = (linear <= 1e-7f) ? -60.0f
-                       : std::max(-60.0f, 20.0f * std::log10f(linear));
+                       : std::max(-60.0f, 20.0f * std::log10(linear));
         m_env = (db > m_env) ? db : m_env + (db - m_env) * 0.25f;
         if (db >= m_peak) { m_peak = db; m_holdTicks = 50; }
         else if (m_holdTicks > 0) --m_holdTicks;
@@ -583,7 +583,19 @@ void InspectorPanel::buildUi() {
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_sliceTable->setMaximumHeight(82);
-    m_sliceTable->setStyleSheet("font-size:11px;");
+    m_sliceTable->setStyleSheet(
+        "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
+        "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
+        "QHeaderView::section { background:#0f1117; color:#8892a4; border:none;"
+        "  border-bottom:1px solid #2a3050; padding:2px 4px; font-size:10px; }"
+        "QSpinBox { background:#1e2334; color:#e2e8f0; border:1px solid #2a3050;"
+        "  border-radius:2px; padding:1px 2px; font-size:11px; }"
+        "QSpinBox::up-button, QSpinBox::down-button {"
+        "  width:14px; background:#252d40; border-left:1px solid #1c2040; }"
+        "QSpinBox::up-button:hover, QSpinBox::down-button:hover { background:#3a4060; }"
+        "QSpinBox::up-arrow { image:url(:/icons/arrow-up.svg); width:7px; height:5px; }"
+        "QSpinBox::down-arrow { image:url(:/icons/arrow-down.svg); width:7px; height:5px; }"
+    );
     sliceLay->addWidget(m_sliceTable);
     audioLay->addWidget(m_sliceSection);
 
