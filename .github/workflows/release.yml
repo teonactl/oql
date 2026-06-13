@@ -54,11 +54,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # ── Qt 6 ──────────────────────────────────────────────────
+      # qtdeclarative → Qt6::Qml  (required by CMakeLists)
+      # qtmultimedia  → Qt6::Multimedia + MultimediaWidgets
+      # qtsvg         → Qt6::Svg
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.7.3'
-          modules: 'qtmultimedia qtsvg'
+          version: '6.7.2'
+          modules: 'qtmultimedia qtsvg qtdeclarative'
           cache: true
 
       # ── Linux deps ────────────────────────────────────────────
@@ -68,30 +71,53 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y \
             liblilv-dev libsuil-dev libsoundtouch-dev \
-            libx11-dev pkg-config
+            libx11-dev pkg-config \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
       # ── macOS deps ────────────────────────────────────────────
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: |
-          brew install lilv sound-touch pkg-config
+        run: brew install lilv sound-touch pkg-config
 
       # ── Windows deps (vcpkg) ──────────────────────────────────
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          vcpkg install lilv soundtouch --triplet x64-windows
-          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
-          echo "VCPKG_TARGET_TRIPLET=x64-windows" >> $env:GITHUB_ENV
+          vcpkg install lilv:x64-windows soundtouch:x64-windows
+          choco install pkgconfiglite -y
 
-      # ── CMake configure ───────────────────────────────────────
-      - name: Configure
+      # ── Configure (Linux) ─────────────────────────────────────
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOQL_EDITION=${{ matrix.edition }} \
-            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=%CMAKE_TOOLCHAIN_FILE% -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%' || '' }}
-        shell: bash
+            -DOQL_EDITION=${{ matrix.edition }}
+
+      # ── Configure (macOS) ─────────────────────────────────────
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOQL_EDITION=${{ matrix.edition }}
+
+      # ── Configure (Windows) ───────────────────────────────────
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgRoot  = $env:VCPKG_INSTALLATION_ROOT
+          $toolchain  = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake"
+          $pkgcfgPath = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
+          $env:PKG_CONFIG_PATH = $pkgcfgPath
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DOQL_EDITION=${{ matrix.edition }} `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
 
       # ── Build ─────────────────────────────────────────────────
       - name: Build
@@ -109,7 +135,6 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          # Deploy Qt frameworks into the .app bundle
           macdeployqt build/oql.app -dmg
           mv build/oql.dmg ${{ matrix.artifact }}.dmg
 
@@ -118,13 +143,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist | Out-Null
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item build\Release\oql.exe dist\
           windeployqt --release dist\oql.exe
-          # Copy vcpkg DLLs
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
           foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
-            if (Test-Path "$vcpkgBin\$dll") { Copy-Item "$vcpkgBin\$dll" dist\ }
+            $src = "$vcpkgBin\$dll"
+            if (Test-Path $src) { Copy-Item $src dist\ }
           }
           Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
 
