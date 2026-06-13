@@ -162,11 +162,13 @@ private:
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
 
-    // Slice / rate controls (audio cue only)
-    QWidget        *m_sliceSection   = nullptr;
+    // Slice dialog (audio cue only)
+    QDialog        *m_sliceDialog    = nullptr;   // non-modal dialog with slice table
     QTableWidget   *m_sliceTable     = nullptr;
     QPushButton    *m_addSliceBtn    = nullptr;
     QPushButton    *m_clearSlicesBtn = nullptr;
+    QPushButton    *m_slicesBtn      = nullptr;   // "Segmenti (N)…" in inspector
+    QLabel         *m_sliceCountLbl  = nullptr;   // count label inside dialog
     QDoubleSpinBox *m_rateSpin       = nullptr;
 
     PluginChainWidget *m_pluginChainWidget       = nullptr;  // AudioCue chain editor
@@ -206,7 +208,7 @@ private:
     QFormLayout    *m_recForm           = nullptr;
     QLabel         *m_uscitaLabel       = nullptr;
     QLabel         *m_rateLabel         = nullptr;
-    QLabel         *m_slicesLabel       = nullptr;
+    QLabel         *m_slicesLabel       = nullptr;  // "Slices:" label in extras panel
     QLabel         *m_recLevelLabel     = nullptr;
     QCheckBox      *m_pitchCheck        = nullptr;
 

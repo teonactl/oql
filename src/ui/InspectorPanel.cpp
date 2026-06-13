@@ -375,15 +375,22 @@ void InspectorPanel::buildUi() {
     exSliceHdrLay->setSpacing(4);
     m_slicesLabel = new QLabel(tr("Slices:"));
     exSliceHdrLay->addWidget(m_slicesLabel);
-    m_addSliceBtn = new QPushButton("+");
-    m_addSliceBtn->setFixedHeight(22);
-    m_addSliceBtn->setFixedWidth(28);
-    m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente"));
-    m_addSliceBtn->setStyleSheet("padding:1px 2px; font-weight:bold; font-size:13px;");
-    m_clearSlicesBtn = new QPushButton(tr("✕ tutte"));
-    m_clearSlicesBtn->setFixedHeight(22);
-    exSliceHdrLay->addWidget(m_addSliceBtn);
-    exSliceHdrLay->addWidget(m_clearSlicesBtn);
+    // Quick "+" stays in the inspector for fast access while watching the waveform
+    auto *quickAddBtn = new QPushButton("+");
+    quickAddBtn->setFixedSize(28, 22);
+    quickAddBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente"));
+    quickAddBtn->setStyleSheet("padding:1px 2px; font-weight:bold; font-size:13px;");
+    connect(quickAddBtn, &QPushButton::clicked, this, [this]() {
+        if (m_addSliceBtn) emit m_addSliceBtn->clicked();
+    });
+    m_slicesBtn = new QPushButton(tr("Segmenti…"));
+    m_slicesBtn->setFixedHeight(22);
+    m_slicesBtn->setToolTip(tr("Apri tabella segmenti"));
+    connect(m_slicesBtn, &QPushButton::clicked, this, [this]() {
+        if (m_sliceDialog) { m_sliceDialog->show(); m_sliceDialog->raise(); m_sliceDialog->activateWindow(); }
+    });
+    exSliceHdrLay->addWidget(quickAddBtn);
+    exSliceHdrLay->addWidget(m_slicesBtn);
     extrasLay->addWidget(exSliceHdrRow);
     extrasLay->addStretch();
 
@@ -570,11 +577,35 @@ void InspectorPanel::buildUi() {
         m_fxDialog->activateWindow();
     });
 
-    // ── Slice table (audio only, shown when slices exist) ──────
-    m_sliceSection = new QWidget;
-    auto *sliceLay = new QVBoxLayout(m_sliceSection);
-    sliceLay->setContentsMargins(0, 2, 0, 0);
-    sliceLay->setSpacing(0);
+    // ── Slice dialog (audio only) ───────────────────────────────
+    m_sliceDialog = new QDialog(this, Qt::Window);
+    m_sliceDialog->setWindowTitle(tr("Segmenti"));
+    m_sliceDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    m_sliceDialog->resize(500, 320);
+
+    auto *dlgLay = new QVBoxLayout(m_sliceDialog);
+    dlgLay->setContentsMargins(8, 8, 8, 8);
+    dlgLay->setSpacing(6);
+
+    // Dialog toolbar: + / ✕ tutte / count
+    auto *dlgToolbar = new QWidget;
+    auto *dlgToolLay = new QHBoxLayout(dlgToolbar);
+    dlgToolLay->setContentsMargins(0, 0, 0, 0);
+    dlgToolLay->setSpacing(6);
+    m_addSliceBtn = new QPushButton("+");
+    m_addSliceBtn->setFixedSize(28, 24);
+    m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente"));
+    m_addSliceBtn->setStyleSheet("padding:1px 2px; font-weight:bold; font-size:13px;");
+    m_clearSlicesBtn = new QPushButton(tr("✕ tutte"));
+    m_clearSlicesBtn->setFixedHeight(24);
+    m_clearSlicesBtn->setToolTip(tr("Rimuovi tutte le slice"));
+    m_sliceCountLbl = new QLabel;
+    m_sliceCountLbl->setStyleSheet("color:#8892a4; font-size:11px;");
+    dlgToolLay->addWidget(m_addSliceBtn);
+    dlgToolLay->addWidget(m_clearSlicesBtn);
+    dlgToolLay->addStretch();
+    dlgToolLay->addWidget(m_sliceCountLbl);
+    dlgLay->addWidget(dlgToolbar);
 
     // Slice table: Seg # | Inizio | Loop | Del
     m_sliceTable = new QTableWidget(0, 4);
@@ -586,26 +617,22 @@ void InspectorPanel::buildUi() {
     m_sliceTable->verticalHeader()->setVisible(false);
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
-    m_sliceTable->horizontalHeader()->setFixedHeight(20);
-    m_sliceTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_sliceTable->setFixedHeight(20 + 22);  // header + 1 row placeholder; updated in rebuildSliceTable
-    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_sliceTable->verticalHeader()->setDefaultSectionSize(24);
+    m_sliceTable->horizontalHeader()->setDefaultSectionSize(24);
     m_sliceTable->setStyleSheet(
-        "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
-        "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
+        "QTableWidget { font-size:12px; background:#141826; color:#e2e8f0; }"
+        "QTableWidget::item { padding:2px 6px; color:#e2e8f0; background:#141826; }"
         "QHeaderView::section { background:#0f1117; color:#8892a4; border:none;"
-        "  border-bottom:1px solid #2a3050; padding:2px 4px; font-size:10px; }"
+        "  border-bottom:1px solid #2a3050; padding:3px 6px; font-size:11px; }"
         "QSpinBox { background:#1e2334; color:#e2e8f0; border:1px solid #2a3050;"
-        "  border-radius:2px; padding:1px 2px; font-size:11px; }"
+        "  border-radius:2px; padding:1px 2px; font-size:12px; }"
         "QSpinBox::up-button, QSpinBox::down-button {"
         "  width:14px; background:#252d40; border-left:1px solid #1c2040; }"
         "QSpinBox::up-button:hover, QSpinBox::down-button:hover { background:#3a4060; }"
         "QSpinBox::up-arrow { image:url(:/icons/arrow-up.svg); width:7px; height:5px; }"
         "QSpinBox::down-arrow { image:url(:/icons/arrow-down.svg); width:7px; height:5px; }"
     );
-    sliceLay->addWidget(m_sliceTable);
-    audioLay->addWidget(m_sliceSection);
+    dlgLay->addWidget(m_sliceTable);
 
     propsLay->addWidget(m_audioSection, 1);
 
@@ -1155,6 +1182,7 @@ void InspectorPanel::setCue(Cue *cue) {
         m_waveformView->setPlayPosition(0);
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
+        if (m_sliceDialog) m_sliceDialog->hide();
         return;
     }
 
@@ -1218,6 +1246,7 @@ void InspectorPanel::updateMediaSection() {
     m_uscitaLabel->setVisible(isAudio);
     m_channelCombo->setVisible(isAudio);
     if (m_audioExtrasPanel) m_audioExtrasPanel->setVisible(isAudio);
+    if (!isAudio && m_sliceDialog) m_sliceDialog->hide();
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
@@ -1714,17 +1743,24 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
     const auto &slices = a->slices();
     const double dur = a->duration();
 
+    // Update inspector button and dialog title
+    const int n = slices.size();
+    if (m_slicesBtn)
+        m_slicesBtn->setText(n > 0 ? tr("Segmenti (%1)…").arg(n) : tr("Segmenti…"));
+    if (m_sliceCountLbl)
+        m_sliceCountLbl->setText(n > 0 ? tr("%1 segmento/i").arg(n) : tr("nessun segmento"));
+    if (m_sliceDialog && m_cue)
+        m_sliceDialog->setWindowTitle(tr("Segmenti — %1").arg(m_cue->name()));
+
     m_sliceTable->blockSignals(true);
     m_sliceTable->setRowCount(0);
 
     if (slices.isEmpty()) {
-        m_sliceTable->setVisible(false);
         m_clearSlicesBtn->setEnabled(false);
         m_sliceTable->blockSignals(false);
         return;
     }
 
-    m_sliceTable->setVisible(true);
     m_clearSlicesBtn->setEnabled(true);
 
     for (int i = 0; i < slices.size(); ++i) {
@@ -1774,11 +1810,6 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             m_sliceTable->setCellWidget(i, 3, delBtn);
         }
     }
-    // header=20px (setFixedHeight), each row=22px (setDefaultSectionSize)
-    const int h = 20 + 22 * slices.size();
-    m_sliceTable->setFixedHeight(h);
-    m_sliceSection->setFixedHeight(h + 2);  // +2 for sliceLay top margin
-
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
 }
