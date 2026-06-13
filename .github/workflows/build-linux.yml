@@ -51,6 +51,7 @@ jobs:
           install -Dm755 build/oql AppDir/usr/bin/oql
           install -Dm644 resources/openqlab.svg \
             AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
+          mkdir -p AppDir/usr/share/applications
           sed 's|^Exec=.*|Exec=oql|; s|^Icon=.*|Icon=oql|' \
             resources/openqlab.desktop \
             > AppDir/usr/share/applications/oql.desktop
