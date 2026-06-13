@@ -185,6 +185,7 @@ void InspectorPanel::buildUi() {
 
     // ── Properties widget ────────────────────────────────────
     auto *propsWidget = new QWidget;
+    propsWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *propsLay    = new QVBoxLayout(propsWidget);
     propsLay->setContentsMargins(0, 0, 0, 0);
     propsLay->setSpacing(2);
@@ -491,6 +492,7 @@ void InspectorPanel::buildUi() {
 
     // ── Audio-only section: channel routing + waveform ───────
     m_audioSection = new QWidget;
+    m_audioSection->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *audioLay = new QVBoxLayout(m_audioSection);
     audioLay->setContentsMargins(0, 2, 0, 0);
     audioLay->setSpacing(4);
@@ -779,9 +781,6 @@ void InspectorPanel::buildUi() {
     m_stack->addWidget(m_emptyWidget);  // index 0
     m_stack->addWidget(propsScroll);    // index 1
     outer->addWidget(m_stack, 1);  // stretch=1: riempie tutta l'altezza disponibile
-
-    if (const auto *scr = QGuiApplication::primaryScreen())
-        setMaximumHeight(scr->availableGeometry().height() / 3);
 
     // ── Show mode: scrollable stack of compact waveforms ─────
     m_showModeArea = new QScrollArea;
