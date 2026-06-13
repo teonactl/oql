@@ -72,7 +72,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             liblilv-dev libsuil-dev libsoundtouch-dev \
             libx11-dev pkg-config \
-            libfuse2
+            libfuse2 libxcb-cursor0
 
       # ── macOS deps ────────────────────────────────────────────
       - name: Install dependencies (macOS)
