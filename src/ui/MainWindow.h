@@ -4,6 +4,8 @@
 #include <QVector>
 #include <QMap>
 #include <QString>
+#include <QJsonArray>
+#include <QTimer>
 #include <functional>
 #include "engine/Workspace.h"
 #include "engine/Cue.h"
@@ -108,10 +110,14 @@ private:
     static constexpr int kMaxRecent = 8;
 
     void doUndoable(const QString &desc, std::function<void()> fn);
+    void flushUndoPropChange();
     void addControlCueImpl(Cue::Type type, double extra = 0.0);
     void showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra = 0.0);
 
-    bool m_programmaticSelect = false;
+    bool        m_programmaticSelect    = false;
+    bool        m_suppressUndoTracking  = false;
+    QTimer     *m_undoPropTimer         = nullptr;
+    QJsonArray  m_undoLastPushed;
 
     void applyWebServer();
     void applyPanelLayout();

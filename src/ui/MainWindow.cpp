@@ -175,6 +175,25 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         });
     });
 
+    // Undo coalescing: property changes in the inspector become undoable after 800ms of inactivity
+    m_undoLastPushed = m_workspace.cueList()->toJson();
+    m_undoPropTimer  = new QTimer(this);
+    m_undoPropTimer->setSingleShot(true);
+    m_undoPropTimer->setInterval(800);
+    connect(m_undoPropTimer, &QTimer::timeout, this, &MainWindow::flushUndoPropChange);
+
+    connect(m_workspace.cueList(), &CueList::cuePropertyChanged, this, [this](int) {
+        if (!m_suppressUndoTracking)
+            m_undoPropTimer->start();
+    });
+    // After undo/redo, resync the reference snapshot
+    connect(m_undoStack, &QUndoStack::indexChanged, this, [this](int) {
+        if (!m_suppressUndoTracking) {
+            m_undoPropTimer->stop();
+            m_undoLastPushed = m_workspace.cueList()->toJson();
+        }
+    });
+
     updateTitle();
 }
 
@@ -1250,7 +1269,9 @@ void MainWindow::newWorkspace() {
     if (!confirmUnsaved()) return;
     m_workspace.reset();
     m_inspector->setCue(nullptr);
+    m_undoPropTimer->stop();
     m_undoStack->clear();
+    m_undoLastPushed = m_workspace.cueList()->toJson();
 }
 
 void MainWindow::openWorkspace() {
@@ -1264,7 +1285,9 @@ void MainWindow::openWorkspace() {
     }
     assignVideoSinkToAll();
     m_inspector->setCue(nullptr);
+    m_undoPropTimer->stop();
     m_undoStack->clear();
+    m_undoLastPushed = m_workspace.cueList()->toJson();
     addToRecentFiles(path);
 }
 
@@ -1314,26 +1337,44 @@ bool MainWindow::confirmUnsaved() {
     return false;
 }
 
+void MainWindow::flushUndoPropChange() {
+    if (m_suppressUndoTracking) return;
+    m_undoPropTimer->stop();
+    QJsonArray current = m_workspace.cueList()->toJson();
+    if (current == m_undoLastPushed) return;
+    m_suppressUndoTracking = true;
+    m_undoStack->push(new SnapshotCommand(
+        tr("Modifica proprietà"),
+        m_workspace.cueList(),
+        m_undoLastPushed,
+        current,
+        [this] { m_inspector->setCue(nullptr); m_infoBar->setCue(nullptr); },
+        [this] { assignVideoSinkToAll(); }
+    ));
+    m_undoLastPushed = current;
+    m_suppressUndoTracking = false;
+}
+
 void MainWindow::doUndoable(const QString &desc, std::function<void()> fn) {
+    flushUndoPropChange();   // commit pending inspector changes before structural operation
+    m_suppressUndoTracking = true;
     QJsonArray before = m_workspace.cueList()->toJson();
     fn();
     QJsonArray after = m_workspace.cueList()->toJson();
-    if (before == after) return;
+    if (before == after) {
+        m_suppressUndoTracking = false;
+        return;
+    }
     m_undoStack->push(new SnapshotCommand(
         desc,
         m_workspace.cueList(),
         std::move(before),
         std::move(after),
-        // pre: clear inspector BEFORE cues are destroyed by fromJson
-        [this] {
-            m_inspector->setCue(nullptr);
-            m_infoBar->setCue(nullptr);
-        },
-        // post: reassign video sinks to the newly created cue objects
-        [this] {
-            assignVideoSinkToAll();
-        }
+        [this] { m_inspector->setCue(nullptr); m_infoBar->setCue(nullptr); },
+        [this] { assignVideoSinkToAll(); }
     ));
+    m_undoLastPushed = after;
+    m_suppressUndoTracking = false;
 }
 
 void MainWindow::addToRecentFiles(const QString &path) {
@@ -1377,7 +1418,9 @@ void MainWindow::openRecentFile(const QString &path) {
     }
     assignVideoSinkToAll();
     m_inspector->setCue(nullptr);
+    m_undoPropTimer->stop();
     m_undoStack->clear();
+    m_undoLastPushed = m_workspace.cueList()->toJson();
     addToRecentFiles(path);
 }
 
