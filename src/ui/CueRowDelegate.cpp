@@ -97,6 +97,10 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
         p->setPen(Qt::NoPen);
         p->setBrush(cardColor(idx, opt.state));
         p->drawRoundedRect(card, kRadius, kRadius);
+        if (opt.state & QStyle::State_Selected) {
+            p->setBrush(kSelBlue);
+            p->drawRoundedRect(QRectF(0, card.top() + 2, 4, card.height() - 4), 2, 2);
+        }
         p->setClipping(true);
 
         // Number — muted, right-aligned

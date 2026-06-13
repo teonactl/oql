@@ -1,21 +1,37 @@
 #include "VstPlugin.h"
-#include <dlfcn.h>
 #include <cstring>
 #include <QJsonArray>
 #include <QByteArray>
 #include <QDebug>
-#include <setjmp.h>
 #include <signal.h>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+static void *oql_dlopen(const char *path) { return static_cast<void*>(LoadLibraryA(path)); }
+static void *oql_dlsym(void *lib, const char *sym) {
+    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(lib), sym));
+}
+static void  oql_dlclose(void *lib) { FreeLibrary(static_cast<HMODULE>(lib)); }
+#define RTLD_LAZY  0
+#define RTLD_LOCAL 0
+#define dlopen(p, f) oql_dlopen(p)
+#define dlsym(l, s)  oql_dlsym(l, s)
+#define dlclose(l)   oql_dlclose(l)
+#else
+#include <dlfcn.h>
+#include <setjmp.h>
+#endif
 
 typedef AEffect* (*VstPluginMain)(VstHostCallback);
 
 // ── Main-thread crash protection (loading / editor ops) ──────────────────────
 
-static sigjmp_buf            s_vstJump;
 static volatile sig_atomic_t s_vstProtected = 0;
 
 // ── Audio-thread crash protection (process()) — thread-local ─────────────────
 
+#ifndef Q_OS_WIN
+static sigjmp_buf            s_vstJump;
 static thread_local sigjmp_buf            tl_vstProcJump;
 static thread_local volatile sig_atomic_t tl_vstProcProtected = 0;
 
@@ -56,6 +72,12 @@ static void vstGuardRestore(const VstGuard &g) {
     sigaction(SIGILL,  &g.oldIll,  nullptr);
     sigaction(SIGBUS,  &g.oldBus,  nullptr);
 }
+#else
+static volatile sig_atomic_t tl_vstProcProtected = 0;
+struct VstGuard {};
+static void vstGuardInstall(VstGuard &) {}
+static void vstGuardRestore(const VstGuard &) {}
+#endif
 
 // Minimal host callback — VST2 plugins call this to query host capabilities.
 intptr_t VstPlugin::hostCallback(AEffect* /*effect*/, int32_t opcode,
@@ -85,6 +107,7 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
         s_vstProtected = 0;
@@ -93,6 +116,7 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
         dlclose(m_lib); m_lib = nullptr;
         return;
     }
+#endif
 
     m_effect = mainFn(hostCallback);
     if (!m_effect || m_effect->magic != 0x56737450 /*'VstP'*/) {
@@ -117,13 +141,17 @@ VstPlugin::~VstPlugin() {
         VstGuard g;
         vstGuardInstall(g);
         s_vstProtected = 1;
+#ifndef Q_OS_WIN
         if (sigsetjmp(s_vstJump, 1) == 0) {
+#endif
             if (m_active)
                 m_effect->dispatcher(m_effect, effMainsChanged, 0, 0, nullptr, 0.0f);
             if (!m_editorCrashed)
                 m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
             m_effect->dispatcher(m_effect, effClose, 0, 0, nullptr, 0.0f);
+#ifndef Q_OS_WIN
         }
+#endif
         s_vstProtected = 0;
         vstGuardRestore(g);
     }
@@ -141,6 +169,7 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during prepare, disabling");
         s_vstProtected = 0;
@@ -148,6 +177,7 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
         m_effect = nullptr;
         return;
     }
+#endif
 
     m_effect->dispatcher(m_effect, effSetSampleRate, 0, 0, nullptr, float(sampleRate));
     m_effect->dispatcher(m_effect, effSetBlockSize,  0, blockSize, nullptr, 0.0f);
@@ -202,6 +232,7 @@ void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
     vstGuardInstall(g);
 
     tl_vstProcProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(tl_vstProcJump, 1) != 0) {
         // tl_vstProcProtected already cleared by the handler
         qWarning("VST2: plugin crashed during processReplacing, disabling");
@@ -211,6 +242,7 @@ void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
         std::copy(inputs[1], inputs[1] + frames, outputs[1]);
         return;
     }
+#endif
 
     // Acquire before processReplacing to block concurrent setParam from main thread.
     // Raw lock/unlock (not RAII): if the plugin crashes and siglongjmp fires, the
@@ -272,6 +304,7 @@ bool VstPlugin::openEditor(void* parentWinId) {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed opening editor");
         s_vstProtected = 0;
@@ -279,6 +312,7 @@ bool VstPlugin::openEditor(void* parentWinId) {
         m_editorCrashed = true;
         return false;
     }
+#endif
     m_effect->dispatcher(m_effect, effEditOpen, 0, 0, parentWinId, 0.0f);
     s_vstProtected = 0;
     vstGuardRestore(g);
@@ -292,6 +326,7 @@ void VstPlugin::closeEditor() {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during closeEditor");
         s_vstProtected = 0;
@@ -299,6 +334,7 @@ void VstPlugin::closeEditor() {
         m_editorCrashed = true;
         return;
     }
+#endif
     m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
     s_vstProtected = 0;
     vstGuardRestore(g);
@@ -311,12 +347,14 @@ bool VstPlugin::getEditorRect(ERect **rect) const {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during getEditorRect");
         s_vstProtected = 0;
         vstGuardRestore(g);
         return false;
     }
+#endif
 
     const bool ok = m_effect->dispatcher(m_effect, effEditGetRect, 0, 0, rect, 0.0f) != 0;
     s_vstProtected = 0;
@@ -331,6 +369,7 @@ void VstPlugin::editorIdle() {
     vstGuardInstall(g);
 
     s_vstProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during editorIdle");
         s_vstProtected = 0;
@@ -338,6 +377,7 @@ void VstPlugin::editorIdle() {
         m_editorCrashed = true;
         return;
     }
+#endif
     m_effect->dispatcher(m_effect, effEditIdle, 0, 0, nullptr, 0.0f);
     s_vstProtected = 0;
     vstGuardRestore(g);

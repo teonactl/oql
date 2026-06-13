@@ -757,7 +757,14 @@ void MainWindow::buildToolBar() {
     tb->addSeparator();
 #endif
 
-    m_webAction = tb->addAction("🌐 Remote");
+    auto webIcon = makeTbIcon(QColor(0x1a, 0x5c, 0xcc), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
+        p.drawEllipse(4, 4, 20, 20);
+        p.drawLine(14, 4, 14, 24);
+        p.drawArc(7, 6, 14, 16, 0, 180*16);
+        p.drawLine(4, 14, 24, 14);
+    });
+    m_webAction = tb->addAction(webIcon, tr("Remote"));
     m_webAction->setCheckable(true);
     m_webAction->setToolTip(tr("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)"));
     connect(m_webAction, &QAction::toggled, this, [this](bool on) {
@@ -766,9 +773,28 @@ void MainWindow::buildToolBar() {
         else    m_webServer->stop();
     });
 
-    auto *videoWin = tb->addAction("📺 Video Out");
+    auto videoOutIcon = makeTbIcon(QColor(0x1a, 0x6a, 0x44), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(QColor(255,255,255,40));
+        p.drawRoundedRect(3, 4, 22, 14, 2, 2);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        QPolygon tri; tri << QPoint(10,7) << QPoint(10,15) << QPoint(20,11);
+        p.drawPolygon(tri);
+        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
+        p.drawLine(14, 18, 14, 22); p.drawLine(9, 22, 19, 22);
+    });
+    auto *videoWin = tb->addAction(videoOutIcon, tr("Video Out"));
     connect(videoWin, &QAction::triggered, this, &MainWindow::toggleVideoOutput);
-    auto *textWin = tb->addAction("📝 Text Out");
+
+    auto textOutIcon = makeTbIcon(QColor(0x0a, 0x5a, 0x7a), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(QColor(255,255,255,30));
+        p.drawRoundedRect(6, 3, 16, 22, 1, 1);
+        p.setPen(QPen(Qt::white, 1.5));
+        p.drawLine(9, 9,  19, 9);
+        p.drawLine(9, 13, 19, 13);
+        p.drawLine(9, 17, 19, 17);
+        p.drawLine(9, 21, 16, 21);
+    });
+    auto *textWin = tb->addAction(textOutIcon, tr("Text Out"));
     connect(textWin, &QAction::triggered, this, [this]() {
         if (m_textOut->isVisible()) m_textOut->hide();
         else                        m_textOut->show();

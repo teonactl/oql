@@ -35,8 +35,10 @@ static uint32_t lv2UiPortIndex(SuilController controller, const char *symbol) {
 }
 #endif
 
-static sigjmp_buf              s_lilvJump;
 static volatile sig_atomic_t   s_lilvProtected = 0;
+
+#ifndef Q_OS_WIN
+static sigjmp_buf              s_lilvJump;
 
 // Thread-local protection for audio-thread process() calls
 static thread_local sigjmp_buf            tl_lv2ProcJump;
@@ -75,6 +77,12 @@ static void lilvGuardRestore(const LilvGuard &g) {
     sigaction(SIGILL,  &g.oldIll,  nullptr);
     sigaction(SIGBUS,  &g.oldBus,  nullptr);
 }
+#else
+struct LilvGuard {};
+static void lilvGuardInstall(LilvGuard &) {}
+static void lilvGuardRestore(const LilvGuard &) {}
+static volatile sig_atomic_t tl_lv2ProcProtected = 0;
+#endif
 
 LilvWorld* Lv2Plugin::world() {
     if (!s_world) {
@@ -100,13 +108,17 @@ LilvWorld* Lv2Plugin::world() {
         LilvGuard g;
         lilvGuardInstall(g);
         s_lilvProtected = 1;
+#ifndef Q_OS_WIN
         if (sigsetjmp(s_lilvJump, 1) != 0) {
             qWarning("LV2: lilv_world_load_all crashed — world may be corrupt, "
                      "creating fresh empty world");
             s_world = lilv_world_new();
         } else {
+#endif
             lilv_world_load_all(s_world);
+#ifndef Q_OS_WIN
         }
+#endif
         s_lilvProtected = 0;
         lilvGuardRestore(g);
     }
@@ -123,12 +135,14 @@ std::vector<Lv2Plugin::Info> Lv2Plugin::enumerate() {
     LilvGuard g;
     lilvGuardInstall(g);
     s_lilvProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: crash during plugin enumeration — list may be incomplete");
         s_lilvProtected = 0;
         lilvGuardRestore(g);
         return result;
     }
+#endif
 
     LilvWorld *w = world();
     const LilvPlugins *all = lilv_world_get_all_plugins(w);
@@ -160,12 +174,14 @@ static LilvInstance *safeInstantiate(const LilvPlugin *plug, double sampleRate) 
     LilvGuard g;
     lilvGuardInstall(g);
     s_lilvProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: plugin crashed during instantiation");
         s_lilvProtected = 0;
         lilvGuardRestore(g);
         return nullptr;
     }
+#endif
 
     inst = lilv_plugin_instantiate(plug, sampleRate, nullptr);
 
@@ -287,6 +303,7 @@ void Lv2Plugin::prepare(int sampleRate, int blockSize) {
     LilvGuard g;
     lilvGuardInstall(g);
     s_lilvProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: plugin crashed during activate, disabling");
         s_lilvProtected = 0;
@@ -294,6 +311,7 @@ void Lv2Plugin::prepare(int sampleRate, int blockSize) {
         m_instance = nullptr;
         return;
     }
+#endif
 
     lilv_instance_activate(m_instance);
 
@@ -336,6 +354,7 @@ void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
     lilvGuardInstall(g);
 
     tl_lv2ProcProtected = 1;
+#ifndef Q_OS_WIN
     if (sigsetjmp(tl_lv2ProcJump, 1) != 0) {
         // tl_lv2ProcProtected already cleared by the handler
         qWarning("LV2: plugin crashed during run, disabling");
@@ -345,6 +364,7 @@ void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
         std::copy(inputs[1], inputs[1] + frames, outputs[1]);
         return;
     }
+#endif
     lilv_instance_run(m_instance, uint32_t(frames));
     tl_lv2ProcProtected = 0;
     lilvGuardRestore(g);
