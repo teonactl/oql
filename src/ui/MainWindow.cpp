@@ -240,6 +240,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     updateTitle();
 }
 
+MainWindow::~MainWindow()
+{
+    // Disconnect before Qt's deleteChildren() so the indexChanged lambda cannot
+    // fire on partially-destroyed state (m_undoPropTimer may be gone already).
+    if (m_undoStack)
+        m_undoStack->disconnect();
+}
+
 void MainWindow::buildUi() {
     m_model      = new CueListModel(m_workspace.cueList(), this);
     m_cueView    = new CueListView(m_model, this);

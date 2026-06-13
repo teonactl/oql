@@ -585,7 +585,9 @@ void InspectorPanel::buildUi() {
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
+    m_sliceTable->horizontalHeader()->setFixedHeight(20);
     m_sliceTable->setMaximumHeight(120);
+    m_sliceSection->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     m_sliceTable->setStyleSheet(
         "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
         "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
@@ -1772,11 +1774,10 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             m_sliceTable->setCellWidget(i, 3, delBtn);
         }
     }
-    // Fit height exactly to rows — no empty scrollable area below last row
-    const int hdrH = m_sliceTable->horizontalHeader()->height();
-    const int rowH = m_sliceTable->verticalHeader()->defaultSectionSize();
-    const int targetH = hdrH + rowH * slices.size() + 2;
-    m_sliceTable->setFixedHeight(qMin(targetH, 120));
+    // Fit height exactly to content — no empty scrollable area below last row.
+    // Use hardcoded row/header sizes (header()->height() returns 0 before first show).
+    const int targetH = 20 + 22 * slices.size() + 2;
+    m_sliceTable->setFixedHeight(qMin(targetH, 114));
 
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
