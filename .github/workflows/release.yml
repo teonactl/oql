@@ -53,14 +53,15 @@ jobs:
       # ── Checkout ──────────────────────────────────────────────
       - uses: actions/checkout@v4
 
-      # ── Qt 6 ──────────────────────────────────────────────────
-      # qtdeclarative → Qt6::Qml  (required by CMakeLists)
+      # ── Qt 6.5 LTS ────────────────────────────────────────────
+      # v3 dell'action (v4 non esiste); 6.5.3 LTS è ben distribuito.
+      # qtdeclarative → Qt6::Qml  (richiesto da CMakeLists)
       # qtmultimedia  → Qt6::Multimedia + MultimediaWidgets
       # qtsvg         → Qt6::Svg
       - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@v3
         with:
-          version: '6.7.2'
+          version: '6.5.3'
           modules: 'qtmultimedia qtsvg qtdeclarative'
           cache: true
 
@@ -84,8 +85,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install lilv:x64-windows soundtouch:x64-windows
           choco install pkgconfiglite -y
+          vcpkg install lilv:x64-windows soundtouch:x64-windows
 
       # ── Configure (Linux) ─────────────────────────────────────
       - name: Configure (Linux)
@@ -109,14 +110,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $vcpkgRoot  = $env:VCPKG_INSTALLATION_ROOT
-          $toolchain  = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake"
-          $pkgcfgPath = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
-          $env:PKG_CONFIG_PATH = $pkgcfgPath
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          $env:PKG_CONFIG_PATH = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=Release `
             -DOQL_EDITION=${{ matrix.edition }} `
-            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
       # ── Build ─────────────────────────────────────────────────
