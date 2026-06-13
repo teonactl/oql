@@ -142,11 +142,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(m_workspace.cueList(), &CueList::cueStateChanged, this, [this](int index, Cue::State state) {
         Cue *cue = m_workspace.cueList()->cueAt(index);
-        if (!cue || cue->type() != Cue::Type::Text) return;
-        if (state == Cue::State::Playing)
-            m_textOut->showCue(static_cast<TextCue*>(cue));
-        else if (state == Cue::State::Idle)
-            m_textOut->clearText();
+        if (!cue) return;
+        if (cue->type() == Cue::Type::Text) {
+            if (state == Cue::State::Playing)
+                m_textOut->showCue(static_cast<TextCue*>(cue));
+            else if (state == Cue::State::Idle)
+                m_textOut->clearText();
+        }
+        // Show mode: inspector follows the audio cue that just started playing
+        if (m_showMode && cue->type() == Cue::Type::Audio && state == Cue::State::Playing)
+            m_inspector->setCue(cue);
     });
 
     connect(m_workspace.cueList(), &CueList::playheadChanged, this, [this](int actualIdx) {
