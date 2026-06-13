@@ -690,8 +690,8 @@ void MainWindow::buildToolBar() {
 #ifndef OQL_BASE
     addCueBtn(speedUpIcon,   tr("+ Velocizza"), &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, tr("+ Rallenta"),  &MainWindow::addSpeedDownCue);
-#endif
     tb->addSeparator();
+#endif
 
     // ── Ingresso ──────────────────────────────────────────────────────────────
     auto micIcon = makeTbIcon(QColor(0xcc, 0x22, 0x88), [](QPainter &p) {
@@ -754,8 +754,8 @@ void MainWindow::buildToolBar() {
     addCueBtn(effectIcon,      tr("+ Effetto"),      &MainWindow::addEffectCue);
     addCueBtn(resetEffectIcon, tr("+ Reset Effetti"), &MainWindow::addResetEffectCue);
     addCueBtn(scriptIcon,      tr("+ Script Cue"),   &MainWindow::addScriptCue);
-#endif
     tb->addSeparator();
+#endif
 
     m_webAction = tb->addAction("🌐 Remote");
     m_webAction->setCheckable(true);
@@ -1348,7 +1348,7 @@ void MainWindow::newWorkspace() {
 void MainWindow::openWorkspace() {
     if (!confirmUnsaved()) return;
     const QString path = QFileDialog::getOpenFileName(
-        this, "Apri workspace", {}, "OQL (*.oqlab);;JSON (*.json)");
+        this, "Apri workspace", {}, "OQL (*.oql);;JSON (*.json)");
     if (path.isEmpty()) return;
     if (!m_workspace.load(path)) {
         QMessageBox::warning(this, "Errore", "Impossibile aprire il file.");
@@ -1373,13 +1373,13 @@ bool MainWindow::saveWorkspaceAs() {
     QString selectedFilter;
     QString path = QFileDialog::getSaveFileName(
         this, "Salva workspace", {},
-        "OQL (*.oqlab);;JSON (*.json)",
+        "OQL (*.oql);;JSON (*.json)",
         &selectedFilter);
     if (path.isEmpty()) return false;
 
     const QFileInfo fi(path);
     if (fi.suffix().isEmpty())
-        path += selectedFilter.contains("json") ? ".json" : ".oqlab";
+        path += selectedFilter.contains("json") ? ".json" : ".oql";
 
     const bool ok = m_workspace.save(path);
     if (ok) {
