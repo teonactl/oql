@@ -149,9 +149,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             else if (state == Cue::State::Idle)
                 m_textOut->clearText();
         }
-        // Show mode: inspector follows the audio cue that just started playing
-        if (m_showMode && cue->type() == Cue::Type::Audio && state == Cue::State::Playing)
-            m_inspector->setCue(cue);
+        // Show mode: inspector stacks waveforms of all playing audio cues
+        if (m_showMode && cue->type() == Cue::Type::Audio) {
+            auto *a = static_cast<AudioCue*>(cue);
+            if (state == Cue::State::Playing)
+                m_inspector->addShowAudioCue(a);
+            else if (state == Cue::State::Idle)
+                m_inspector->removeShowAudioCue(a);
+        }
     });
 
     connect(m_workspace.cueList(), &CueList::playheadChanged, this, [this](int actualIdx) {
@@ -486,7 +491,7 @@ void MainWindow::buildToolBar() {
     m_goBtn->setFont(goFont);
     m_goBtn->setFixedSize(84, 84);
     m_goBtn->setStyleSheet(
-        "QToolButton { background:transparent; color:white; border-radius:7px; border:none;"
+        "QToolButton { background:transparent; color:white; border-radius:7px; border:1.5px solid rgba(200,200,200,120);"
         " min-width:84px; max-width:84px; min-height:84px; max-height:84px; }"
         "QToolButton:pressed { background: rgba(0,0,0,40); }"
         "QToolButton:hover   { background: rgba(255,255,255,16); }");
@@ -738,8 +743,8 @@ void MainWindow::buildToolBar() {
             const QList<int> sz = m_mainSplit->sizes();
             if (sz.size() >= 2) {
                 const int total = sz[0] + sz[1];
-                const int inspH = qMax(sz[1], 420);
-                m_mainSplit->setSizes({ qMax(0, total - inspH), inspH });
+                const int inspH = total / 3;
+                m_mainSplit->setSizes({ total - inspH, inspH });
             }
             m_mainSplit->setCollapsible(1, false);
         } else {

@@ -1,10 +1,13 @@
 #pragma once
 #include <QWidget>
 #include <QDialog>
+#include <QVector>
 #include "engine/Cue.h"
 
 class CueList;
 class AudioCue;
+class QScrollArea;
+class QVBoxLayout;
 class QLabel;
 class QLineEdit;
 class QTextEdit;
@@ -30,6 +33,8 @@ public:
 
     void setCue(Cue *cue);
     void setShowMode(bool showMode);
+    void addShowAudioCue(AudioCue *cue);
+    void removeShowAudioCue(AudioCue *cue);
 
 private slots:
     void onNumberChanged();
@@ -177,9 +182,16 @@ private:
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
 
-    // Show-mode visibility references
+    // Show-mode visibility references (normal-mode widgets hidden in show mode)
     QWidget        *m_groupsRow   = nullptr;
     QWidget        *m_chanRow     = nullptr;
     QWidget        *m_fxRow       = nullptr;
     QWidget        *m_headerRow   = nullptr;
+
+    // Show-mode stacked waveforms
+    struct ShowRow { AudioCue *cue; QWidget *widget; WaveformView *wv; };
+    QVector<ShowRow>  m_showRows;
+    QScrollArea      *m_showModeArea       = nullptr;
+    QVBoxLayout      *m_showModeContentLay = nullptr;
+    QTimer           *m_showPlayTimer      = nullptr;
 };

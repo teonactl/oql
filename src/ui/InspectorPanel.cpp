@@ -38,6 +38,7 @@
 #include <QColorDialog>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QScrollArea>
 
 // ── VU meter widget ───────────────────────────────────────────────────────────
 
@@ -735,11 +736,32 @@ void InspectorPanel::buildUi() {
         m_recVuDbLabel->setText(d <= -59.5f ? "-∞ dB" : QString::number(int(d)) + " dB");
     });
 
-    // ── Stack ────────────────────────────────────────────────
+    // ── Stack (normal mode) ──────────────────────────────────
     m_stack = new QStackedWidget;
     m_stack->addWidget(m_emptyWidget);  // index 0
     m_stack->addWidget(propsWidget);    // index 1
     outer->addWidget(m_stack);
+
+    // ── Show mode: scrollable stack of compact waveforms ─────
+    m_showModeArea = new QScrollArea;
+    m_showModeArea->setWidgetResizable(true);
+    m_showModeArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_showModeArea->setFrameShape(QFrame::NoFrame);
+    m_showModeArea->hide();
+    auto *smContent = new QWidget;
+    m_showModeContentLay = new QVBoxLayout(smContent);
+    m_showModeContentLay->setContentsMargins(4, 4, 4, 4);
+    m_showModeContentLay->setSpacing(8);
+    m_showModeContentLay->addStretch();
+    m_showModeArea->setWidget(smContent);
+    outer->addWidget(m_showModeArea);
+
+    m_showPlayTimer = new QTimer(this);
+    m_showPlayTimer->setInterval(80);
+    connect(m_showPlayTimer, &QTimer::timeout, this, [this] {
+        for (const auto &r : std::as_const(m_showRows))
+            if (r.cue) r.wv->setPlayPosition(r.cue->position());
+    });
 
     // ── Connections ──────────────────────────────────────────
     connect(m_numberEdit,       &QLineEdit::editingFinished,       this, &InspectorPanel::onNumberChanged);
@@ -912,28 +934,7 @@ void InspectorPanel::buildUi() {
 }
 
 void InspectorPanel::setCue(Cue *cue) {
-    // In show mode: only update waveform when an Audio cue is explicitly opened
-    if (m_showMode) {
-        if (!cue || cue->type() != Cue::Type::Audio) return;
-        if (cue == m_cue) return;
-        if (m_cue) { disconnect(m_cue, nullptr, this, nullptr); m_playTimer->stop(); }
-        m_cue = cue;
-        auto *a = static_cast<AudioCue*>(cue);
-        m_waveformView->setFilePath(a->filePath());
-        m_waveformView->setDuration(a->duration());
-        m_waveformView->setFadeIn(a->fadeInDuration());
-        m_waveformView->setFadeOut(a->fadeOutDuration());
-        m_waveformView->setVolumePoints(a->volumePoints());
-        m_waveformView->setTrimStart(a->trimStart());
-        m_waveformView->setTrimEnd(a->trimEnd());
-        m_waveformView->setSliceMarkers(buildSliceMarkers(a));
-        m_audioSection->setVisible(true);
-        m_stack->setCurrentIndex(1);
-        connect(m_cue, &Cue::propertyChanged, this, &InspectorPanel::onCuePropertyChanged);
-        connect(m_cue, &Cue::stateChanged,    this, &InspectorPanel::onCueStateChanged);
-        m_playTimer->start();
-        return;
-    }
+    if (m_showMode) return;  // show mode uses addShowAudioCue/removeShowAudioCue
 
     if (m_cue) {
         disconnect(m_cue, nullptr, this, nullptr);
@@ -1569,30 +1570,36 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
 
 void InspectorPanel::setShowMode(bool showMode) {
     m_showMode = showMode;
-    const bool edit = !showMode;
-
-    // In show mode: collapse inspector to waveform only
-    if (m_groupsRow)  m_groupsRow->setVisible(!showMode);
-    if (m_headerRow)  m_headerRow->setVisible(!showMode);
-    if (m_chanRow)    m_chanRow->setVisible(!showMode);
-    if (m_fxRow)      m_fxRow->setVisible(!showMode);
-    if (m_sliceSection) m_sliceSection->setVisible(!showMode);
 
     if (showMode) {
-        // Only show audioSection (waveform); hide all others
-        m_controlSection->setVisible(false);
-        m_micSection->setVisible(false);
-        m_textSection->setVisible(false);
-        m_scriptSection->setVisible(false);
-        m_recordSection->setVisible(false);
-        const bool isAudio = m_cue && m_cue->type() == Cue::Type::Audio;
-        m_audioSection->setVisible(isAudio);
-        if (!isAudio) m_stack->setCurrentIndex(0);
+        // Clear any existing rows from a previous show session
+        for (auto &r : m_showRows) delete r.widget;
+        m_showRows.clear();
+        m_showPlayTimer->stop();
+
+        m_stack->hide();
+        m_showModeArea->show();
+
+        // Add already-playing audio cues
+        if (m_cueList) {
+            for (int i = 0; i < m_cueList->count(); ++i) {
+                auto *c = m_cueList->cueAt(i);
+                if (c && c->type() == Cue::Type::Audio && c->state() == Cue::State::Playing)
+                    addShowAudioCue(static_cast<AudioCue*>(c));
+            }
+        }
         return;
     }
 
-    // Leaving show mode: restore visibility via updateMediaSection
+    // Leaving show mode: clear rows, restore normal view
+    m_showPlayTimer->stop();
+    for (auto &r : m_showRows) delete r.widget;
+    m_showRows.clear();
+    m_showModeArea->hide();
+    m_stack->show();
+
     if (m_cue) updateMediaSection();
+    const bool edit = true;
 
     // General / timing / common fields
     m_numberEdit->setEnabled(edit);
@@ -1652,4 +1659,54 @@ void InspectorPanel::setShowMode(bool showMode) {
 
     // Waveform: always visible, interactive only in edit mode
     m_waveformView->setInteractive(edit);
+}
+
+void InspectorPanel::addShowAudioCue(AudioCue *cue) {
+    for (const auto &r : std::as_const(m_showRows))
+        if (r.cue == cue) return;
+
+    auto *row = new QWidget;
+    row->setObjectName("showRow");
+    row->setStyleSheet("QWidget#showRow { border-bottom: 1px solid #2a2a2a; padding-bottom: 2px; }");
+    auto *lay = new QVBoxLayout(row);
+    lay->setContentsMargins(2, 2, 2, 4);
+    lay->setSpacing(3);
+
+    const QString lbl = cue->name().isEmpty() ? cue->number() : (cue->number() + " – " + cue->name());
+    auto *label = new QLabel(lbl);
+    label->setStyleSheet("color:#bbb; font-size:10px; font-weight:bold;");
+
+    auto *wv = new WaveformView;
+    wv->setFixedHeight(90);
+    wv->setInteractive(false);
+    wv->setFilePath(cue->filePath());
+    wv->setDuration(cue->duration());
+    wv->setFadeIn(cue->fadeInDuration());
+    wv->setFadeOut(cue->fadeOutDuration());
+    wv->setVolumePoints(cue->volumePoints());
+    wv->setTrimStart(cue->trimStart());
+    wv->setTrimEnd(cue->trimEnd());
+    wv->setSliceMarkers(buildSliceMarkers(cue));
+
+    lay->addWidget(label);
+    lay->addWidget(wv);
+
+    // Insert before the trailing stretch
+    m_showModeContentLay->insertWidget(m_showModeContentLay->count() - 1, row);
+    m_showRows.append({cue, row, wv});
+
+    if (!m_showPlayTimer->isActive())
+        m_showPlayTimer->start();
+}
+
+void InspectorPanel::removeShowAudioCue(AudioCue *cue) {
+    for (int i = 0; i < m_showRows.size(); ++i) {
+        if (m_showRows[i].cue == cue) {
+            delete m_showRows[i].widget;
+            m_showRows.remove(i);
+            break;
+        }
+    }
+    if (m_showRows.isEmpty())
+        m_showPlayTimer->stop();
 }
