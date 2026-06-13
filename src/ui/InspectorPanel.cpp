@@ -199,6 +199,7 @@ void InspectorPanel::buildUi() {
     m_stopBtn = new QPushButton("■");
     m_stopBtn->setFixedSize(28, 24);
     m_stopBtn->setToolTip(tr("Stop"));
+    m_stopBtn->setStyleSheet("padding:1px 2px; color:#e07070; font-size:13px;");
     m_playBtn = new QPushButton("▶  " + tr("Play"));
     m_playBtn->setFixedSize(90, 24);
     m_playBtn->setToolTip(tr("Play / Pausa / Riprendi"));
@@ -373,10 +374,11 @@ void InspectorPanel::buildUi() {
     exSliceHdrLay->setSpacing(4);
     m_slicesLabel = new QLabel(tr("Slices:"));
     exSliceHdrLay->addWidget(m_slicesLabel);
-    m_addSliceBtn = new QPushButton(tr("+"));
+    m_addSliceBtn = new QPushButton("+");
     m_addSliceBtn->setFixedHeight(22);
     m_addSliceBtn->setFixedWidth(28);
     m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente"));
+    m_addSliceBtn->setStyleSheet("padding:1px 2px; font-weight:bold; font-size:13px;");
     m_clearSlicesBtn = new QPushButton(tr("✕ tutte"));
     m_clearSlicesBtn->setFixedHeight(22);
     exSliceHdrLay->addWidget(m_addSliceBtn);
@@ -582,7 +584,8 @@ void InspectorPanel::buildUi() {
     m_sliceTable->verticalHeader()->setVisible(false);
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_sliceTable->setMaximumHeight(82);
+    m_sliceTable->verticalHeader()->setDefaultSectionSize(22);
+    m_sliceTable->setMaximumHeight(120);
     m_sliceTable->setStyleSheet(
         "QTableWidget { font-size:11px; background:#141826; color:#e2e8f0; }"
         "QTableWidget::item { padding:1px 4px; color:#e2e8f0; background:#141826; }"
@@ -1769,6 +1772,12 @@ void InspectorPanel::rebuildSliceTable(AudioCue *a) {
             m_sliceTable->setCellWidget(i, 3, delBtn);
         }
     }
+    // Fit height exactly to rows — no empty scrollable area below last row
+    const int hdrH = m_sliceTable->horizontalHeader()->height();
+    const int rowH = m_sliceTable->verticalHeader()->defaultSectionSize();
+    const int targetH = hdrH + rowH * slices.size() + 2;
+    m_sliceTable->setFixedHeight(qMin(targetH, 120));
+
     m_sliceTable->blockSignals(false);
     Q_UNUSED(dur);
 }
