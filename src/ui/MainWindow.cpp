@@ -47,7 +47,39 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QShortcut>
+#include <QPainter>
 #include <algorithm>
+
+// ── GoButton: QPushButton with fully custom paintEvent to avoid Qt decoration artifacts ──
+class GoButton : public QPushButton {
+public:
+    explicit GoButton(QWidget *parent = nullptr) : QPushButton(parent) {
+        setAttribute(Qt::WA_Hover);
+        setFlat(true);
+    }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const bool pressed = isDown();
+        const bool hovered = underMouse();
+        const QColor bg = pressed  ? QColor(0,0,0,40)
+                        : hovered  ? QColor(255,255,255,10)
+                        : QColor(0,0,0,0);
+        if (bg.alpha() > 0) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(bg);
+            p.drawRoundedRect(rect(), 10, 10);
+        }
+        const QColor border = (pressed || hovered) ? QColor(220,220,220,210) : QColor(220,220,220,140);
+        p.setPen(QPen(border, 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(rect().adjusted(1,1,-1,-1), 10, 10);
+        p.setPen(Qt::white);
+        p.setFont(font());
+        p.drawText(rect(), Qt::AlignCenter, text());
+    }
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -121,6 +153,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         const QString url = m_webServer->localUrl();
         m_webUrlLabel->setText("  🌐 " + url);
         m_webUrlLabel->show();
+        statusBar()->show();
         const QSignalBlocker b(m_webAction);
         m_webAction->setChecked(true);
         QMessageBox::information(this, "Web Remote",
@@ -128,6 +161,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     });
     connect(m_webServer, &WebServer::stopped, this, [this]() {
         m_webUrlLabel->hide();
+        statusBar()->hide();
         const QSignalBlocker b(m_webAction);
         m_webAction->setChecked(false);
     });
@@ -247,14 +281,11 @@ void MainWindow::buildUi() {
     vlay->addWidget(m_infoBar);
     setCentralWidget(central);
 
-    m_statusLbl = new QLabel("Pronto");
-    statusBar()->addWidget(m_statusLbl);
-
     m_webUrlLabel = new QLabel;
     m_webUrlLabel->setStyleSheet("color: #4a9eff; font-size: 9pt;");
     m_webUrlLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_webUrlLabel->hide();
     statusBar()->addPermanentWidget(m_webUrlLabel);
+    statusBar()->hide();
 
     connect(m_cueView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &MainWindow::onSelectionChanged);
@@ -496,22 +527,16 @@ void MainWindow::buildToolBar() {
         "QToolButton:hover   { background: rgba(255,255,255,18); }"
         "QToolButton:pressed { background: rgba(0,0,0,30); }");
 
-    // ── GO button — large, no colored background ──────────────────────────────
-    m_goBtn = new QToolButton;
+    // ── GO button — fully custom painted, no Qt decoration ───────────────────
+    m_goBtn = new GoButton;
     m_goBtn->setText("▶  GO");
     QFont goFont;
     goFont.setPointSize(18);
     goFont.setBold(true);
     m_goBtn->setFont(goFont);
     m_goBtn->setFixedSize(84, 84);
-    m_goBtn->setStyleSheet(
-        "QToolButton { background:transparent; color:white; border-radius:10px;"
-        " border:2px solid rgba(220,220,220,140);"
-        " min-width:84px; max-width:84px; min-height:84px; max-height:84px; }"
-        "QToolButton:pressed { background:rgba(0,0,0,40); border-color:rgba(220,220,220,210); }"
-        "QToolButton:hover   { background:rgba(255,255,255,10); border-color:rgba(220,220,220,200); }");
     m_goBtn->setToolTip(tr("Vai"));
-    connect(m_goBtn, &QToolButton::clicked, this, &MainWindow::go);
+    connect(m_goBtn, &QPushButton::clicked, this, &MainWindow::go);
     tb->addWidget(m_goBtn);
 
     // m_goAction: keyboard shortcut only (window-level, not in toolbar visually)

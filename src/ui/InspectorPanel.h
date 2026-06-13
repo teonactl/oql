@@ -36,6 +36,7 @@ public:
     void setShowMode(bool showMode);
     void addShowAudioCue(AudioCue *cue);
     void removeShowAudioCue(AudioCue *cue);
+    QSize sizeHint() const override;
 
 private slots:
     void onNumberChanged();
@@ -211,6 +212,7 @@ private:
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
+    QWidget        *m_audioExtrasPanel  = nullptr;
 
     // Show-mode visibility references (normal-mode widgets hidden in show mode)
     QWidget        *m_groupsRow   = nullptr;

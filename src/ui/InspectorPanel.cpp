@@ -39,6 +39,8 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QScrollArea>
+#include <QGuiApplication>
+#include <QScreen>
 
 // ── VU meter widget ───────────────────────────────────────────────────────────
 
@@ -49,7 +51,7 @@ class VuMeter : public QWidget {
 public:
     explicit VuMeter(QWidget *parent = nullptr) : QWidget(parent) {
         setFixedWidth(kBarW + kGapW + kSclW);
-        setMinimumHeight(80);
+        setMinimumHeight(56);
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     }
     void setLevel(float linear) {
@@ -170,8 +172,8 @@ void InspectorPanel::buildUi() {
     setMinimumHeight(150);
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(6, 4, 6, 4);
-    outer->setSpacing(4);
+    outer->setContentsMargins(4, 2, 4, 2);
+    outer->setSpacing(2);
 
     // ── Empty state ──────────────────────────────────────────
     m_emptyWidget = new QWidget;
@@ -185,23 +187,35 @@ void InspectorPanel::buildUi() {
     auto *propsWidget = new QWidget;
     auto *propsLay    = new QVBoxLayout(propsWidget);
     propsLay->setContentsMargins(0, 0, 0, 0);
-    propsLay->setSpacing(4);
+    propsLay->setSpacing(2);
 
-    // Header row: type label + stop + play/pause buttons
+    // Header row: type label + (audio) channel routing + stop + play/pause
     m_headerRow = new QWidget;
     auto *headerLay = new QHBoxLayout(m_headerRow);
     headerLay->setContentsMargins(0, 0, 0, 0);
-    headerLay->setSpacing(4);
+    headerLay->setSpacing(5);
     m_typeLabel = new QLabel;
     m_typeLabel->setStyleSheet("font-weight: bold; font-size: 12px; color: #555;");
     m_stopBtn = new QPushButton("■");
-    m_stopBtn->setFixedWidth(32);
+    m_stopBtn->setFixedSize(28, 24);
     m_stopBtn->setToolTip(tr("Stop"));
     m_playBtn = new QPushButton("▶  " + tr("Play"));
-    m_playBtn->setFixedWidth(100);
+    m_playBtn->setFixedSize(90, 24);
     m_playBtn->setToolTip(tr("Play / Pausa / Riprendi"));
+
+    m_uscitaLabel = new QLabel(tr("Out:"));
+    m_uscitaLabel->setStyleSheet("color:#8892a4; font-size:10px;");
+    m_uscitaLabel->setVisible(false);
+    m_channelCombo = new QComboBox;
+    m_channelCombo->addItems({tr("L + R (stereo)"), tr("Solo L"), tr("Solo R")});
+    m_channelCombo->setFixedWidth(112);
+    m_channelCombo->setMaximumHeight(24);
+    m_channelCombo->setVisible(false);
+
     headerLay->addWidget(m_typeLabel);
     headerLay->addStretch();
+    headerLay->addWidget(m_uscitaLabel);
+    headerLay->addWidget(m_channelCombo);
     headerLay->addWidget(m_stopBtn);
     headerLay->addWidget(m_playBtn);
     propsLay->addWidget(m_headerRow);
@@ -210,7 +224,7 @@ void InspectorPanel::buildUi() {
     m_groupsRow = new QWidget;
     auto *groupsLay = new QHBoxLayout(m_groupsRow);
     groupsLay->setContentsMargins(0, 0, 0, 0);
-    groupsLay->setSpacing(6);
+    groupsLay->setSpacing(4);
 
     auto makeSpin = [](double max = 999.0) {
         auto *s = new QDoubleSpinBox;
@@ -231,7 +245,7 @@ void InspectorPanel::buildUi() {
     m_numberEdit->setMaximumWidth(80);
     m_nameEdit   = new QLineEdit;
     m_notesEdit  = new QTextEdit;
-    m_notesEdit->setMaximumHeight(38);
+    m_notesEdit->setMaximumHeight(28);
     m_notesEdit->setPlaceholderText(tr("Note..."));
 
     m_genForm->addRow(tr("Numero:"), m_numberEdit);
@@ -313,7 +327,64 @@ void InspectorPanel::buildUi() {
     makeFadeRow(m_fadeOutCheck, m_fadeOutSpin, tr("Out:"));
     groupsLay->addWidget(m_fadeGroup);
 
-    groupsLay->addStretch();
+    // ── Audio extras panel (right of group boxes): Effects, Rate, Slices controls ──
+    m_audioExtrasPanel = new QWidget;
+    m_audioExtrasPanel->setVisible(false);
+    auto *extrasLay = new QVBoxLayout(m_audioExtrasPanel);
+    extrasLay->setContentsMargins(4, 0, 0, 0);
+    extrasLay->setSpacing(4);
+
+    m_fxRow = new QWidget;
+    auto *fxRowLay = new QHBoxLayout(m_fxRow);
+    fxRowLay->setContentsMargins(0, 0, 0, 0);
+    m_fxBtn = new QPushButton(tr("⚙ Effetti..."));
+    m_fxBtn->setToolTip(tr("Apri catena effetti per questa cue"));
+    fxRowLay->addWidget(m_fxBtn);
+    extrasLay->addWidget(m_fxRow);
+
+    auto *exRateRow = new QWidget;
+    auto *exRateRowLay = new QHBoxLayout(exRateRow);
+    exRateRowLay->setContentsMargins(0, 0, 0, 0);
+    exRateRowLay->setSpacing(5);
+    m_rateLabel = new QLabel(tr("Rate:"));
+    exRateRowLay->addWidget(m_rateLabel);
+    m_rateSpin = new QDoubleSpinBox;
+    m_rateSpin->setRange(0.1, 4.0);
+    m_rateSpin->setSingleStep(0.05);
+    m_rateSpin->setDecimals(2);
+    m_rateSpin->setSuffix(" ×");
+    m_rateSpin->setValue(1.0);
+    m_rateSpin->setFixedWidth(76);
+    m_rateSpin->setToolTip(tr("Velocità di riproduzione (1.0 = normale)"));
+    exRateRowLay->addWidget(m_rateSpin);
+    m_pitchCheck = new QCheckBox(tr("Pitch"));
+#ifdef HAVE_SOUNDTOUCH
+    m_pitchCheck->setToolTip(tr("Time-stretch: mantieni la tonalità originale variando il rate"));
+#else
+    m_pitchCheck->setEnabled(false);
+    m_pitchCheck->setToolTip(tr("Richiede la libreria soundtouch (non disponibile)"));
+#endif
+    exRateRowLay->addWidget(m_pitchCheck);
+    extrasLay->addWidget(exRateRow);
+
+    auto *exSliceHdrRow = new QWidget;
+    auto *exSliceHdrLay = new QHBoxLayout(exSliceHdrRow);
+    exSliceHdrLay->setContentsMargins(0, 0, 0, 0);
+    exSliceHdrLay->setSpacing(4);
+    m_slicesLabel = new QLabel(tr("Slices:"));
+    exSliceHdrLay->addWidget(m_slicesLabel);
+    m_addSliceBtn = new QPushButton(tr("+"));
+    m_addSliceBtn->setFixedHeight(22);
+    m_addSliceBtn->setFixedWidth(28);
+    m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente"));
+    m_clearSlicesBtn = new QPushButton(tr("✕ tutte"));
+    m_clearSlicesBtn->setFixedHeight(22);
+    exSliceHdrLay->addWidget(m_addSliceBtn);
+    exSliceHdrLay->addWidget(m_clearSlicesBtn);
+    extrasLay->addWidget(exSliceHdrRow);
+    extrasLay->addStretch();
+
+    groupsLay->addWidget(m_audioExtrasPanel);
     propsLay->addWidget(m_groupsRow);
 
     // ── Control cue section (Stop / Fade / Pause) ────────────
@@ -428,21 +499,9 @@ void InspectorPanel::buildUi() {
     m_recSourceLabel->setVisible(false);
     audioLay->addWidget(m_recSourceLabel);
 
-    m_chanRow = new QWidget;
-    auto *chanLay = new QHBoxLayout(m_chanRow);
-    chanLay->setContentsMargins(0, 0, 0, 0);
-    chanLay->setSpacing(6);
-    m_uscitaLabel = new QLabel(tr("Uscita:"));
-    chanLay->addWidget(m_uscitaLabel);
-    m_channelCombo = new QComboBox;
-    m_channelCombo->addItems({tr("L + R (stereo)"), tr("Solo L"), tr("Solo R")});
-    m_channelCombo->setFixedWidth(140);
-    chanLay->addWidget(m_channelCombo);
-    chanLay->addStretch();
-    audioLay->addWidget(m_chanRow);
 
     m_waveformView = new WaveformView;
-    m_waveformView->setMinimumHeight(110);
+    m_waveformView->setMinimumHeight(72);
 
     m_vuL = new VuMeter;
     m_vuR = new VuMeter;
@@ -491,15 +550,6 @@ void InspectorPanel::buildUi() {
         if (m_cue) emit m_cue->propertyChanged();
     });
 
-    m_fxRow    = new QWidget;
-    auto *fxRowLay = new QHBoxLayout(m_fxRow);
-    fxRowLay->setContentsMargins(0, 2, 0, 0);
-    fxRowLay->setSpacing(6);
-    m_fxBtn = new QPushButton(tr("⚙ Effetti..."));
-    m_fxBtn->setToolTip(tr("Apri catena effetti per questa cue"));
-    fxRowLay->addWidget(m_fxBtn);
-    fxRowLay->addStretch();
-    audioLay->addWidget(m_fxRow);
 
     connect(m_fxBtn, &QPushButton::clicked, this, [this]() {
         if (!m_fxDialog) {
@@ -516,55 +566,11 @@ void InspectorPanel::buildUi() {
         m_fxDialog->activateWindow();
     });
 
-    // ── Slice / Rate section (audio only) ───────────────────
+    // ── Slice table (audio only, shown when slices exist) ──────
     m_sliceSection = new QWidget;
     auto *sliceLay = new QVBoxLayout(m_sliceSection);
-    sliceLay->setContentsMargins(0, 4, 0, 0);
-    sliceLay->setSpacing(4);
-
-    // Rate control row
-    auto *rateRow = new QWidget;
-    auto *rateRowLay = new QHBoxLayout(rateRow);
-    rateRowLay->setContentsMargins(0, 0, 0, 0);
-    rateRowLay->setSpacing(6);
-    m_rateLabel = new QLabel(tr("Rate:"));
-    rateRowLay->addWidget(m_rateLabel);
-    m_rateSpin = new QDoubleSpinBox;
-    m_rateSpin->setRange(0.1, 4.0);
-    m_rateSpin->setSingleStep(0.05);
-    m_rateSpin->setDecimals(2);
-    m_rateSpin->setSuffix(" ×");
-    m_rateSpin->setValue(1.0);
-    m_rateSpin->setFixedWidth(80);
-    m_rateSpin->setToolTip(tr("Velocità di riproduzione (1.0 = normale)"));
-    rateRowLay->addWidget(m_rateSpin);
-    m_pitchCheck = new QCheckBox(tr("Mantieni pitch"));
-#ifdef HAVE_SOUNDTOUCH
-    m_pitchCheck->setToolTip(tr("Time-stretch: mantieni la tonalità originale variando il rate"));
-#else
-    m_pitchCheck->setEnabled(false);
-    m_pitchCheck->setToolTip(tr("Richiede la libreria soundtouch (non disponibile)"));
-#endif
-    rateRowLay->addWidget(m_pitchCheck);
-    rateRowLay->addStretch();
-    sliceLay->addWidget(rateRow);
-
-    // Slice table header row
-    auto *sliceHdrRow = new QWidget;
-    auto *sliceHdrLay = new QHBoxLayout(sliceHdrRow);
-    sliceHdrLay->setContentsMargins(0, 0, 0, 0);
-    sliceHdrLay->setSpacing(4);
-    m_slicesLabel = new QLabel(tr("Slices:"));
-    sliceHdrLay->addWidget(m_slicesLabel);
-    m_addSliceBtn = new QPushButton(tr("+ Aggiungi"));
-    m_addSliceBtn->setFixedHeight(22);
-    m_addSliceBtn->setToolTip(tr("Aggiunge una slice alla posizione corrente (Ctrl+Click sulla waveform per aggiungere)"));
-    m_clearSlicesBtn = new QPushButton(tr("Rimuovi tutte"));
-    m_clearSlicesBtn->setFixedHeight(22);
-    sliceHdrLay->addWidget(m_addSliceBtn);
-    sliceHdrLay->addWidget(m_clearSlicesBtn);
-    sliceHdrLay->addStretch();
-    sliceLay->addWidget(sliceHdrRow);
+    sliceLay->setContentsMargins(0, 2, 0, 0);
+    sliceLay->setSpacing(0);
 
     // Slice table: Seg # | Inizio | Loop | Del
     m_sliceTable = new QTableWidget(0, 4);
@@ -576,7 +582,7 @@ void InspectorPanel::buildUi() {
     m_sliceTable->verticalHeader()->setVisible(false);
     m_sliceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sliceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_sliceTable->setMaximumHeight(120);
+    m_sliceTable->setMaximumHeight(82);
     m_sliceTable->setStyleSheet("font-size:11px;");
     sliceLay->addWidget(m_sliceTable);
     audioLay->addWidget(m_sliceSection);
@@ -744,10 +750,20 @@ void InspectorPanel::buildUi() {
     });
 
     // ── Stack (normal mode) ──────────────────────────────────
+    auto *propsScroll = new QScrollArea;
+    propsScroll->setWidget(propsWidget);
+    propsScroll->setWidgetResizable(true);
+    propsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    propsScroll->setFrameShape(QFrame::NoFrame);
+    propsScroll->setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background:transparent; }");
+
     m_stack = new QStackedWidget;
     m_stack->addWidget(m_emptyWidget);  // index 0
-    m_stack->addWidget(propsWidget);    // index 1
+    m_stack->addWidget(propsScroll);    // index 1
     outer->addWidget(m_stack);
+
+    if (const auto *scr = QGuiApplication::primaryScreen())
+        setMaximumHeight(scr->availableGeometry().height() / 3);
 
     // ── Show mode: scrollable stack of compact waveforms ─────
     m_showModeArea = new QScrollArea;
@@ -952,6 +968,12 @@ void InspectorPanel::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
 }
 
+QSize InspectorPanel::sizeHint() const {
+    const auto *scr = QGuiApplication::primaryScreen();
+    const int cap = scr ? scr->availableGeometry().height() / 3 : 280;
+    return QSize(QWidget::sizeHint().width(), cap);
+}
+
 void InspectorPanel::retranslateUi() {
     // Helper: get QLabel at a given row of a QFormLayout
     auto fl = [](QFormLayout *f, int row) -> QLabel* {
@@ -1012,7 +1034,7 @@ void InspectorPanel::retranslateUi() {
     if (auto *l = fl(m_fadeForm, 1)) l->setText(tr("Out:"));
 
     // Channel combo + label
-    if (m_uscitaLabel) m_uscitaLabel->setText(tr("Uscita:"));
+    if (m_uscitaLabel) m_uscitaLabel->setText(tr("Out:"));
     if (m_channelCombo) {
         const int cur = m_channelCombo->currentIndex();
         m_channelCombo->setItemText(0, tr("L + R (stereo)"));
@@ -1176,6 +1198,9 @@ void InspectorPanel::updateMediaSection() {
     m_textSection->setVisible(isTextCue);
     m_scriptSection->setVisible(isScriptCue);
     m_recordSection->setVisible(isRecord);
+    m_uscitaLabel->setVisible(isAudio);
+    m_channelCombo->setVisible(isAudio);
+    if (m_audioExtrasPanel) m_audioExtrasPanel->setVisible(isAudio);
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);

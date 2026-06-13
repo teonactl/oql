@@ -23,6 +23,7 @@ class QAction;
 class QMenu;
 class QSplitter;
 class QToolButton;
+class QPushButton;
 class QShortcut;
 
 class MainWindow : public QMainWindow {
@@ -94,7 +95,7 @@ private:
     CueInfoBar        *m_infoBar         = nullptr;
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;
-    QToolButton       *m_goBtn           = nullptr;
+    QPushButton       *m_goBtn           = nullptr;
     QAction           *m_stopAction      = nullptr;
     QAction           *m_firstCueAction  = nullptr;
     QMenu             *m_recentMenu      = nullptr;
