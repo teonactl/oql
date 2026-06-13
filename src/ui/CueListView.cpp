@@ -13,6 +13,7 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDragLeaveEvent>
+#include <QTimer>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QDrag>
@@ -130,9 +131,16 @@ QVector<int> CueListView::validTargetRows(int srcRow) const {
         Cue *dstCue = m_model->cueForRow(row);
         if (!dynamic_cast<ControlCue*>(dstCue)) continue;
         const bool mediaOnly = (dstCue->type() == Cue::Type::Play
-                             || dstCue->type() == Cue::Type::Speed);
+#ifndef OQL_BASE
+                             || dstCue->type() == Cue::Type::Speed
+#endif
+                             );
+#ifndef OQL_BASE
         const bool audioOnly = (dstCue->type() == Cue::Type::Effect
                              || dstCue->type() == Cue::Type::ResetEffect);
+#else
+        const bool audioOnly = false;
+#endif
         if ((!mediaOnly || srcIsMedia) && (!audioOnly || srcIsAudio))
             rows.append(row);
     }
@@ -193,7 +201,13 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
     QTableView::currentChanged(current, previous);
     if (m_editOnCurrentChange) {
         m_editOnCurrentChange = false;
-        edit(current);  // edit() calls select() internally, updating the row highlight
+        // Defer edit() to next event loop tick so Qt internal state (selection,
+        // viewport scrolling) settles before the editor is opened.
+        const QPersistentModelIndex pIdx(current);
+        QTimer::singleShot(0, this, [this, pIdx] {
+            if (pIdx.isValid() && state() == NoState)
+                edit(pIdx);
+        });
     }
 }
 
@@ -228,9 +242,11 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction(tr("Aggiungi Etichetta"),            this, &CueListView::addLabelRequested);
     menu.addAction(tr("Aggiungi Testo"),                this, &CueListView::addTextRequested);
     menu.addSeparator();
-    menu.addAction(tr("Aggiungi Effect Cue"),           this, &CueListView::addEffectRequested);
-    menu.addAction(tr("Aggiungi Reset Effetti Cue"),    this, &CueListView::addResetEffectRequested);
-    menu.addAction(tr("Aggiungi Script Cue"),           this, &CueListView::addScriptRequested);
+#ifndef OQL_BASE
+    menu.addAction(tr("Aggiungi Effect Cue"),        this, &CueListView::addEffectRequested);
+    menu.addAction(tr("Aggiungi Reset Effetti Cue"), this, &CueListView::addResetEffectRequested);
+    menu.addAction(tr("Aggiungi Script Cue"),        this, &CueListView::addScriptRequested);
+#endif
     menu.addSeparator();
     // Color palette submenu — visible only when at least one row is selected
     if (!selIdxs.isEmpty()) {

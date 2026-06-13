@@ -14,8 +14,10 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#ifndef OQL_BASE
 #include "engine/ScriptCue.h"
 #include "engine/RecordCue.h"
+#endif
 #include "TextOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
@@ -59,9 +61,11 @@ static std::unique_ptr<ControlCue> makeCtrlCue(Cue::Type type, double extra) {
     }
     case Cue::Type::Pause:       return std::make_unique<PauseCue>();
     case Cue::Type::Play:        return std::make_unique<PlayCue>();
+#ifndef OQL_BASE
     case Cue::Type::Speed:       return std::make_unique<SpeedCue>(extra > 0.0 ? extra : 1.5);
     case Cue::Type::Effect:      return std::make_unique<EffectCue>();
     case Cue::Type::ResetEffect: return std::make_unique<ResetEffectCue>();
+#endif
     default:                     return nullptr;
     }
 }
@@ -263,9 +267,11 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addGroupRequested, this, &MainWindow::addGroupCue);
     connect(m_cueView, &CueListView::addLabelRequested, this, &MainWindow::addLabelCue);
     connect(m_cueView, &CueListView::addTextRequested,         this, &MainWindow::addTextCue);
-    connect(m_cueView, &CueListView::addEffectRequested,       this, &MainWindow::addEffectCue);
-    connect(m_cueView, &CueListView::addResetEffectRequested,  this, &MainWindow::addResetEffectCue);
-    connect(m_cueView, &CueListView::addScriptRequested,        this, &MainWindow::addScriptCue);
+#ifndef OQL_BASE
+    connect(m_cueView, &CueListView::addEffectRequested,      this, &MainWindow::addEffectCue);
+    connect(m_cueView, &CueListView::addResetEffectRequested, this, &MainWindow::addResetEffectCue);
+    connect(m_cueView, &CueListView::addScriptRequested,      this, &MainWindow::addScriptCue);
+#endif
     connect(m_cueView, &CueListView::deleteRequested,   this, &MainWindow::deleteSelectedCue);
     connect(m_cueView, &CueListView::groupToggleRequested, this, [this](int row) {
         m_model->toggleGroupAt(row);
@@ -388,14 +394,18 @@ void MainWindow::buildUi() {
     connect(makeSc("video"),       &QShortcut::activated, this, &MainWindow::addVideoCue);
     connect(makeSc("text"),        &QShortcut::activated, this, &MainWindow::addTextCue);
     connect(makeSc("mic"),         &QShortcut::activated, this, &MainWindow::addMicCue);
+#ifndef OQL_BASE
     connect(makeSc("record"),      &QShortcut::activated, this, &MainWindow::addRecordCue);
+#endif
     connect(makeSc("stop"),        &QShortcut::activated, this, &MainWindow::addStopCue);
     connect(makeSc("fade"),        &QShortcut::activated, this, &MainWindow::addFadeCue);
     connect(makeSc("pause"),       &QShortcut::activated, this, &MainWindow::addPauseCue);
     connect(makeSc("play"),        &QShortcut::activated, this, &MainWindow::addPlayCue);
+#ifndef OQL_BASE
     connect(makeSc("effect"),      &QShortcut::activated, this, &MainWindow::addEffectCue);
     connect(makeSc("reseteffect"), &QShortcut::activated, this, &MainWindow::addResetEffectCue);
     connect(makeSc("script"),      &QShortcut::activated, this, &MainWindow::addScriptCue);
+#endif
     connect(makeSc("group"),       &QShortcut::activated, this, &MainWindow::addGroupCue);
     connect(makeSc("label"),       &QShortcut::activated, this, &MainWindow::addLabelCue);
 
@@ -443,8 +453,10 @@ void MainWindow::buildMenus() {
     menuAction(edit, tr("Aggiungi &Stop Cue"),          QKeySequence("Ctrl+Shift+S"), this, &MainWindow::addStopCue);
     menuAction(edit, tr("Aggiungi &Fade Cue"),          QKeySequence("Ctrl+Shift+F"), this, &MainWindow::addFadeCue);
     menuAction(edit, tr("Aggiungi &Pause Cue"),         QKeySequence("Ctrl+Shift+P"), this, &MainWindow::addPauseCue);
+#ifndef OQL_BASE
     menuAction(edit, tr("Aggiungi cue &Velocizza"),     QKeySequence("Ctrl+Shift+U"), this, &MainWindow::addSpeedUpCue);
     menuAction(edit, tr("Aggiungi cue &Rallenta"),      QKeySequence("Ctrl+Shift+D"), this, &MainWindow::addSpeedDownCue);
+#endif
     menuAction(edit, tr("Aggiungi cue &Play"),          QKeySequence("Ctrl+Shift+L"), this, &MainWindow::addPlayCue);
     menuAction(edit, tr("Aggiungi cue &Microfono"),     QKeySequence("Ctrl+Shift+M"), this, &MainWindow::addMicCue);
     edit->addSeparator();
@@ -452,9 +464,11 @@ void MainWindow::buildMenus() {
     menuAction(edit, tr("Aggiungi &Etichetta"),         QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
     menuAction(edit, tr("Aggiungi &Testo"),             QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
     edit->addSeparator();
+#ifndef OQL_BASE
     menuAction(edit, tr("Aggiungi cue E&ffetto"),       QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
     menuAction(edit, tr("Aggiungi cue &Reset Effetti"), QKeySequence("Ctrl+Shift+R"), this, &MainWindow::addResetEffectCue);
     edit->addSeparator();
+#endif
     menuAction(edit, tr("&Elimina cue"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
     // Finestra
@@ -629,8 +643,10 @@ void MainWindow::buildToolBar() {
         p.drawPolygon(t1); p.drawPolygon(t2);
     });
 
+#ifndef OQL_BASE
     addCueBtn(speedUpIcon,   tr("+ Velocizza"), &MainWindow::addSpeedUpCue);
     addCueBtn(speedDownIcon, tr("+ Rallenta"),  &MainWindow::addSpeedDownCue);
+#endif
     tb->addSeparator();
 
     // ── Ingresso ──────────────────────────────────────────────────────────────
@@ -647,7 +663,9 @@ void MainWindow::buildToolBar() {
     });
 
     addCueBtn(micIcon,    tr("+ Mic Cue"),    &MainWindow::addMicCue);
+#ifndef OQL_BASE
     addCueBtn(recordIcon, tr("+ Record Cue"), &MainWindow::addRecordCue);
+#endif
     tb->addSeparator();
 
     // ── Struttura ─────────────────────────────────────────────────────────────
@@ -688,9 +706,11 @@ void MainWindow::buildToolBar() {
         p.drawLine(12, 7, 12, 14); p.drawLine(16, 7, 16, 14);
     });
 
-    addCueBtn(effectIcon,      tr("+ Effetto"),       &MainWindow::addEffectCue);
-    addCueBtn(resetEffectIcon, tr("+ Reset Effetti"),  &MainWindow::addResetEffectCue);
-    addCueBtn(scriptIcon,      tr("+ Script Cue"),     &MainWindow::addScriptCue);
+#ifndef OQL_BASE
+    addCueBtn(effectIcon,      tr("+ Effetto"),      &MainWindow::addEffectCue);
+    addCueBtn(resetEffectIcon, tr("+ Reset Effetti"), &MainWindow::addResetEffectCue);
+    addCueBtn(scriptIcon,      tr("+ Script Cue"),   &MainWindow::addScriptCue);
+#endif
     tb->addSeparator();
 
     m_webAction = tb->addAction("🌐 Remote");
@@ -936,6 +956,7 @@ void MainWindow::addTextCue() {
     m_cueView->setFocus();
 }
 
+#ifndef OQL_BASE
 void MainWindow::addSpeedUpCue()   { addControlCueImpl(Cue::Type::Speed, 1.5); }
 void MainWindow::addSpeedDownCue() { addControlCueImpl(Cue::Type::Speed, 0.5); }
 void MainWindow::addEffectCue()      { addControlCueImpl(Cue::Type::Effect); }
@@ -968,6 +989,7 @@ void MainWindow::addRecordCue() {
     m_cueView->selectRow(m_model->visibleRowForActual(actual));
     m_cueView->setFocus();
 }
+#endif // OQL_BASE
 
 void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));

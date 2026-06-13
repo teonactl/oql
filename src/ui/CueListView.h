@@ -20,9 +20,11 @@ signals:
     void addGroupRequested();
     void addLabelRequested();
     void addTextRequested();
+#ifndef OQL_BASE
     void addEffectRequested();
     void addResetEffectRequested();
     void addScriptRequested();
+#endif
     void deleteRequested();
     void cueDoubleClicked(int row);
     void filePickRequested(int row);

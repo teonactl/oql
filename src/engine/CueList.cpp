@@ -269,12 +269,14 @@ void CueList::connectCue(Cue *cue) {
             fireNext();
     });
 
+#ifndef OQL_BASE
     if (auto *rc = qobject_cast<RecordCue*>(cue)) {
         connect(rc, &RecordCue::requestSetFilePath, this, [this](const QString &id, const QString &path) {
             if (auto *ac = qobject_cast<AudioCue*>(findCueById(id)))
                 ac->setFilePath(path);
         });
     }
+#endif
 }
 
 QJsonArray CueList::toJson() const {
@@ -312,11 +314,15 @@ void CueList::fromJson(const QJsonArray &arr) {
             auto c = std::make_unique<PauseCue>();
             c->fromJson(obj);
             cue = std::move(c);
-        } else if (t == "speed") {
+        }
+#ifndef OQL_BASE
+        else if (t == "speed") {
             auto c = std::make_unique<SpeedCue>();
             c->fromJson(obj);
             cue = std::move(c);
-        } else if (t == "play") {
+        }
+#endif
+        else if (t == "play") {
             auto c = std::make_unique<PlayCue>();
             c->fromJson(obj);
             cue = std::move(c);
@@ -336,7 +342,9 @@ void CueList::fromJson(const QJsonArray &arr) {
             auto c = std::make_unique<TextCue>();
             c->fromJson(obj);
             cue = std::move(c);
-        } else if (t == "effect") {
+        }
+#ifndef OQL_BASE
+        else if (t == "effect") {
             auto c = std::make_unique<EffectCue>();
             c->fromJson(obj);
             cue = std::move(c);
@@ -353,6 +361,7 @@ void CueList::fromJson(const QJsonArray &arr) {
             c->fromJson(obj);
             cue = std::move(c);
         }
+#endif
         if (cue) {
             connectCue(cue.get());
             m_cues.push_back(std::move(cue));

@@ -50,13 +50,15 @@ private slots:
     void addGroupCue();
     void addLabelCue();
     void addTextCue();
+    void addPlayCue();
+#ifndef OQL_BASE
     void addSpeedUpCue();
     void addSpeedDownCue();
-    void addPlayCue();
     void addEffectCue();
     void addResetEffectCue();
     void addScriptCue();
     void addRecordCue();
+#endif
     void deleteSelectedCue();
     void groupSelectedCues(const QVector<int> &visRows);
     void go();

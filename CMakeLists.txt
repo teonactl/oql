@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(OQL VERSION 0.1.0 LANGUAGES CXX)
 
+set(OQL_EDITION "full" CACHE STRING "Build edition: full or base")
+set_property(CACHE OQL_EDITION PROPERTY STRINGS full base)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -13,6 +16,7 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml LinguistTools)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
+pkg_check_modules(SOUNDTOUCH soundtouch)
 if(UNIX AND NOT APPLE)
     pkg_check_modules(SUIL REQUIRED suil-0)
 endif()
@@ -98,6 +102,11 @@ target_link_libraries(oql PRIVATE
     Qt6::Qml
     ${LILV_LIBRARIES}
 )
+if(SOUNDTOUCH_FOUND)
+    target_link_libraries(oql PRIVATE ${SOUNDTOUCH_LIBRARIES})
+    target_include_directories(oql PRIVATE ${SOUNDTOUCH_INCLUDE_DIRS})
+    target_compile_definitions(oql PRIVATE HAVE_SOUNDTOUCH)
+endif()
 if(UNIX AND NOT APPLE)
     target_link_libraries(oql PRIVATE ${SUIL_LIBRARIES})
 endif()
@@ -137,6 +146,9 @@ target_compile_options(oql PRIVATE
 target_compile_definitions(oql PRIVATE
     MA_NO_VORBIS    # use built-in vorbis if needed (stb_vorbis not included here)
 )
+if(OQL_EDITION STREQUAL "base")
+    target_compile_definitions(oql PRIVATE OQL_BASE)
+endif()
 
 qt_add_translations(oql
     TS_FILES

@@ -62,17 +62,17 @@ void AudioEngine::maDeviceCallback(void* pUserData, void* pOutput,
     engine->m_peakL.store(pkL, std::memory_order_relaxed);
     engine->m_peakR.store(pkR, std::memory_order_relaxed);
 
-    // Remove finished renderers while still holding the lock
+    // Remove finished renderers and notify them — all while holding the lock.
+    // Holding the lock here ensures that if a renderer's destructor calls
+    // removeRenderer(), it will block until this loop (including onRenderFinished)
+    // completes, preventing use-after-free on the renderer pointer.
     for (auto *r : toFinish) {
         auto it = std::find(engine->m_renderers.begin(), engine->m_renderers.end(), r);
         if (it != engine->m_renderers.end())
             engine->m_renderers.erase(it);
+        r->onRenderFinished();  // safe: only posts a Qt queued event, no re-entrant lock
     }
     lock.unlock();
-
-    // Notify finished renderers AFTER releasing the lock
-    for (auto *r : toFinish)
-        r->onRenderFinished();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

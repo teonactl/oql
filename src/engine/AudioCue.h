@@ -8,6 +8,9 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#ifdef HAVE_SOUNDTOUCH
+#include <SoundTouch.h>
+#endif
 
 struct AudioSlice {
     double posSec    = 0.0; // absolute seconds from file start
@@ -39,6 +42,7 @@ public:
     double   trimEnd()   const { return m_trimEnd; }
     int      loopCount() const { return m_loopCount; }
     double   userRate()  const { return m_userRate; }
+    bool     pitchPreserve() const { return m_pitchPreserve; }
     QVector<AudioSlice> slices() const { return m_slices; }
 
     void setFilePath(const QString &path);
@@ -51,7 +55,8 @@ public:
     void setTrimStart(double s)         { m_trimStart = qMax(0.0,s); emit propertyChanged(); }
     void setTrimEnd(double s)           { m_trimEnd   = qMax(0.0,s); emit propertyChanged(); }
     void setLoopCount(int n)            { m_loopCount = qMax(0,n);   emit propertyChanged(); }
-    void setUserRate(double r)          { m_userRate = qBound(0.1, r, 4.0); emit propertyChanged(); }
+    void setUserRate(double r);
+    void setPitchPreserve(bool p);
     void setSlices(const QVector<AudioSlice> &s) { m_slices = s; emit propertyChanged(); }
     void setPlaybackRate(double r) override;
 
@@ -129,6 +134,15 @@ private:
     ChannelRoute     m_channel = ChannelRoute::Both;
     QVector<QPointF> m_volumePoints;
     QString          m_filePath;
+
+    bool             m_pitchPreserve = false;
+
+#ifdef HAVE_SOUNDTOUCH
+    soundtouch::SoundTouch m_soundTouch;   // audio thread only
+    std::vector<float>     m_stAccum;      // ST output accumulator (interleaved stereo)
+    std::vector<float>     m_stInBuf;      // ST input buffer
+    bool                   m_stFlushDone = false;
+#endif
 
     PluginChain      m_chain;
     mutable std::mutex m_chainMtx;     // guards m_chain between main and audio thread

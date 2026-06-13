@@ -21,6 +21,7 @@ class QSpinBox;
 class QTimer;
 class WaveformView;
 class QFontComboBox;
+class QFormLayout;
 class PluginChainWidget;
 class VuMeter;
 class QPlainTextEdit;
@@ -74,8 +75,12 @@ private slots:
     void onBgColorClicked();
     void onTextAlignChanged(int idx);
 
+protected:
+    void changeEvent(QEvent *event) override;
+
 private:
     void buildUi();
+    void retranslateUi();
     void loadFromCue();
     void blockSignals(bool block);
     void updateMediaSection();
@@ -178,6 +183,31 @@ private:
     VuMeter   *m_recVuMono        = nullptr;
     QLabel    *m_recVuDbLabel     = nullptr;
     QTimer    *m_recVuTimer       = nullptr;
+
+    QLabel         *m_emptyLabel        = nullptr;
+    QGroupBox      *m_genGroup          = nullptr;
+    QFormLayout    *m_genForm           = nullptr;
+    QGroupBox      *m_timeGroup         = nullptr;
+    QFormLayout    *m_timeForm          = nullptr;
+    QFormLayout    *m_mediaForm         = nullptr;
+    QFormLayout    *m_fadeForm          = nullptr;
+    QGroupBox      *m_targetGroup       = nullptr;
+    QFormLayout    *m_targetForm        = nullptr;
+    QFormLayout    *m_fadeParamsForm    = nullptr;
+    QFormLayout    *m_speedForm         = nullptr;
+    QFormLayout    *m_effectForm        = nullptr;
+    QGroupBox      *m_micGroup          = nullptr;
+    QFormLayout    *m_micForm           = nullptr;
+    QGroupBox      *m_textContentGroup  = nullptr;
+    QGroupBox      *m_textFmtGroup      = nullptr;
+    QFormLayout    *m_textFmtForm       = nullptr;
+    QGroupBox      *m_recGroup          = nullptr;
+    QFormLayout    *m_recForm           = nullptr;
+    QLabel         *m_uscitaLabel       = nullptr;
+    QLabel         *m_rateLabel         = nullptr;
+    QLabel         *m_slicesLabel       = nullptr;
+    QLabel         *m_recLevelLabel     = nullptr;
+    QCheckBox      *m_pitchCheck        = nullptr;
 
     QWidget        *m_emptyWidget;
     QStackedWidget *m_stack;
