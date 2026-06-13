@@ -42,11 +42,11 @@ jobs:
 
       - name: Deploy Qt
         run: |
-          $(brew --prefix qt6)/bin/macdeployqt build/openqlab.app -dmg
-          codesign --force --deep --sign - build/openqlab.app
+          $(brew --prefix qt6)/bin/macdeployqt build/oql.app -dmg
+          codesign --force --deep --sign - build/oql.app
 
       - name: Rename DMG
-        run: mv build/openqlab.dmg build/OpenQLab-macOS-${{ matrix.arch }}.dmg
+        run: mv build/oql.dmg build/OpenQLab-macOS-${{ matrix.arch }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
