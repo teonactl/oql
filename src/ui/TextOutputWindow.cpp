@@ -9,7 +9,7 @@
 TextOutputWindow::TextOutputWindow(QWidget *parent)
     : QWidget(parent, Qt::Window)
 {
-    setWindowTitle("Text Output — OpenQLab");
+    setWindowTitle("Text Output — OQL");
     setStyleSheet("background: black;");
     resize(1280, 720);
 

@@ -6,7 +6,7 @@
 VideoOutputWindow::VideoOutputWindow(QWidget *parent)
     : QWidget(parent, Qt::Window)
 {
-    setWindowTitle("Video Output — OpenQLab");
+    setWindowTitle("Video Output — OQL");
     setStyleSheet("background: black;");
     resize(1280, 720);
 

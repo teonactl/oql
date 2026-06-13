@@ -1405,7 +1405,7 @@ void MainWindow::doUndoable(const QString &desc, std::function<void()> fn) {
 }
 
 void MainWindow::addToRecentFiles(const QString &path) {
-    QSettings s("OpenQLab", "OpenQLab");
+    QSettings s("OQL", "OQL");
     QStringList recent = s.value("recentFiles").toStringList();
     recent.removeAll(path);
     recent.prepend(path);
@@ -1417,7 +1417,7 @@ void MainWindow::addToRecentFiles(const QString &path) {
 void MainWindow::rebuildRecentMenu() {
     if (!m_recentMenu) return;
     m_recentMenu->clear();
-    QSettings s("OpenQLab", "OpenQLab");
+    QSettings s("OQL", "OQL");
     const QStringList recent = s.value("recentFiles").toStringList();
     for (const QString &path : recent) {
         const QString label = QFileInfo(path).fileName();
@@ -1436,7 +1436,7 @@ void MainWindow::openRecentFile(const QString &path) {
     if (!confirmUnsaved()) return;
     if (!m_workspace.load(path)) {
         QMessageBox::warning(this, "Errore", "Impossibile aprire il file:\n" + path);
-        QSettings s("OpenQLab", "OpenQLab");
+        QSettings s("OQL", "OQL");
         QStringList recent = s.value("recentFiles").toStringList();
         recent.removeAll(path);
         s.setValue("recentFiles", recent);

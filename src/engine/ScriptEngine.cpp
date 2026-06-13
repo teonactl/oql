@@ -151,7 +151,7 @@ private:
     QString request(const QByteArray &method, const QString &url,
                     const QByteArray &body, const QString &contentType) {
         QNetworkRequest req{QUrl{url}};
-        req.setHeader(QNetworkRequest::UserAgentHeader, "OpenQLab/1.0");
+        req.setHeader(QNetworkRequest::UserAgentHeader, "OQL/1.0");
         if (!contentType.isEmpty())
             req.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
 
