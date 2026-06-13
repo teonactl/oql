@@ -1,0 +1,71 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [main, feature/**]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            liblilv-dev libsuil-dev libsoundtouch-dev \
+            libx11-dev pkg-config \
+            libfuse2
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOQL_EDITION=full
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package AppImage
+        run: |
+          wget -q -O linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q -O linuxdeploy-plugin-qt \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+
+          install -Dm755 build/oql AppDir/usr/bin/oql
+          install -Dm644 resources/openqlab.svg \
+            AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
+          sed 's|^Exec=.*|Exec=oql|; s|^Icon=.*|Icon=oql|' \
+            resources/openqlab.desktop \
+            > AppDir/usr/share/applications/oql.desktop
+
+          QMAKE=$(which qmake) \
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+          ./linuxdeploy --appdir AppDir --plugin qt --output appimage
+
+          find . -maxdepth 1 -name '*.AppImage' \
+            ! -name 'linuxdeploy' ! -name 'linuxdeploy-plugin-qt' \
+            -exec mv {} oql-linux.AppImage \;
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oql-linux-ci
+          path: oql-linux.AppImage
+          retention-days: 7

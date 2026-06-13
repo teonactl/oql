@@ -71,7 +71,8 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             liblilv-dev libsuil-dev libsoundtouch-dev \
-            libx11-dev pkg-config
+            libx11-dev pkg-config \
+            libfuse2
 
       # ── macOS deps ────────────────────────────────────────────
       - name: Install dependencies (macOS)
@@ -138,9 +139,13 @@ jobs:
             > AppDir/usr/share/applications/oql.desktop
 
           QMAKE=$(which qmake) \
+          APPIMAGE_EXTRACT_AND_RUN=1 \
           ./linuxdeploy --appdir AppDir --plugin qt --output appimage
 
-          mv OQL*.AppImage ${{ matrix.artifact }}.AppImage
+          # linuxdeploy names output oql-x86_64.AppImage
+          find . -maxdepth 1 -name '*.AppImage' \
+            ! -name 'linuxdeploy' ! -name 'linuxdeploy-plugin-qt' \
+            -exec mv {} ${{ matrix.artifact }}.AppImage \;
 
       # ── Package — macOS (.dmg) ────────────────────────────────
       - name: Package (macOS)

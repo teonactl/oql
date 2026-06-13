@@ -1,0 +1,73 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main, feature/**]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/packages
+          key: vcpkg-windows-lilv-soundtouch-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: vcpkg-windows-lilv-soundtouch-
+
+      - name: Install dependencies (Windows)
+        shell: pwsh
+        run: |
+          choco install pkgconfiglite -y
+          vcpkg install lilv:x64-windows soundtouch:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          $env:PKG_CONFIG_PATH = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DOQL_EDITION=full `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build\Release\oql.exe dist\
+          windeployqt --release dist\oql.exe
+          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
+            $src = "$vcpkgBin\$dll"
+            if (Test-Path $src) { Copy-Item $src dist\ }
+          }
+          Compress-Archive -Path dist\* -DestinationPath oql-windows-ci.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oql-windows-ci
+          path: oql-windows-ci.zip
+          retention-days: 7
