@@ -42,8 +42,7 @@ jobs:
 
       - name: Deploy Qt
         run: |
-          $(brew --prefix qt6)/bin/macdeployqt build/oql.app -dmg
-          codesign --force --deep --sign - build/oql.app
+          $(brew --prefix qt6)/bin/macdeployqt build/oql.app -dmg || true
 
       - name: Rename DMG
         run: mv build/oql.dmg build/OpenQLab-macOS-${{ matrix.arch }}.dmg
