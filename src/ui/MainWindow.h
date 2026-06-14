@@ -112,6 +112,9 @@ private:
     bool               m_showMode         = false;
     QToolButton       *m_showModeBtn      = nullptr;
     QShortcut         *m_showModeShortcut = nullptr;
+    bool               m_ultraDark        = false;
+    QToolButton       *m_ultraDarkBtn     = nullptr;
+    QString            m_normalQss;
     QVector<QToolButton*> m_cueAddBtns;
     QSplitter         *m_topSplit        = nullptr;
     QMap<QString, QShortcut*> m_addCueShortcuts;
@@ -130,4 +133,5 @@ private:
 
     void applyWebServer();
     void applyPanelLayout();
+    void applyUltraDark(bool on);
 };

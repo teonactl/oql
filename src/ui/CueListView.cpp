@@ -83,6 +83,13 @@ void CueListView::applyRowHeight() {
     verticalHeader()->setDefaultSectionSize(AppSettings::instance().cueListRowHeight());
 }
 
+void CueListView::setUltraDark(bool on) {
+    if (auto *d = qobject_cast<CueRowDelegate*>(itemDelegate()))
+        d->setUltraDark(on);
+    viewport()->setStyleSheet(on ? "background: #000000;" : "background: #0f1117;");
+    viewport()->update();
+}
+
 void CueListView::applyFont() {
     QFont f = font();
     const QString family = AppSettings::instance().cueListFontFamily();
@@ -438,15 +445,40 @@ void CueListView::mouseReleaseEvent(QMouseEvent *event) {
     QTableView::mouseReleaseEvent(event);
 }
 
-// ── Paint: highlight valid target rows during drag ────────────────────────────
+// ── Paint: selection overlay + drag highlights ────────────────────────────────
 
 void CueListView::paintEvent(QPaintEvent *event) {
     QTableView::paintEvent(event);
-    if ((m_validTargetRows.isEmpty() && m_validGroupRows.isEmpty()) || !model()) return;
+    if (!model()) return;
 
     QPainter p(viewport());
-    p.setRenderHint(QPainter::Antialiasing, false);
+    p.setRenderHint(QPainter::Antialiasing);
     const int lastCol = model()->columnCount() - 1;
+
+    // Selection overlay — drawn directly on the viewport, independent of delegate
+    // state flags (which QSS can suppress). Uses semi-transparent blue tint + left bar.
+    const bool ultraDark = [this]() {
+        const auto *d = qobject_cast<const CueRowDelegate*>(itemDelegate());
+        return d && d->isUltraDark();
+    }();
+    if (const QItemSelectionModel *sel = selectionModel()) {
+        const QColor kSelFill = ultraDark ? QColor(0x30, 0x30, 0x30, 180) : QColor(0x4f, 0x8e, 0xf7, 55);
+        const QColor kSelBar  = ultraDark ? QColor(0x44, 0x44, 0x44)       : QColor(0x4f, 0x8e, 0xf7);
+        for (int row = 0; row < model()->rowCount(); ++row) {
+            if (!sel->isRowSelected(row, QModelIndex())) continue;
+            const QRect r = visualRect(model()->index(row, 0));
+            if (!r.isValid()) continue;
+            const QRectF card(0, r.top() + 3, viewport()->width(), r.height() - 6);
+            p.setPen(Qt::NoPen);
+            p.setBrush(kSelFill);
+            p.drawRoundedRect(card, 7, 7);
+            p.setBrush(kSelBar);
+            p.drawRoundedRect(QRectF(0, card.top() + 1, 5, card.height() - 2), 2.5, 2.5);
+        }
+    }
+
+    if (m_validTargetRows.isEmpty() && m_validGroupRows.isEmpty()) return;
+    p.setRenderHint(QPainter::Antialiasing, false);
 
     auto rowRect = [&](int row) {
         return visualRect(model()->index(row, 0))

@@ -17,8 +17,17 @@ QSize CueRowDelegate::sizeHint(const QStyleOptionViewItem &opt, const QModelInde
     return QStyledItemDelegate::sizeHint(opt, idx);
 }
 
-QColor CueRowDelegate::cardColor(const QModelIndex &idx, bool isSelected, bool isHovered)
+static const QColor kUltraDarkCard(0x18, 0x18, 0x18);
+static const QColor kUltraDarkSel (0x28, 0x28, 0x28);
+
+QColor CueRowDelegate::cardColor(const QModelIndex &idx, bool isSelected, bool isHovered, bool ultraDark)
 {
+    if (ultraDark) {
+        if (isSelected) return kUltraDarkSel;
+        if (isHovered)  return QColor(0x22, 0x22, 0x22);
+        return kUltraDarkCard;
+    }
+
     const QVariant bgVar = idx.sibling(idx.row(), CueListModel::ColNumber).data(Qt::BackgroundRole);
     QColor base = kCardDefault;
     if (bgVar.canConvert<QColor>()) {
@@ -37,8 +46,9 @@ QColor CueRowDelegate::cardColor(const QModelIndex &idx, bool isSelected, bool i
     return base;
 }
 
-QColor CueRowDelegate::badgeColor(Cue::Type t)
+QColor CueRowDelegate::badgeColor(Cue::Type t, bool ultraDark)
 {
+    if (ultraDark) return QColor(0x2a, 0x2a, 0x2a);
     using T = Cue::Type;
     switch (t) {
     case T::Audio:       return QColor(0x1e, 0x40, 0xaf);
@@ -105,17 +115,16 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
 
         p->setClipping(false);
         p->setPen(Qt::NoPen);
-        p->setBrush(cardColor(idx, isSelected, isHovered));
+        p->setBrush(cardColor(idx, isSelected, isHovered, m_ultraDark));
         p->drawRoundedRect(card, kRadius, kRadius);
         if (isSelected) {
-            // Thick blue left bar — unmistakable selection indicator
-            p->setBrush(kSelBlue);
+            p->setBrush(m_ultraDark ? QColor(0x44, 0x44, 0x44) : kSelBlue);
             p->drawRoundedRect(QRectF(0, card.top() + 1, 6, card.height() - 2), 2, 2);
         }
         p->setClipping(true);
 
         // Number — muted, right-aligned
-        p->setPen(kTextMuted);
+        p->setPen(m_ultraDark ? QColor(0x33, 0x33, 0x33) : kTextMuted);
         p->setFont(opt.font);
         p->drawText(opt.rect.adjusted(4, 0, -4, 0),
                     Qt::AlignVCenter | Qt::AlignRight,
@@ -135,7 +144,7 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
                               opt.rect.center().y() - bh / 2,
                               bw, bh);
             p->setPen(Qt::NoPen);
-            p->setBrush(badgeColor(type));
+            p->setBrush(badgeColor(type, m_ultraDark));
             p->drawRoundedRect(badge, 3, 3);
 
             QFont f = opt.font;
@@ -150,9 +159,13 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
     }
 
     // ── All other columns: text only ───────────────────────────────────────────
-    QColor textColor = kTextMain;
-    const QVariant fg = idx.data(Qt::ForegroundRole);
-    if (fg.canConvert<QColor>()) textColor = fg.value<QColor>();
+    static const QColor kUltraDarkText (0x44, 0x44, 0x44);
+    static const QColor kUltraDarkMuted(0x33, 0x33, 0x33);
+    QColor textColor = m_ultraDark ? kUltraDarkText : kTextMain;
+    if (!m_ultraDark) {
+        const QVariant fg = idx.data(Qt::ForegroundRole);
+        if (fg.canConvert<QColor>()) textColor = fg.value<QColor>();
+    }
     p->setPen(textColor);
 
     const QVariant fontVar = idx.data(Qt::FontRole);
@@ -163,7 +176,7 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
      || col == CueListModel::ColDuration
      || col == CueListModel::ColPostWait) {
         align = Qt::AlignVCenter | Qt::AlignRight;
-        p->setPen(kTextMuted);
+        p->setPen(m_ultraDark ? kUltraDarkMuted : kTextMuted);
     } else if (col == CueListModel::ColContinue) {
         align = Qt::AlignCenter;
     }

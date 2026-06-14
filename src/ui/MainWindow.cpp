@@ -789,9 +789,20 @@ void MainWindow::buildToolBar() {
         p.drawArc(7, 6, 14, 16, 0, 180*16);
         p.drawLine(4, 14, 24, 14);
     });
+    // ── Helper per stile toggle buttons — bordo colorato ON, trasparente OFF ──
+    auto toggleQss = [](const QString &onBg, const QString &onBorder) -> QString {
+        return QString(
+            "QToolButton { border:2px solid transparent; border-radius:5px; min-width:38px; min-height:38px; }"
+            "QToolButton:hover   { background:rgba(255,255,255,18); }"
+            "QToolButton:pressed { background:rgba(0,0,0,30); }"
+            "QToolButton:checked { background:%1; border:2px solid %2; }").arg(onBg, onBorder);
+    };
+
     m_webAction = tb->addAction(webIcon, tr("Remote"));
     m_webAction->setCheckable(true);
     m_webAction->setToolTip(tr("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)"));
+    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_webAction)))
+        w->setStyleSheet(toggleQss("rgba(79,142,247,45)", "#4f8ef7"));
     connect(m_webAction, &QAction::toggled, this, [this](bool on) {
         if (on == m_webServer->isRunning()) return;
         if (on) m_webServer->start(AppSettings::instance().webPort());
@@ -810,6 +821,8 @@ void MainWindow::buildToolBar() {
     m_videoAction = tb->addAction(videoOutIcon, tr("Video Out"));
     m_videoAction->setCheckable(true);
     m_videoAction->setToolTip(tr("Mostra / nascondi finestra Video Out"));
+    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_videoAction)))
+        w->setStyleSheet(toggleQss("rgba(60,200,110,45)", "#3cc87a"));
     connect(m_videoAction, &QAction::toggled, this, [this](bool on) {
         m_videoOut->setVisible(on);
     });
@@ -826,14 +839,37 @@ void MainWindow::buildToolBar() {
     m_textAction = tb->addAction(textOutIcon, tr("Text Out"));
     m_textAction->setCheckable(true);
     m_textAction->setToolTip(tr("Mostra / nascondi finestra Text Out"));
+    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_textAction)))
+        w->setStyleSheet(toggleQss("rgba(30,180,210,45)", "#1eb4d2"));
     connect(m_textAction, &QAction::toggled, this, [this](bool on) {
         m_textOut->setVisible(on);
     });
 
-    // ── Expanding spacer → Show Mode isolated far right ───────────────────────
+    // ── Expanding spacer → destra ─────────────────────────────────────────────
     auto *tbSpacer = new QWidget;
     tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(tbSpacer);
+
+    // ── Ultra Dark Mode — luna ────────────────────────────────────────────────
+    auto ultraDarkIcon = makeTbIconFlat([](QPainter &p) {
+        // Luna crescente
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        p.drawEllipse(6, 5, 18, 18);
+        p.setBrush(QColor(0x12, 0x15, 0x1f));  // same as toolbar bg — carves out crescent
+        p.drawEllipse(10, 3, 16, 16);
+    });
+    m_ultraDarkBtn = new QToolButton;
+    m_ultraDarkBtn->setIcon(ultraDarkIcon);
+    m_ultraDarkBtn->setIconSize({32, 32});
+    m_ultraDarkBtn->setFixedSize(40, 40);
+    m_ultraDarkBtn->setToolTip(tr("Ultra Dark Mode — schermo terminale nero"));
+    m_ultraDarkBtn->setCheckable(true);
+    m_ultraDarkBtn->setStyleSheet(toggleQss("rgba(180,160,80,40)", "#b8a050"));
+    connect(m_ultraDarkBtn, &QToolButton::toggled, this, [this](bool on) {
+        applyUltraDark(on);
+    });
+    tb->addWidget(m_ultraDarkBtn);
 
     auto showModeIcon = makeTbIcon(QColor(0x33, 0x55, 0x66), [](QPainter &p) {
         p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
@@ -850,10 +886,7 @@ void MainWindow::buildToolBar() {
     showBtn->setFixedSize(40, 40);
     showBtn->setToolTip(tr("Modalità Show — visualizzazione senza modifiche"));
     showBtn->setCheckable(true);
-    showBtn->setStyleSheet(
-        "QToolButton { border-radius:5px; }"
-        "QToolButton:checked { background:#1e5a3a; border:2px solid #3ccc77; }"
-        "QToolButton:hover   { background:rgba(255,255,255,18); }");
+    showBtn->setStyleSheet(toggleQss("rgba(60,200,110,45)", "#3ccc77"));
     connect(showBtn, &QToolButton::toggled, this, [this](bool on) {
         m_showMode = on;
         m_inspector->setShowMode(on);
@@ -1142,6 +1175,33 @@ void MainWindow::applyPanelLayout() {
             break;
         }
     }
+}
+
+void MainWindow::applyUltraDark(bool on) {
+    m_ultraDark = on;
+
+    if (on && m_normalQss.isEmpty())
+        m_normalQss = qApp->styleSheet();
+
+    if (on) {
+        static const QString kExtra =
+            "QMainWindow { background:#000000; }"
+            "QToolBar { background:#000000; border-bottom:1px solid #111111; }"
+            "QStatusBar { background:#000000; border-top:1px solid #111111; }"
+            "QSplitter::handle { background:#111111; }"
+            "QHeaderView { background:#000000; }"
+            "QHeaderView::section { background:#000000; color:#222222; border:none;"
+            "  border-bottom:1px solid #111111; padding:4px 8px; }"
+            "QScrollBar:vertical { background:#000000; }"
+            "QScrollBar::handle:vertical { background:#1a1a1a; }"
+            "QScrollBar:horizontal { background:#000000; }"
+            "QScrollBar::handle:horizontal { background:#1a1a1a; }";
+        qApp->setStyleSheet(m_normalQss + kExtra);
+    } else {
+        qApp->setStyleSheet(m_normalQss);
+    }
+
+    m_cueView->setUltraDark(on);
 }
 
 QString MainWindow::nextCueNumber() {

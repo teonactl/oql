@@ -58,6 +58,7 @@ protected:
 public:
     void applyRowHeight();
     void applyFont();
+    void setUltraDark(bool on);
 
 private:
     void stretchFlexColumns();
