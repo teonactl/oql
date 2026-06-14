@@ -1365,7 +1365,8 @@ void InspectorPanel::updateMediaSection() {
         m_textItalicCheck->blockSignals(true);
         m_textAlignCombo->blockSignals(true);
 
-        m_textContent->setPlainText(tc->text());
+        if (!m_textContent->hasFocus())
+            m_textContent->setPlainText(tc->text());
         m_fontFamilyCombo->setCurrentFont(QFont(tc->fontFamily()));
         m_fontSizeSpin->setValue(tc->fontSize());
         m_textBoldCheck->setChecked(tc->bold());

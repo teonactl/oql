@@ -33,9 +33,10 @@ public:
     ~MainWindow() override;
 
 protected:
-    void closeEvent(QCloseEvent *event)  override;
-    void keyPressEvent(QKeyEvent *event) override;
-    void changeEvent(QEvent *event)      override;
+    void closeEvent(QCloseEvent *event)         override;
+    void keyPressEvent(QKeyEvent *event)        override;
+    void changeEvent(QEvent *event)             override;
+    bool eventFilter(QObject *obj, QEvent *ev) override;
 
 private slots:
     void newWorkspace();
@@ -103,6 +104,8 @@ private:
     QUndoStack        *m_undoStack       = nullptr;
     WebServer         *m_webServer       = nullptr;
     QAction           *m_webAction        = nullptr;
+    QAction           *m_videoAction      = nullptr;
+    QAction           *m_textAction       = nullptr;
     QLabel            *m_webUrlLabel      = nullptr;
     bool               m_showMode         = false;
     QToolButton       *m_showModeBtn      = nullptr;

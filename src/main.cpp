@@ -56,6 +56,7 @@ static void applyDarkTheme(QApplication &app)
         "QToolButton { color:#e2e8f0; border:none; border-radius:5px; padding:3px; }"
         "QToolButton:hover { background:rgba(255,255,255,14); }"
         "QToolButton:pressed { background:rgba(0,0,0,30); }"
+        "QToolButton:checked { background:rgba(79,142,247,30); border:2px solid rgba(79,142,247,200); border-radius:5px; }"
         "QTableView { background:#0f1117; alternate-background-color:#0f1117;"
         "  border:none; gridline-color:transparent;"
         "  selection-background-color:transparent; selection-color:#e2e8f0; }"

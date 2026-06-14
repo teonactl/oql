@@ -133,6 +133,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_videoOut  = new VideoOutputWindow(this);
     m_textOut   = new TextOutputWindow(this);
+    m_videoOut->installEventFilter(this);
+    m_textOut->installEventFilter(this);
     m_undoStack = new QUndoStack(this);
 
     buildUi();
@@ -151,7 +153,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_webServer = new WebServer(m_workspace.cueList(), this);
     connect(m_webServer, &WebServer::started, this, [this](quint16) {
         const QString url = m_webServer->localUrl();
-        m_webUrlLabel->setText("  🌐 " + url);
+        m_webUrlLabel->setText("  Web: " + url);
         m_webUrlLabel->show();
         statusBar()->show();
         const QSignalBlocker b(m_webAction);
@@ -782,8 +784,12 @@ void MainWindow::buildToolBar() {
         p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
         p.drawLine(14, 18, 14, 22); p.drawLine(9, 22, 19, 22);
     });
-    auto *videoWin = tb->addAction(videoOutIcon, tr("Video Out"));
-    connect(videoWin, &QAction::triggered, this, &MainWindow::toggleVideoOutput);
+    m_videoAction = tb->addAction(videoOutIcon, tr("Video Out"));
+    m_videoAction->setCheckable(true);
+    m_videoAction->setToolTip(tr("Mostra / nascondi finestra Video Out"));
+    connect(m_videoAction, &QAction::toggled, this, [this](bool on) {
+        m_videoOut->setVisible(on);
+    });
 
     auto textOutIcon = makeTbIcon(QColor(0x0a, 0x5a, 0x7a), [](QPainter &p) {
         p.setPen(QPen(Qt::white, 1.5)); p.setBrush(QColor(255,255,255,30));
@@ -794,10 +800,11 @@ void MainWindow::buildToolBar() {
         p.drawLine(9, 17, 19, 17);
         p.drawLine(9, 21, 16, 21);
     });
-    auto *textWin = tb->addAction(textOutIcon, tr("Text Out"));
-    connect(textWin, &QAction::triggered, this, [this]() {
-        if (m_textOut->isVisible()) m_textOut->hide();
-        else                        m_textOut->show();
+    m_textAction = tb->addAction(textOutIcon, tr("Text Out"));
+    m_textAction->setCheckable(true);
+    m_textAction->setToolTip(tr("Mostra / nascondi finestra Text Out"));
+    connect(m_textAction, &QAction::toggled, this, [this](bool on) {
+        m_textOut->setVisible(on);
     });
 
     // ── Expanding spacer → Show Mode isolated far right ───────────────────────
@@ -1418,7 +1425,29 @@ bool MainWindow::saveWorkspaceAs() {
 // ── Video output ──────────────────────────────────────────────────────────────
 
 void MainWindow::toggleVideoOutput() {
-    m_videoOut->setVisible(!m_videoOut->isVisible());
+    const bool nowVisible = !m_videoOut->isVisible();
+    if (m_videoAction) {
+        const QSignalBlocker b(m_videoAction);
+        m_videoAction->setChecked(nowVisible);
+    }
+    m_videoOut->setVisible(nowVisible);
+}
+
+// ── Event filter: sync toggle-action checked state with window visibility ─────
+
+bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
+    const auto type = ev->type();
+    if (type == QEvent::Show || type == QEvent::Hide) {
+        const bool visible = (type == QEvent::Show);
+        if (obj == m_videoOut && m_videoAction && m_videoAction->isChecked() != visible) {
+            const QSignalBlocker b(m_videoAction);
+            m_videoAction->setChecked(visible);
+        } else if (obj == m_textOut && m_textAction && m_textAction->isChecked() != visible) {
+            const QSignalBlocker b(m_textAction);
+            m_textAction->setChecked(visible);
+        }
+    }
+    return QMainWindow::eventFilter(obj, ev);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

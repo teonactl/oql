@@ -1,6 +1,7 @@
 #include "CueRowDelegate.h"
 #include "CueListModel.h"
 #include <QPainter>
+#include <QAbstractItemView>
 
 static constexpr int kGap    = 3;
 static constexpr int kRadius = 7;
@@ -16,7 +17,7 @@ QSize CueRowDelegate::sizeHint(const QStyleOptionViewItem &opt, const QModelInde
     return QStyledItemDelegate::sizeHint(opt, idx);
 }
 
-QColor CueRowDelegate::cardColor(const QModelIndex &idx, QStyle::State state)
+QColor CueRowDelegate::cardColor(const QModelIndex &idx, bool isSelected, bool isHovered)
 {
     const QVariant bgVar = idx.sibling(idx.row(), CueListModel::ColNumber).data(Qt::BackgroundRole);
     QColor base = kCardDefault;
@@ -25,12 +26,12 @@ QColor CueRowDelegate::cardColor(const QModelIndex &idx, QStyle::State state)
         if (c.isValid()) base = c;
     }
 
-    if (state & QStyle::State_Selected) {
-        base = QColor((base.red()   * 3 + kSelBlue.red())   / 4,
-                      (base.green() * 3 + kSelBlue.green()) / 4,
-                      (base.blue()  * 3 + kSelBlue.blue())  / 4);
-        base = base.lighter(130);
-    } else if (state & QStyle::State_MouseOver) {
+    if (isSelected) {
+        // 50/50 blend with blue for clearly visible selection
+        base = QColor((base.red()   + kSelBlue.red())   / 2,
+                      (base.green() + kSelBlue.green()) / 2,
+                      (base.blue()  + kSelBlue.blue())  / 2);
+    } else if (isHovered) {
         base = base.lighter(118);
     }
     return base;
@@ -88,6 +89,13 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
+    // Query the selection model directly — QSS may suppress State_Selected flag.
+    const auto *view = qobject_cast<const QAbstractItemView*>(opt.widget);
+    const bool isSelected = view && view->selectionModel()
+        ? view->selectionModel()->isRowSelected(idx.row(), idx.parent())
+        : bool(opt.state & QStyle::State_Selected);
+    const bool isHovered = bool(opt.state & QStyle::State_MouseOver);
+
     // ── Card background — drawn in ColNumber, unclipped, spans full viewport ──
     if (col == CueListModel::ColNumber) {
         const int vw = opt.widget ? opt.widget->width() : opt.rect.right();
@@ -95,11 +103,12 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
 
         p->setClipping(false);
         p->setPen(Qt::NoPen);
-        p->setBrush(cardColor(idx, opt.state));
+        p->setBrush(cardColor(idx, isSelected, isHovered));
         p->drawRoundedRect(card, kRadius, kRadius);
-        if (opt.state & QStyle::State_Selected) {
+        if (isSelected) {
+            // Thick blue left bar — unmistakable selection indicator
             p->setBrush(kSelBlue);
-            p->drawRoundedRect(QRectF(0, card.top() + 2, 4, card.height() - 4), 2, 2);
+            p->drawRoundedRect(QRectF(0, card.top() + 1, 6, card.height() - 2), 2, 2);
         }
         p->setClipping(true);
 
