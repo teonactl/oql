@@ -8,6 +8,9 @@ on:
         required: false
         default: '2026-12-14'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -153,10 +156,27 @@ jobs:
           }
           Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
 
-      # ── Upload ────────────────────────────────────────────────────
+      # ── Upload artifact (30-day backup) ──────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.${{ matrix.ext }}
           retention-days: 30
+
+      # ── Publish to beta-latest release (URL stabile) ─────────────
+      - name: Publish to beta-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta-latest
+          name: "Beta — versione di test (scade ${{ inputs.expiry || '2026-12-14' }})"
+          prerelease: true
+          body: |
+            **Versione BETA per test interno.**
+
+            - Scade il ${{ inputs.expiry || '2026-12-14' }}
+            - Edizione: Full (include tutti i cue type)
+            - Non distribuire a terzi
+
+            Build automatica via GitHub Actions.
+          files: ${{ matrix.artifact }}.${{ matrix.ext }}
