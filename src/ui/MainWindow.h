@@ -25,6 +25,7 @@ class QSplitter;
 class QToolButton;
 class QPushButton;
 class QShortcut;
+class UltraDarkWindow;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -110,11 +111,12 @@ private:
     QToolButton       *m_webCopyBtn       = nullptr;
     QString            m_currentWebUrl;
     bool               m_showMode         = false;
-    QToolButton       *m_showModeBtn      = nullptr;
+    QWidget           *m_showModeBtn      = nullptr;  // PillToggle*
     QShortcut         *m_showModeShortcut = nullptr;
     bool               m_ultraDark        = false;
-    QToolButton       *m_ultraDarkBtn     = nullptr;
+    QWidget           *m_ultraDarkBtn     = nullptr;  // PillToggle*
     QString            m_normalQss;
+    UltraDarkWindow   *m_ultraDarkWin     = nullptr;
     QVector<QToolButton*> m_cueAddBtns;
     QSplitter         *m_topSplit        = nullptr;
     QMap<QString, QShortcut*> m_addCueShortcuts;

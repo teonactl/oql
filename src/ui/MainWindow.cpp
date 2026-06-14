@@ -49,7 +49,95 @@
 #include <QShortcut>
 #include <QPainter>
 #include <QClipboard>
+#include <QMouseEvent>
+#include <QItemSelectionModel>
 #include <algorithm>
+
+// ── PillToggle — modern web-style pill switch ─────────────────────────────────
+class PillToggle : public QWidget {
+    Q_OBJECT
+    QString m_label;
+    QColor  m_onColor;
+    bool    m_checked = false;
+public:
+    explicit PillToggle(const QString &label, const QColor &onColor, QWidget *parent = nullptr)
+        : QWidget(parent), m_label(label), m_onColor(onColor)
+    {
+        setFixedSize(70, 70);
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover);
+    }
+    bool isChecked() const { return m_checked; }
+    void setChecked(bool on) {
+        if (m_checked == on) return;
+        m_checked = on;
+        update();
+        emit toggled(on);
+    }
+signals:
+    void toggled(bool);
+protected:
+    void mousePressEvent(QMouseEvent *) override { setChecked(!m_checked); }
+    void paintEvent(QPaintEvent *) override {
+        constexpr int PW = 46, PH = 24;
+        const int px = (width() - PW) / 2;
+        const int py = 10;
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        // Pill track
+        const QColor track = m_checked ? m_onColor : QColor(0x3a,0x3e,0x4a);
+        p.setPen(Qt::NoPen);
+        p.setBrush(track);
+        p.drawRoundedRect(px, py, PW, PH, PH/2, PH/2);
+        // Knob
+        const int kd = PH - 4;
+        const int kx = m_checked ? px + PW - kd - 2 : px + 2;
+        p.setBrush(Qt::white);
+        p.drawEllipse(kx, py + 2, kd, kd);
+        // Label
+        QFont f = font();
+        f.setPointSize(8);
+        p.setFont(f);
+        p.setPen(QColor(0x88,0x92,0xa4));
+        p.drawText(QRect(0, py + PH + 5, width(), 16), Qt::AlignCenter, m_label);
+    }
+};
+
+// ── UltraDarkWindow — finestra separata terminale ──────────────────────────────
+class UltraDarkWindow : public QMainWindow {
+    Q_OBJECT
+public:
+    explicit UltraDarkWindow(CueListModel *model, QItemSelectionModel *selModel,
+                              QWidget *parent = nullptr)
+        : QMainWindow(parent, Qt::Window)
+    {
+        setWindowTitle("OQL — Dark");
+        resize(700, 600);
+        setAttribute(Qt::WA_DeleteOnClose, false);
+
+        // Pure black window
+        QPalette pal = palette();
+        pal.setColor(QPalette::Window, Qt::black);
+        pal.setColor(QPalette::Base,   Qt::black);
+        setPalette(pal);
+        setStyleSheet("QMainWindow { background:#000000; } "
+                      "QHeaderView, QHeaderView::section { background:#000000; color:#222222; border:none; }");
+
+        m_view = new CueListView(model, this);
+        // Share selection model with main window
+        m_view->setSelectionModel(selModel);
+        m_view->setUltraDark(true);
+        m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        setCentralWidget(m_view);
+
+        // No menu, no status bar
+        menuBar()->hide();
+        statusBar()->hide();
+    }
+    CueListView *cueView() { return m_view; }
+private:
+    CueListView *m_view = nullptr;
+};
 
 // ── GoButton: QPushButton with fully custom paintEvent to avoid Qt decoration artifacts ──
 class GoButton : public QPushButton {
@@ -782,112 +870,61 @@ void MainWindow::buildToolBar() {
     tb->addSeparator();
 #endif
 
-    auto webIcon = makeTbIcon(QColor(0x1a, 0x5c, 0xcc), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
-        p.drawEllipse(4, 4, 20, 20);
-        p.drawLine(14, 4, 14, 24);
-        p.drawArc(7, 6, 14, 16, 0, 180*16);
-        p.drawLine(4, 14, 24, 14);
-    });
-    // ── Helper per stile toggle buttons — bordo colorato ON, trasparente OFF ──
-    auto toggleQss = [](const QString &onBg, const QString &onBorder) -> QString {
-        return QString(
-            "QToolButton { border:2px solid transparent; border-radius:5px; min-width:38px; min-height:38px; }"
-            "QToolButton:hover   { background:rgba(255,255,255,18); }"
-            "QToolButton:pressed { background:rgba(0,0,0,30); }"
-            "QToolButton:checked { background:%1; border:2px solid %2; }").arg(onBg, onBorder);
-    };
-
-    m_webAction = tb->addAction(webIcon, tr("Remote"));
+    // ── Toggle pill buttons ─────────────────────────────────────────────────────
+    // Web Remote
+    m_webAction = new QAction(this);
     m_webAction->setCheckable(true);
-    m_webAction->setToolTip(tr("Avvia / ferma Web Remote (controllabile anche da Impostazioni → Remote)"));
-    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_webAction)))
-        w->setStyleSheet(toggleQss("rgba(79,142,247,45)", "#4f8ef7"));
     connect(m_webAction, &QAction::toggled, this, [this](bool on) {
         if (on == m_webServer->isRunning()) return;
         if (on) m_webServer->start(AppSettings::instance().webPort());
         else    m_webServer->stop();
     });
+    auto *webPill = new PillToggle(tr("Web"), QColor(0x4f,0x8e,0xf7));
+    webPill->setToolTip(tr("Avvia / ferma Web Remote"));
+    connect(webPill, &PillToggle::toggled, m_webAction, &QAction::setChecked);
+    connect(m_webAction, &QAction::toggled, webPill, &PillToggle::setChecked);
+    tb->addWidget(webPill);
 
-    auto videoOutIcon = makeTbIcon(QColor(0x1a, 0x6a, 0x44), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(QColor(255,255,255,40));
-        p.drawRoundedRect(3, 4, 22, 14, 2, 2);
-        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
-        QPolygon tri; tri << QPoint(10,7) << QPoint(10,15) << QPoint(20,11);
-        p.drawPolygon(tri);
-        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
-        p.drawLine(14, 18, 14, 22); p.drawLine(9, 22, 19, 22);
-    });
-    m_videoAction = tb->addAction(videoOutIcon, tr("Video Out"));
+    // Video Out
+    m_videoAction = new QAction(this);
     m_videoAction->setCheckable(true);
-    m_videoAction->setToolTip(tr("Mostra / nascondi finestra Video Out"));
-    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_videoAction)))
-        w->setStyleSheet(toggleQss("rgba(60,200,110,45)", "#3cc87a"));
     connect(m_videoAction, &QAction::toggled, this, [this](bool on) {
         m_videoOut->setVisible(on);
     });
+    auto *videoPill = new PillToggle(tr("Video"), QColor(0x3c,0xc8,0x7a));
+    videoPill->setToolTip(tr("Mostra / nascondi finestra Video Out"));
+    connect(videoPill, &PillToggle::toggled, m_videoAction, &QAction::setChecked);
+    connect(m_videoAction, &QAction::toggled, videoPill, &PillToggle::setChecked);
+    tb->addWidget(videoPill);
 
-    auto textOutIcon = makeTbIcon(QColor(0x0a, 0x5a, 0x7a), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(QColor(255,255,255,30));
-        p.drawRoundedRect(6, 3, 16, 22, 1, 1);
-        p.setPen(QPen(Qt::white, 1.5));
-        p.drawLine(9, 9,  19, 9);
-        p.drawLine(9, 13, 19, 13);
-        p.drawLine(9, 17, 19, 17);
-        p.drawLine(9, 21, 16, 21);
-    });
-    m_textAction = tb->addAction(textOutIcon, tr("Text Out"));
+    // Text Out
+    m_textAction = new QAction(this);
     m_textAction->setCheckable(true);
-    m_textAction->setToolTip(tr("Mostra / nascondi finestra Text Out"));
-    if (auto *w = qobject_cast<QToolButton*>(tb->widgetForAction(m_textAction)))
-        w->setStyleSheet(toggleQss("rgba(30,180,210,45)", "#1eb4d2"));
     connect(m_textAction, &QAction::toggled, this, [this](bool on) {
         m_textOut->setVisible(on);
     });
+    auto *textPill = new PillToggle(tr("Testo"), QColor(0x1e,0xb4,0xd2));
+    textPill->setToolTip(tr("Mostra / nascondi finestra Text Out"));
+    connect(textPill, &PillToggle::toggled, m_textAction, &QAction::setChecked);
+    connect(m_textAction, &QAction::toggled, textPill, &PillToggle::setChecked);
+    tb->addWidget(textPill);
 
-    // ── Expanding spacer → destra ─────────────────────────────────────────────
+    // ── Expanding spacer ────────────────────────────────────────────────────────
     auto *tbSpacer = new QWidget;
     tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(tbSpacer);
 
-    // ── Ultra Dark Mode — luna ────────────────────────────────────────────────
-    auto ultraDarkIcon = makeTbIconFlat([](QPainter &p) {
-        // Luna crescente
-        p.setPen(Qt::NoPen);
-        p.setBrush(Qt::white);
-        p.drawEllipse(6, 5, 18, 18);
-        p.setBrush(QColor(0x12, 0x15, 0x1f));  // same as toolbar bg — carves out crescent
-        p.drawEllipse(10, 3, 16, 16);
-    });
-    m_ultraDarkBtn = new QToolButton;
-    m_ultraDarkBtn->setIcon(ultraDarkIcon);
-    m_ultraDarkBtn->setIconSize({32, 32});
-    m_ultraDarkBtn->setFixedSize(40, 40);
-    m_ultraDarkBtn->setToolTip(tr("Ultra Dark Mode — schermo terminale nero"));
-    m_ultraDarkBtn->setCheckable(true);
-    m_ultraDarkBtn->setStyleSheet(toggleQss("rgba(180,160,80,40)", "#b8a050"));
-    connect(m_ultraDarkBtn, &QToolButton::toggled, this, [this](bool on) {
-        applyUltraDark(on);
-    });
-    tb->addWidget(m_ultraDarkBtn);
+    // Dark Mode
+    auto *darkPill = new PillToggle(tr("Dark"), QColor(0xb8,0xa0,0x50));
+    darkPill->setToolTip(tr("Ultra Dark Mode — finestra terminale nera"));
+    connect(darkPill, &PillToggle::toggled, this, [this](bool on) { applyUltraDark(on); });
+    m_ultraDarkBtn = darkPill;
+    tb->addWidget(darkPill);
 
-    auto showModeIcon = makeTbIcon(QColor(0x33, 0x55, 0x66), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
-        QPainterPath eyePath;
-        eyePath.moveTo(2, 14); eyePath.quadTo(14, 3, 26, 14);
-        eyePath.quadTo(14, 25, 2, 14);
-        p.drawPath(eyePath);
-        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
-        p.drawEllipse(QPointF(14, 14), 4.5, 4.5);
-    });
-    auto *showBtn = new QToolButton;
-    showBtn->setIcon(showModeIcon);
-    showBtn->setIconSize({32, 32});
-    showBtn->setFixedSize(40, 40);
-    showBtn->setToolTip(tr("Modalità Show — visualizzazione senza modifiche"));
-    showBtn->setCheckable(true);
-    showBtn->setStyleSheet(toggleQss("rgba(60,200,110,45)", "#3ccc77"));
-    connect(showBtn, &QToolButton::toggled, this, [this](bool on) {
+    // Show Mode
+    auto *showPill = new PillToggle(tr("Show"), QColor(0x3c,0xcc,0x77));
+    showPill->setToolTip(tr("Modalità Show — visualizzazione senza modifiche"));
+    connect(showPill, &PillToggle::toggled, this, [this](bool on) {
         m_showMode = on;
         m_inspector->setShowMode(on);
         for (auto *btn : m_cueAddBtns)
@@ -904,11 +941,13 @@ void MainWindow::buildToolBar() {
             m_mainSplit->setCollapsible(1, true);
         }
     });
-    tb->addWidget(showBtn);
+    m_showModeBtn = showPill;
+    tb->addWidget(showPill);
 
-    m_showModeBtn = showBtn;
     m_showModeShortcut = new QShortcut(AppSettings::instance().keyShowMode(), this);
-    connect(m_showModeShortcut, &QShortcut::activated, showBtn, &QToolButton::toggle);
+    connect(m_showModeShortcut, &QShortcut::activated, this, [showPill]() {
+        showPill->setChecked(!showPill->isChecked());
+    });
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
@@ -1180,28 +1219,15 @@ void MainWindow::applyPanelLayout() {
 void MainWindow::applyUltraDark(bool on) {
     m_ultraDark = on;
 
-    if (on && m_normalQss.isEmpty())
-        m_normalQss = qApp->styleSheet();
-
     if (on) {
-        static const QString kExtra =
-            "QMainWindow { background:#000000; }"
-            "QToolBar { background:#000000; border-bottom:1px solid #111111; }"
-            "QStatusBar { background:#000000; border-top:1px solid #111111; }"
-            "QSplitter::handle { background:#111111; }"
-            "QHeaderView { background:#000000; }"
-            "QHeaderView::section { background:#000000; color:#222222; border:none;"
-            "  border-bottom:1px solid #111111; padding:4px 8px; }"
-            "QScrollBar:vertical { background:#000000; }"
-            "QScrollBar::handle:vertical { background:#1a1a1a; }"
-            "QScrollBar:horizontal { background:#000000; }"
-            "QScrollBar::handle:horizontal { background:#1a1a1a; }";
-        qApp->setStyleSheet(m_normalQss + kExtra);
+        if (!m_ultraDarkWin) {
+            m_ultraDarkWin = new UltraDarkWindow(m_model, m_cueView->selectionModel(), this);
+        }
+        m_ultraDarkWin->show();
+        m_ultraDarkWin->raise();
     } else {
-        qApp->setStyleSheet(m_normalQss);
+        if (m_ultraDarkWin) m_ultraDarkWin->hide();
     }
-
-    m_cueView->setUltraDark(on);
 }
 
 QString MainWindow::nextCueNumber() {
@@ -1660,3 +1686,4 @@ void MainWindow::changeEvent(QEvent *event) {
     }
     QMainWindow::changeEvent(event);
 }
+#include "MainWindow.moc"
