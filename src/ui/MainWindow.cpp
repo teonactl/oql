@@ -48,6 +48,7 @@
 #include <QPushButton>
 #include <QShortcut>
 #include <QPainter>
+#include <QClipboard>
 #include <algorithm>
 
 // ── GoButton: QPushButton with fully custom paintEvent to avoid Qt decoration artifacts ──
@@ -152,17 +153,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Web remote server
     m_webServer = new WebServer(m_workspace.cueList(), this);
     connect(m_webServer, &WebServer::started, this, [this](quint16) {
-        const QString url = m_webServer->localUrl();
-        m_webUrlLabel->setText("  Web: " + url);
-        m_webUrlLabel->show();
+        m_currentWebUrl = m_webServer->localUrl();
+        m_webUrlLabel->setText(
+            QString("  Web: <a href='%1' style='color:#4a9eff;'>%1</a>")
+                .arg(m_currentWebUrl.toHtmlEscaped()));
         statusBar()->show();
         const QSignalBlocker b(m_webAction);
         m_webAction->setChecked(true);
         QMessageBox::information(this, "Web Remote",
-            "Server remoto avviato!\n\nConnettiti da smartphone o tablet:\n" + url);
+            "Server remoto avviato!\n\nConnettiti da smartphone o tablet:\n" + m_currentWebUrl);
     });
     connect(m_webServer, &WebServer::stopped, this, [this]() {
-        m_webUrlLabel->hide();
+        m_currentWebUrl.clear();
         statusBar()->hide();
         const QSignalBlocker b(m_webAction);
         m_webAction->setChecked(false);
@@ -301,10 +303,31 @@ void MainWindow::buildUi() {
     vlay->addWidget(m_infoBar);
     setCentralWidget(central);
 
+    auto *webBarWidget = new QWidget;
+    auto *webBarLay    = new QHBoxLayout(webBarWidget);
+    webBarLay->setContentsMargins(4, 0, 4, 0);
+    webBarLay->setSpacing(5);
+
     m_webUrlLabel = new QLabel;
-    m_webUrlLabel->setStyleSheet("color: #4a9eff; font-size: 9pt;");
-    m_webUrlLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    statusBar()->addPermanentWidget(m_webUrlLabel);
+    m_webUrlLabel->setTextFormat(Qt::RichText);
+    m_webUrlLabel->setOpenExternalLinks(true);
+    m_webUrlLabel->setStyleSheet("font-size: 9pt;");
+    webBarLay->addWidget(m_webUrlLabel);
+
+    m_webCopyBtn = new QToolButton;
+    m_webCopyBtn->setText("⧉");   // ⧉ copy glyph
+    m_webCopyBtn->setToolTip(tr("Copia URL negli appunti"));
+    m_webCopyBtn->setFixedSize(22, 22);
+    m_webCopyBtn->setStyleSheet(
+        "QToolButton { border:none; border-radius:4px; color:#8892a4; font-size:10pt; }"
+        "QToolButton:hover { background:rgba(255,255,255,15); color:#e2e8f0; }");
+    connect(m_webCopyBtn, &QToolButton::clicked, this, [this]() {
+        if (!m_currentWebUrl.isEmpty())
+            QApplication::clipboard()->setText(m_currentWebUrl);
+    });
+    webBarLay->addWidget(m_webCopyBtn);
+
+    statusBar()->addPermanentWidget(webBarWidget);
     statusBar()->hide();
 
     connect(m_cueView->selectionModel(), &QItemSelectionModel::selectionChanged,

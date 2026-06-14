@@ -89,8 +89,10 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
-    // Query the selection model directly — QSS may suppress State_Selected flag.
-    const auto *view = qobject_cast<const QAbstractItemView*>(opt.widget);
+    // opt.widget is the viewport, not the QAbstractItemView — go up one level.
+    const auto *view = opt.widget
+        ? qobject_cast<const QAbstractItemView*>(opt.widget->parent())
+        : nullptr;
     const bool isSelected = view && view->selectionModel()
         ? view->selectionModel()->isRowSelected(idx.row(), idx.parent())
         : bool(opt.state & QStyle::State_Selected);

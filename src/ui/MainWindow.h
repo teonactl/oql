@@ -107,6 +107,8 @@ private:
     QAction           *m_videoAction      = nullptr;
     QAction           *m_textAction       = nullptr;
     QLabel            *m_webUrlLabel      = nullptr;
+    QToolButton       *m_webCopyBtn       = nullptr;
+    QString            m_currentWebUrl;
     bool               m_showMode         = false;
     QToolButton       *m_showModeBtn      = nullptr;
     QShortcut         *m_showModeShortcut = nullptr;
