@@ -2,6 +2,8 @@
 #include <QIcon>
 #include <QPalette>
 #include <QByteArray>
+#include <QDate>
+#include <QMessageBox>
 #include "ui/MainWindow.h"
 #include "engine/AudioEngine.h"
 #include "engine/AppSettings.h"
@@ -142,6 +144,34 @@ int main(int argc, char *argv[]) {
     applyDarkTheme(app);
 
     AppSettings::applyLanguage();
+
+#ifdef OQL_BETA_EXPIRY
+    {
+        const QDate expiry = QDate::fromString(QStringLiteral(OQL_BETA_EXPIRY), Qt::ISODate);
+        const QDate today  = QDate::currentDate();
+        if (!expiry.isValid()) {
+            QMessageBox::critical(nullptr, "OQL Beta", "Data di scadenza non valida.");
+            return 1;
+        }
+        if (today > expiry) {
+            QMessageBox::critical(nullptr,
+                QObject::tr("OQL Beta — Versione scaduta"),
+                QObject::tr("Questa versione beta è scaduta il %1.\n\n"
+                            "Contatta lo sviluppatore per ottenere "
+                            "la versione aggiornata.")
+                    .arg(expiry.toString("dd/MM/yyyy")));
+            return 1;
+        }
+        const int daysLeft = today.daysTo(expiry);
+        QMessageBox::warning(nullptr,
+            QObject::tr("OQL — Versione Beta"),
+            QObject::tr("Questa è una versione BETA per test interno.\n\n"
+                        "Scade il %1 (%2 giorni rimanenti).\n\n"
+                        "Non distribuire a terzi.")
+                .arg(expiry.toString("dd/MM/yyyy"))
+                .arg(daysLeft));
+    }
+#endif
 
     AudioEngine::instance().init();
 

@@ -1,0 +1,162 @@
+name: Build Beta (Full + scadenza)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expiry:
+        description: 'Data scadenza beta (YYYY-MM-DD)'
+        required: false
+        default: '2026-12-14'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: oql-beta-linux
+            ext: AppImage
+
+          - os: macos-13
+            artifact: oql-beta-macos
+            ext: dmg
+
+          - os: windows-2022
+            artifact: oql-beta-windows
+            ext: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          modules: 'qtmultimedia'
+          cache: true
+
+      # ── Linux ────────────────────────────────────────────────────
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            liblilv-dev libsuil-dev libsoundtouch-dev \
+            libx11-dev pkg-config \
+            libfuse2 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+            libxkbcommon-x11-0 libxkbcommon0 \
+            libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOQL_EDITION=full \
+            -DOQL_BETA_EXPIRY="${{ inputs.expiry || '2026-12-14' }}"
+
+      # ── macOS ────────────────────────────────────────────────────
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install lilv sound-touch pkg-config
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOQL_EDITION=full \
+            -DOQL_BETA_EXPIRY="${{ inputs.expiry || '2026-12-14' }}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}"
+
+      # ── Windows ──────────────────────────────────────────────────
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install pkgconfiglite -y
+          vcpkg install lilv:x64-windows soundtouch:x64-windows
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          $env:PKG_CONFIG_PATH = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DOQL_EDITION=full `
+            "-DOQL_BETA_EXPIRY=${{ inputs.expiry || '2026-12-14' }}" `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      # ── Build ─────────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # ── Package Linux ─────────────────────────────────────────────
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -q -O linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q -O linuxdeploy-plugin-qt \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+
+          install -Dm755 build/oql AppDir/usr/bin/oql
+          install -Dm644 resources/openqlab.svg \
+            AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
+          mkdir -p AppDir/usr/share/applications
+          sed 's|^Exec=.*|Exec=oql|; s|^Icon=.*|Icon=oql|' \
+            resources/openqlab.desktop \
+            > AppDir/usr/share/applications/oql.desktop
+
+          QMAKE=$(which qmake) \
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+          ./linuxdeploy --appdir AppDir --plugin qt --output appimage
+
+          find . -maxdepth 1 -name '*.AppImage' \
+            ! -name 'linuxdeploy' ! -name 'linuxdeploy-plugin-qt' \
+            -exec mv {} ${{ matrix.artifact }}.AppImage \;
+
+      # ── Package macOS ─────────────────────────────────────────────
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP=$(find build -name "oql.app" -maxdepth 4 | head -1)
+          echo "Found app bundle: $APP"
+          "${QT_ROOT_DIR}/bin/macdeployqt" "$APP" -dmg
+          DMG=$(find build -name "oql.dmg" -maxdepth 4 | head -1)
+          echo "Found dmg: $DMG"
+          mv "$DMG" ${{ matrix.artifact }}.dmg
+
+      # ── Package Windows ───────────────────────────────────────────
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build\Release\oql.exe dist\
+          windeployqt --release dist\oql.exe
+          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
+            $src = "$vcpkgBin\$dll"
+            if (Test-Path $src) { Copy-Item $src dist\ }
+          }
+          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
+
+      # ── Upload ────────────────────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.${{ matrix.ext }}
+          retention-days: 30
