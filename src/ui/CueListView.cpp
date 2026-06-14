@@ -186,17 +186,21 @@ void CueListView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHin
     if (hint == QAbstractItemDelegate::EditNextItem
      || hint == QAbstractItemDelegate::EditPreviousItem) {
         const QModelIndex cur = currentIndex();
+        // Use m_editingCol: selectRow() resets currentIndex to column 0, so
+        // currentIndex().column() is unreliable here.
+        const int col = (m_editingCol >= 0) ? m_editingCol : cur.column();
         QAbstractItemView::closeEditor(editor, QAbstractItemDelegate::NoHint);
         const int nextRow = (hint == QAbstractItemDelegate::EditNextItem)
                             ? cur.row() + 1 : cur.row() - 1;
         if (nextRow >= 0 && nextRow < model()->rowCount()) {
             m_editOnCurrentChange = true;
             selectionModel()->setCurrentIndex(
-                model()->index(nextRow, cur.column()),
+                model()->index(nextRow, col),
                 QItemSelectionModel::NoUpdate);
         }
         return;
     }
+    m_editingCol = -1;
     QAbstractItemView::closeEditor(editor, hint);
 }
 
@@ -216,6 +220,14 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
 
 QModelIndex CueListView::moveCursor(CursorAction action, Qt::KeyboardModifiers mods) {
     return QTableView::moveCursor(action, mods);
+}
+
+// Track which column the editor opened on. selectRow() (called via playheadChanged)
+// resets currentIndex to column 0, so currentIndex().column() is unreliable in closeEditor.
+bool CueListView::edit(const QModelIndex &index, EditTrigger trigger, QEvent *event) {
+    if (index.isValid())
+        m_editingCol = index.column();
+    return QTableView::edit(index, trigger, event);
 }
 
 // ── Context menu / keyboard ───────────────────────────────────────────────────

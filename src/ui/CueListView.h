@@ -37,7 +37,9 @@ signals:
     void multiGroupAssignRequested(QVector<int> visRows, int groupVisRow);
 
 protected:
+    using QTableView::edit;
     QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override;
+    bool edit(const QModelIndex &index, EditTrigger trigger, QEvent *event) override;
     void closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) override;
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void contextMenuEvent(QContextMenuEvent *event)   override;
@@ -68,6 +70,7 @@ private:
     CueListModel *m_model;
     bool          m_stretchGuard         = false;
     bool          m_editOnCurrentChange  = false;
+    int           m_editingCol           = -1;
     int           m_dragRow              = -1;
     int           m_dropHighlightRow     = -1;
     int           m_groupDropHighlight   = -1;
