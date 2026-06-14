@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OQL — Versione Beta</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%23111420'/%3E%3Ccircle cx='230' cy='230' r='140' fill='none' stroke='%23e88020' stroke-width='50'/%3E%3Cline x1='322' y1='322' x2='428' y2='428' stroke='%23e88020' stroke-width='50' stroke-linecap='round'/%3E%3Cpolygon points='178,162 178,298 312,230' fill='%23e8eaf0'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --bg:       #0f1117;
+      --surface:  #181c27;
+      --card:     #1e2334;
+      --border:   #2a3050;
+      --accent:   #4f8ef7;
+      --go:       #22c55e;
+      --text:     #e2e8f0;
+      --muted:    #8892a4;
+      --amber:    #f59e0b;
+      --amber-bg: rgba(245,158,11,.08);
+      --amber-br: rgba(245,158,11,.35);
+      --radius:   12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { overflow-x: hidden; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,17,23,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--amber-br);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 56px;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: .55rem;
+      font-weight: 700; font-size: 1.1rem; letter-spacing: -.5px;
+    }
+    .nav-logo .beta-pill {
+      background: var(--amber-bg);
+      border: 1px solid var(--amber-br);
+      color: var(--amber);
+      font-size: .65rem; font-weight: 700; letter-spacing: .1em;
+      padding: .2em .65em; border-radius: 999px;
+    }
+    .nav-back { font-size: .85rem; color: var(--muted); }
+    .nav-back:hover { color: var(--text); }
+
+    /* ALERT BANNER */
+    .beta-banner {
+      background: linear-gradient(135deg, rgba(245,158,11,.12) 0%, rgba(245,158,11,.05) 100%);
+      border-bottom: 1px solid var(--amber-br);
+      padding: 1rem 2rem;
+      display: flex; align-items: center; gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .beta-banner-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .beta-banner-text { flex: 1; min-width: 220px; }
+    .beta-banner-text strong { color: var(--amber); }
+    .beta-banner-text p { font-size: .88rem; color: var(--muted); margin-top: .15rem; }
+
+    /* HERO */
+    .hero {
+      text-align: center;
+      padding: 5rem 1.5rem 3.5rem;
+      background: radial-gradient(ellipse 80% 50% at 50% -10%,
+                  rgba(245,158,11,.1) 0%, transparent 70%);
+    }
+    .badge-beta {
+      display: inline-flex; align-items: center; gap: .45rem;
+      background: var(--amber-bg);
+      border: 1px solid var(--amber-br);
+      color: var(--amber);
+      font-size: .8rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: .35em 1em; border-radius: 999px;
+      margin-bottom: 1.5rem;
+    }
+    .badge-beta svg { width: 14px; height: 14px; fill: currentColor; }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800; letter-spacing: -1px;
+      line-height: 1.15; margin-bottom: 1rem;
+    }
+    .hero h1 span { color: var(--amber); }
+    .hero p {
+      font-size: 1.05rem; color: var(--muted);
+      max-width: 560px; margin: 0 auto 1rem;
+    }
+    .expiry-note {
+      display: inline-block;
+      background: rgba(245,158,11,.1);
+      border: 1px solid rgba(245,158,11,.3);
+      color: var(--amber);
+      font-size: .85rem; padding: .45rem 1.2rem;
+      border-radius: 8px; margin-top: .75rem;
+    }
+
+    /* SECTION */
+    .section { max-width: 900px; margin: 0 auto; padding: 4rem 1.5rem; }
+    .section h2 {
+      font-size: 1.5rem; font-weight: 800;
+      letter-spacing: -.5px; margin-bottom: .4rem;
+    }
+    .section h2 span { color: var(--amber); }
+    .section-sub { color: var(--muted); font-size: .92rem; margin-bottom: 2.5rem; }
+
+    /* RULES */
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1rem; margin-bottom: 3rem;
+    }
+    .rule-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.25rem;
+      display: flex; gap: .75rem; align-items: flex-start;
+    }
+    .rule-icon { font-size: 1.25rem; flex-shrink: 0; margin-top: .1rem; }
+    .rule-card h4 { font-size: .9rem; font-weight: 700; margin-bottom: .2rem; }
+    .rule-card p { font-size: .82rem; color: var(--muted); }
+
+    /* DOWNLOAD GRID */
+    .dl-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1.25rem;
+    }
+    .dl-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem; text-align: center;
+      transition: border-color .2s;
+    }
+    .dl-card:hover { border-color: var(--amber); }
+    .dl-card.beta-card { border-color: rgba(245,158,11,.3); }
+    .dl-icon { font-size: 2.4rem; margin-bottom: .75rem; }
+    .dl-os { font-size: 1rem; font-weight: 700; margin-bottom: .25rem; }
+    .dl-note { font-size: .8rem; color: var(--muted); margin-bottom: 1.25rem; min-height: 2.2em; }
+    .btn-dl {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: .5rem; width: 100%;
+      padding: .65rem 1rem; border-radius: 8px;
+      font-weight: 600; font-size: .9rem;
+      background: var(--amber); color: #000;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn-dl:hover { opacity: .88; transform: translateY(-1px); text-decoration: none; }
+    .btn-dl-stable {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: .5rem; width: 100%;
+      padding: .65rem 1rem; border-radius: 8px;
+      font-weight: 600; font-size: .9rem;
+      background: var(--accent); color: #fff;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn-dl-stable:hover { opacity: .88; transform: translateY(-1px); text-decoration: none; }
+    .btn-disabled {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: .5rem; width: 100%;
+      padding: .65rem 1rem; border-radius: 8px;
+      font-weight: 600; font-size: .9rem;
+      background: var(--border); color: var(--muted);
+      cursor: default; opacity: .6;
+    }
+    .dl-ver { font-size: .75rem; color: var(--muted); margin-top: .6rem; }
+    .tag-beta {
+      display: inline-block;
+      background: var(--amber-bg); border: 1px solid var(--amber-br);
+      color: var(--amber); font-size: .65rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      padding: .2em .6em; border-radius: 999px; margin-bottom: .6rem;
+    }
+    .tag-stable {
+      display: inline-block;
+      background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3);
+      color: var(--go); font-size: .65rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      padding: .2em .6em; border-radius: 999px; margin-bottom: .6rem;
+    }
+    .tag-soon {
+      display: inline-block;
+      background: rgba(79,142,247,.1); border: 1px solid rgba(79,142,247,.3);
+      color: var(--accent); font-size: .65rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      padding: .2em .6em; border-radius: 999px; margin-bottom: .6rem;
+    }
+
+    /* DIVIDER */
+    .divider {
+      border: none; height: 1px;
+      background: var(--border);
+      margin: 3.5rem 0;
+    }
+
+    /* STABLE PLACEHOLDER */
+    .stable-coming {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem; text-align: center;
+      color: var(--muted); font-size: .92rem;
+    }
+    .stable-coming strong { color: var(--text); display: block; margin-bottom: .4rem; font-size: 1rem; }
+
+    /* FOOTER */
+    footer {
+      background: var(--bg); border-top: 1px solid var(--border);
+      text-align: center; padding: 2rem 1.5rem;
+      color: var(--muted); font-size: .82rem;
+    }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 600px) {
+      nav { padding: 0 1rem; }
+      .beta-banner { padding: .8rem 1rem; }
+      .hero { padding: 3.5rem 1.25rem 2.5rem; }
+      .section { padding: 2.5rem 1.25rem; }
+      .rules, .dl-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">
+    <svg width="24" height="24" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <rect width="512" height="512" rx="80" fill="#111420"/>
+      <circle cx="230" cy="230" r="140" fill="none" stroke="#e88020" stroke-width="50"/>
+      <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
+      <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
+    </svg>
+    OQL &nbsp;<span class="beta-pill">BETA</span>
+  </div>
+  <a class="nav-back" href="index.html">← Torna al sito</a>
+</nav>
+
+<!-- ALERT BANNER -->
+<div class="beta-banner">
+  <div class="beta-banner-icon">⚠️</div>
+  <div class="beta-banner-text">
+    <strong>Pagina riservata — accesso solo su invito</strong>
+    <p>Questa pagina non è collegata al sito pubblico. Contiene versioni di test non destinate alla distribuzione generale.</p>
+  </div>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="badge-beta">
+    <svg viewBox="0 0 16 16"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM7 4h2v5H7V4zm0 6h2v2H7v-2z"/></svg>
+    Versione Beta
+  </div>
+  <h1>OQL <span>Beta</span></h1>
+  <p>Versione completa (Full edition) per test interno. Tutte le funzionalità attive — inclusi cue avanzati, automazione e registrazione.</p>
+  <div class="expiry-note">
+    Scadenza integrata: <strong>14 dicembre 2026</strong> — l'applicazione si avvia con un avviso e smette di funzionare dopo la scadenza.
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="section">
+
+  <!-- RULES -->
+  <h2>Regole <span>d'uso</span></h2>
+  <p class="section-sub">Prima di scaricare leggi queste condizioni.</p>
+  <div class="rules">
+    <div class="rule-card">
+      <div class="rule-icon">🔒</div>
+      <div>
+        <h4>Non distribuire</h4>
+        <p>Non condividere il file con persone non autorizzate. La versione beta è nominativa.</p>
+      </div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">🐛</div>
+      <div>
+        <h4>Segnala i bug</h4>
+        <p>Usa GitHub Issues o scrivi direttamente allo sviluppatore per riportare problemi.</p>
+      </div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">⏰</div>
+      <div>
+        <h4>Versione con scadenza</h4>
+        <p>L'app mostra un avviso all'avvio e smette di funzionare il 14/12/2026. Aggiorna alla versione successiva prima della scadenza.</p>
+      </div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">🧪</div>
+      <div>
+        <h4>Non per produzione</h4>
+        <p>Ideale per prove, formazione e feedback. Verifica sempre su hardware simile a quello di scena.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- BETA DOWNLOADS -->
+  <h2>Download <span>Beta</span> — Full Edition</h2>
+  <p class="section-sub">Edizione completa con tutti i cue type. Aggiornata ad ogni nuova build manuale.</p>
+
+  <div class="dl-grid">
+    <div class="dl-card beta-card">
+      <div class="tag-beta">Beta</div>
+      <div class="dl-icon">🐧</div>
+      <div class="dl-os">Linux</div>
+      <div class="dl-note">Ubuntu 22.04+ · Arch · Fedora<br>x86_64 AppImage</div>
+      <a class="btn-dl"
+         href="https://github.com/teonactl/oql/releases/download/beta-latest/oql-beta-linux.AppImage">
+        ⬇ Download .AppImage
+      </a>
+      <div class="dl-ver">Full edition · beta-latest</div>
+    </div>
+
+    <div class="dl-card beta-card">
+      <div class="tag-beta">Beta</div>
+      <div class="dl-icon">🍎</div>
+      <div class="dl-os">macOS</div>
+      <div class="dl-note">macOS 13 Ventura+<br>Apple Silicon &amp; Intel</div>
+      <a class="btn-dl"
+         href="https://github.com/teonactl/oql/releases/download/beta-latest/oql-beta-macos.dmg">
+        ⬇ Download .dmg
+      </a>
+      <div class="dl-ver">Full edition · beta-latest</div>
+    </div>
+
+    <div class="dl-card beta-card">
+      <div class="tag-beta">Beta</div>
+      <div class="dl-icon">🪟</div>
+      <div class="dl-os">Windows</div>
+      <div class="dl-note">Windows 10 / 11<br>x86_64</div>
+      <a class="btn-dl"
+         href="https://github.com/teonactl/oql/releases/download/beta-latest/oql-beta-windows.zip">
+        ⬇ Download .zip
+      </a>
+      <div class="dl-ver">Full edition · beta-latest</div>
+    </div>
+  </div>
+
+  <p style="margin-top:1.5rem;font-size:.82rem;color:var(--muted);">
+    I download beta vengono aggiornati manualmente. Se i link non funzionano la build beta non è ancora stata eseguita —
+    <a href="https://github.com/teonactl/oql/actions/workflows/build-beta.yml">verifica lo stato su GitHub Actions.</a>
+  </p>
+
+  <hr class="divider">
+
+  <!-- STABLE RELEASES -->
+  <h2>Versioni <span>stabili</span></h2>
+  <p class="section-sub">Rilasci ufficiali — disponibili quando pronti. Nessuna scadenza, adatte alla produzione.</p>
+
+  <!-- STATO ATTUALE: placeholder. Quando pronte, sostituire con i dl-card stabili -->
+  <div class="stable-coming">
+    <strong>Prossimamente</strong>
+    Quando i test beta saranno soddisfacenti i download della versione stabile Full Edition compariranno qui.
+    <br><br>
+    Nel frattempo la versione <strong>Base</strong> è sempre disponibile sulla
+    <a href="index.html#download">pagina principale.</a>
+  </div>
+
+  <!--
+  TEMPLATE per quando le release stabili saranno pronte.
+  Rimuovere il blocco "stable-coming" sopra e decommentare questo:
+
+  <div class="dl-grid">
+    <div class="dl-card">
+      <div class="tag-stable">Stabile</div>
+      <div class="dl-icon">🐧</div>
+      <div class="dl-os">Linux — Full</div>
+      <div class="dl-note">Ubuntu 22.04+ · AppImage</div>
+      <a class="btn-dl-stable"
+         href="https://github.com/teonactl/oql/releases/latest/download/oql-linux-full.AppImage">
+        ⬇ Download .AppImage
+      </a>
+      <div class="dl-ver">Full edition · v0.x.x</div>
+    </div>
+    <div class="dl-card">
+      <div class="tag-stable">Stabile</div>
+      <div class="dl-icon">🍎</div>
+      <div class="dl-os">macOS — Full</div>
+      <div class="dl-note">macOS 13+</div>
+      <a class="btn-dl-stable"
+         href="https://github.com/teonactl/oql/releases/latest/download/oql-macos-full.dmg">
+        ⬇ Download .dmg
+      </a>
+      <div class="dl-ver">Full edition · v0.x.x</div>
+    </div>
+    <div class="dl-card">
+      <div class="tag-stable">Stabile</div>
+      <div class="dl-icon">🪟</div>
+      <div class="dl-os">Windows — Full</div>
+      <div class="dl-note">Windows 10 / 11</div>
+      <a class="btn-dl-stable"
+         href="https://github.com/teonactl/oql/releases/latest/download/oql-windows-full.zip">
+        ⬇ Download .zip
+      </a>
+      <div class="dl-ver">Full edition · v0.x.x</div>
+    </div>
+  </div>
+  -->
+
+  <hr class="divider">
+
+  <!-- FEEDBACK -->
+  <h2>Feedback e <span>bug report</span></h2>
+  <p class="section-sub">Il tuo feedback è prezioso per migliorare OQL prima del rilascio ufficiale.</p>
+
+  <div class="rules">
+    <div class="rule-card">
+      <div class="rule-icon">🐙</div>
+      <div>
+        <h4>GitHub Issues</h4>
+        <p>Apri un issue su GitHub per bug, crash o comportamenti anomali. Includi OS e versione.</p>
+        <a href="https://github.com/teonactl/oql/issues" style="font-size:.82rem;">
+          Vai a GitHub Issues →
+        </a>
+      </div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">✉️</div>
+      <div>
+        <h4>Email diretta</h4>
+        <p>Per suggerimenti, impressioni generali o problemi riservati scrivi direttamente allo sviluppatore.</p>
+        <a href="mailto:teonactl@hotmail.it?subject=OQL Beta feedback" style="font-size:.82rem;">
+          teonactl@hotmail.it
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    Pagina beta OQL — accesso riservato ai tester.
+    &nbsp;·&nbsp;
+    <a href="index.html">Sito pubblico</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/teonactl/oql">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/teonactl/oql/issues">Segnala un bug</a>
+  </p>
+  <p style="margin-top:.4rem;font-size:.75rem;">© 2026 OQL — versione beta non certificata per uso in produzione.</p>
+</footer>
+
+</body>
+</html>
