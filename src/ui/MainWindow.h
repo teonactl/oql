@@ -25,7 +25,7 @@ class QSplitter;
 class QToolButton;
 class QPushButton;
 class QShortcut;
-class UltraDarkWindow;
+class QToolBar;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -116,7 +116,9 @@ private:
     bool               m_ultraDark        = false;
     QWidget           *m_ultraDarkBtn     = nullptr;  // PillToggle*
     QString            m_normalQss;
-    UltraDarkWindow   *m_ultraDarkWin     = nullptr;
+    QToolBar          *m_toolBar          = nullptr;
+    QList<int>         m_normalMainSplit;
+    QList<int>         m_normalTopSplit;
     QVector<QToolButton*> m_cueAddBtns;
     QSplitter         *m_topSplit        = nullptr;
     QMap<QString, QShortcut*> m_addCueShortcuts;

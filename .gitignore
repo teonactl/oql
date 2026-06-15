@@ -1,8 +1,14 @@
 # Build directories
 build/
 build_*/
+build-*/
 out/
 cmake-build-*/
+
+# Packaging artifacts
+AppDir-*/
+*.AppImage
+tools/
 
 # CMake generated
 CMakeCache.txt

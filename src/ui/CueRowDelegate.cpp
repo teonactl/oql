@@ -99,14 +99,8 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
-    // opt.widget is the viewport, not the QAbstractItemView — go up one level.
-    const auto *view = opt.widget
-        ? qobject_cast<const QAbstractItemView*>(opt.widget->parent())
-        : nullptr;
-    const bool isSelected = view && view->selectionModel()
-        ? view->selectionModel()->isRowSelected(idx.row(), idx.parent())
-        : bool(opt.state & QStyle::State_Selected);
-    const bool isHovered = bool(opt.state & QStyle::State_MouseOver);
+    const bool isSelected = bool(opt.state & QStyle::State_Selected);
+    const bool isHovered  = bool(opt.state & QStyle::State_MouseOver);
 
     // ── Card background — drawn in ColNumber, unclipped, spans full viewport ──
     if (col == CueListModel::ColNumber) {
@@ -135,30 +129,40 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
 
     // ── Type badge ─────────────────────────────────────────────────────────────
     if (col == CueListModel::ColType) {
-        const Cue::Type type = static_cast<Cue::Type>(idx.data(Qt::UserRole).toInt());
-        const QString label  = badgeLabel(type);
-        if (!label.isEmpty()) {
-            const int bh = 18;
-            const int bw = qMin(opt.rect.width() - 6, 52);
-            const QRect badge(opt.rect.left() + 3,
-                              opt.rect.center().y() - bh / 2,
-                              bw, bh);
-            p->setPen(Qt::NoPen);
-            p->setBrush(badgeColor(type, m_ultraDark));
-            p->drawRoundedRect(badge, 3, 3);
+        if (!m_ultraDark) {
+            const Cue::Type type = static_cast<Cue::Type>(idx.data(Qt::UserRole).toInt());
+            const QString label  = badgeLabel(type);
+            if (!label.isEmpty()) {
+                const int bh = 18;
+                const int bw = qMin(opt.rect.width() - 6, 52);
+                const QRect badge(opt.rect.left() + 3,
+                                  opt.rect.center().y() - bh / 2,
+                                  bw, bh);
+                p->setPen(Qt::NoPen);
+                p->setBrush(badgeColor(type, false));
+                p->drawRoundedRect(badge, 3, 3);
 
-            QFont f = opt.font;
-            f.setPointSize(qMax(7, opt.font.pointSize() - 1));
-            f.setBold(true);
-            p->setFont(f);
-            p->setPen(Qt::white);
-            p->drawText(badge, Qt::AlignCenter, label);
+                QFont f = opt.font;
+                f.setPointSize(qMax(7, opt.font.pointSize() - 1));
+                f.setBold(true);
+                p->setFont(f);
+                p->setPen(Qt::white);
+                p->drawText(badge, Qt::AlignCenter, label);
+            }
         }
         p->restore();
         return;
     }
 
     // ── All other columns: text only ───────────────────────────────────────────
+    // Draw selection background per-cell too, in case the fullwidth card in ColNumber
+    // is clipped by Qt's system clip before reaching these cells.
+    if (isSelected) {
+        p->setPen(Qt::NoPen);
+        p->setBrush(m_ultraDark ? QColor(0x28,0x28,0x28) : QColor(0x4f,0x8e,0xf7, 55));
+        p->drawRect(opt.rect);
+    }
+
     static const QColor kUltraDarkText (0x44, 0x44, 0x44);
     static const QColor kUltraDarkMuted(0x33, 0x33, 0x33);
     QColor textColor = m_ultraDark ? kUltraDarkText : kTextMain;

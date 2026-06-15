@@ -24,49 +24,6 @@
 #include <QResizeEvent>
 #include <QScrollBar>
 
-// ── SelOverlay — child widget of viewport, paints selection on top of items ──
-// Using a separate widget (vs drawing in paintEvent) avoids conflicts with
-// Qt's internal paint-event plumbing that caused previous attempts to fail.
-class SelOverlay : public QWidget {
-public:
-    explicit SelOverlay(CueListView *view)
-        : QWidget(view->viewport()), m_view(view)
-    {
-        setAttribute(Qt::WA_TransparentForMouseEvents);
-        setAttribute(Qt::WA_NoSystemBackground);
-    }
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        const auto *sel   = m_view->selectionModel();
-        const auto *model = m_view->model();
-        if (!sel || !model || model->rowCount() == 0) return;
-
-        const auto *d = qobject_cast<const CueRowDelegate*>(m_view->itemDelegate());
-        const bool ud = d && d->isUltraDark();
-
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const QColor fill = ud ? QColor(0x30,0x30,0x30,180) : QColor(0x4f,0x8e,0xf7, 65);
-        const QColor bar  = ud ? QColor(0x55,0x55,0x55)     : QColor(0x4f,0x8e,0xf7);
-
-        for (int row = 0; row < model->rowCount(); ++row) {
-            if (!sel->isRowSelected(row, {})) continue;
-            const QRect r = m_view->visualRect(model->index(row, 0));
-            if (r.bottom() < 0 || r.top() > height()) continue;
-            const QRectF card(0, r.top() + 3, width(), r.height() - 6);
-            p.setPen(Qt::NoPen);
-            p.setBrush(fill);
-            p.drawRoundedRect(card, 7, 7);
-            p.setBrush(bar);
-            p.drawRoundedRect(QRectF(0, card.top()+1, 5, card.height()-2), 2.5, 2.5);
-        }
-    }
-
-private:
-    CueListView *m_view;
-};
-
 CueListView::CueListView(CueListModel *model, QWidget *parent)
     : QTableView(parent), m_model(model)
 {
@@ -108,21 +65,15 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
         saveColumnWidths();
     });
 
-    // ── Selection overlay — child of viewport, painted on top of all items ──
-    m_selOverlay = new SelOverlay(this);
-    m_selOverlay->setGeometry(0, 0, viewport()->width(), viewport()->height());
-    m_selOverlay->raise();
-
+    // Trigger repaint when selection changes or user scrolls (selection drawn in paintEvent)
     connect(selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, [this]() { if (m_selOverlay) m_selOverlay->update(); });
+            this, [this]() { viewport()->update(); });
     connect(verticalScrollBar(), &QScrollBar::valueChanged,
-            this, [this]() { if (m_selOverlay) m_selOverlay->update(); });
+            this, [this]() { viewport()->update(); });
 }
 
 void CueListView::resizeEvent(QResizeEvent *event) {
     QTableView::resizeEvent(event);
-    if (m_selOverlay)
-        m_selOverlay->setGeometry(0, 0, viewport()->width(), viewport()->height());
     stretchFlexColumns();
 }
 
@@ -143,7 +94,6 @@ void CueListView::setUltraDark(bool on) {
         d->setUltraDark(on);
     viewport()->setStyleSheet(on ? "background: #000000;" : "background: #0f1117;");
     viewport()->update();
-    if (m_selOverlay) m_selOverlay->update();
 }
 
 void CueListView::applyFont() {
@@ -505,17 +455,46 @@ void CueListView::mouseReleaseEvent(QMouseEvent *event) {
 
 void CueListView::paintEvent(QPaintEvent *event) {
     QTableView::paintEvent(event);
-    // Selection is drawn by SelOverlay (child widget of viewport)
+
+    auto *mdl = model();
+    if (!mdl) return;
+
+    QPainter p(viewport());
+    p.setRenderHint(QPainter::Antialiasing);
+
+    // ── Selection highlight ────────────────────────────────────────────────────
+    {
+        auto *sel = selectionModel();
+        if (sel) {
+            const auto *d = qobject_cast<const CueRowDelegate*>(itemDelegate());
+            const bool ud = d && d->isUltraDark();
+            const QColor fill = ud ? QColor(0x38,0x38,0x38,210) : QColor(0x4f,0x8e,0xf7, 90);
+            const QColor bar  = ud ? QColor(0x70,0x70,0x70)     : QColor(0x4f,0x8e,0xf7);
+            const int vw = viewport()->width();
+            // Use selectedRows() — more reliable than isRowSelected() in Qt 6
+            const QModelIndexList selRows = sel->selectedRows(0);
+            for (const QModelIndex &si : selRows) {
+                const QRect r = visualRect(si);
+                if (r.bottom() < 0 || r.top() > viewport()->height()) continue;
+                const QRectF card(0, r.top() + 3, vw, r.height() - 6);
+                p.setPen(Qt::NoPen);
+                p.setBrush(fill);
+                p.drawRoundedRect(card, 7, 7);
+                p.setBrush(bar);
+                p.drawRoundedRect(QRectF(0, card.top() + 1, 6, card.height() - 2), 2.5, 2.5);
+            }
+        }
+    }
+
+    // ── Drag highlights ────────────────────────────────────────────────────────
     if (m_validTargetRows.isEmpty() && m_validGroupRows.isEmpty()) return;
 
-    if (!model()) return;
-    QPainter p(viewport());
-    const int lastCol = model()->columnCount() - 1;
     p.setRenderHint(QPainter::Antialiasing, false);
+    const int lastCol = mdl->columnCount() - 1;
 
     auto rowRect = [&](int row) {
-        return visualRect(model()->index(row, 0))
-               .united(visualRect(model()->index(row, lastCol)));
+        return visualRect(mdl->index(row, 0))
+               .united(visualRect(mdl->index(row, lastCol)));
     };
 
     // Blue highlight: control-cue target rows

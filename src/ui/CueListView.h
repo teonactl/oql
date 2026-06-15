@@ -78,5 +78,4 @@ private:
     QVector<int>  m_validTargetRows;
     QVector<int>  m_validGroupRows;
     QPoint        m_dragStartPos;
-    QWidget      *m_selOverlay           = nullptr;
 };

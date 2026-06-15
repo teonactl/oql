@@ -40,6 +40,7 @@
 #include <QSettings>
 #include <QPainter>
 #include <QPainterPath>
+#include <QCheckBox>
 #include <QToolButton>
 #include <QUndoStack>
 #include <QTimer>
@@ -53,17 +54,17 @@
 #include <QItemSelectionModel>
 #include <algorithm>
 
-// ── PillToggle — modern web-style pill switch ─────────────────────────────────
+// ── PillToggle — pill switch stile web con icona sopra ───────────────────────
 class PillToggle : public QWidget {
     Q_OBJECT
-    QString m_label;
-    QColor  m_onColor;
-    bool    m_checked = false;
+    QIcon  m_icon;
+    QColor m_onColor;
+    bool   m_checked = false;
 public:
-    explicit PillToggle(const QString &label, const QColor &onColor, QWidget *parent = nullptr)
-        : QWidget(parent), m_label(label), m_onColor(onColor)
+    explicit PillToggle(const QIcon &icon, const QColor &onColor, QWidget *parent = nullptr)
+        : QWidget(parent), m_icon(icon), m_onColor(onColor)
     {
-        setFixedSize(70, 70);
+        setFixedSize(56, 70);
         setCursor(Qt::PointingHandCursor);
         setAttribute(Qt::WA_Hover);
     }
@@ -79,64 +80,30 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent *) override { setChecked(!m_checked); }
     void paintEvent(QPaintEvent *) override {
-        constexpr int PW = 46, PH = 24;
-        const int px = (width() - PW) / 2;
-        const int py = 10;
+        constexpr int IH = 28;  // icon height
+        constexpr int PW = 46, PH = 22;
+        const int px   = (width() - PW) / 2;
+        const int iconX = (width() - IH) / 2;
+        const int pillY = IH + 8;
+
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
+
+        // Icon
+        if (!m_icon.isNull())
+            p.drawPixmap(iconX, 2, m_icon.pixmap(IH, IH));
+
         // Pill track
-        const QColor track = m_checked ? m_onColor : QColor(0x3a,0x3e,0x4a);
         p.setPen(Qt::NoPen);
-        p.setBrush(track);
-        p.drawRoundedRect(px, py, PW, PH, PH/2, PH/2);
+        p.setBrush(m_checked ? m_onColor : QColor(0x3a,0x3e,0x4a));
+        p.drawRoundedRect(px, pillY, PW, PH, PH/2, PH/2);
+
         // Knob
         const int kd = PH - 4;
         const int kx = m_checked ? px + PW - kd - 2 : px + 2;
         p.setBrush(Qt::white);
-        p.drawEllipse(kx, py + 2, kd, kd);
-        // Label
-        QFont f = font();
-        f.setPointSize(8);
-        p.setFont(f);
-        p.setPen(QColor(0x88,0x92,0xa4));
-        p.drawText(QRect(0, py + PH + 5, width(), 16), Qt::AlignCenter, m_label);
+        p.drawEllipse(kx, pillY + 2, kd, kd);
     }
-};
-
-// ── UltraDarkWindow — finestra separata terminale ──────────────────────────────
-class UltraDarkWindow : public QMainWindow {
-    Q_OBJECT
-public:
-    explicit UltraDarkWindow(CueListModel *model, QItemSelectionModel *selModel,
-                              QWidget *parent = nullptr)
-        : QMainWindow(parent, Qt::Window)
-    {
-        setWindowTitle("OQL — Dark");
-        resize(700, 600);
-        setAttribute(Qt::WA_DeleteOnClose, false);
-
-        // Pure black window
-        QPalette pal = palette();
-        pal.setColor(QPalette::Window, Qt::black);
-        pal.setColor(QPalette::Base,   Qt::black);
-        setPalette(pal);
-        setStyleSheet("QMainWindow { background:#000000; } "
-                      "QHeaderView, QHeaderView::section { background:#000000; color:#222222; border:none; }");
-
-        m_view = new CueListView(model, this);
-        // Share selection model with main window
-        m_view->setSelectionModel(selModel);
-        m_view->setUltraDark(true);
-        m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        setCentralWidget(m_view);
-
-        // No menu, no status bar
-        menuBar()->hide();
-        statusBar()->hide();
-    }
-    CueListView *cueView() { return m_view; }
-private:
-    CueListView *m_view = nullptr;
 };
 
 // ── GoButton: QPushButton with fully custom paintEvent to avoid Qt decoration artifacts ──
@@ -226,7 +193,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_textOut->installEventFilter(this);
     m_undoStack = new QUndoStack(this);
 
-    buildUi();
+    buildUi();   // m_cueView is created here
+    m_cueView->installEventFilter(this);
     buildMenus();
     buildToolBar();
     applyShortcuts();
@@ -647,7 +615,8 @@ void MainWindow::buildMenus() {
 }
 
 void MainWindow::buildToolBar() {
-    auto *tb = addToolBar("Principale");
+    m_toolBar = addToolBar("Principale");
+    auto *tb = m_toolBar;
     tb->setMovable(false);
     tb->setIconSize({32, 32});
     tb->setFixedHeight(90);
@@ -871,7 +840,11 @@ void MainWindow::buildToolBar() {
 #endif
 
     // ── Toggle pill buttons ─────────────────────────────────────────────────────
-    // Web Remote
+    auto webIcon = makeTbIcon(QColor(0x1a,0x5c,0xcc), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
+        p.drawEllipse(4,4,20,20); p.drawLine(14,4,14,24);
+        p.drawArc(7,6,14,16,0,180*16); p.drawLine(4,14,24,14);
+    });
     m_webAction = new QAction(this);
     m_webAction->setCheckable(true);
     connect(m_webAction, &QAction::toggled, this, [this](bool on) {
@@ -879,31 +852,43 @@ void MainWindow::buildToolBar() {
         if (on) m_webServer->start(AppSettings::instance().webPort());
         else    m_webServer->stop();
     });
-    auto *webPill = new PillToggle(tr("Web"), QColor(0x4f,0x8e,0xf7));
+    auto *webPill = new PillToggle(webIcon, QColor(0x4f,0x8e,0xf7));
     webPill->setToolTip(tr("Avvia / ferma Web Remote"));
     connect(webPill, &PillToggle::toggled, m_webAction, &QAction::setChecked);
     connect(m_webAction, &QAction::toggled, webPill, &PillToggle::setChecked);
     tb->addWidget(webPill);
 
-    // Video Out
+    auto videoOutIcon = makeTbIcon(QColor(0x1a,0x6a,0x44), [](QPainter &p) {
+        p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,40));
+        p.drawRoundedRect(3,4,22,14,2,2);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        QPolygon tri; tri<<QPoint(10,7)<<QPoint(10,15)<<QPoint(20,11); p.drawPolygon(tri);
+        p.setPen(QPen(Qt::white,1.5)); p.setBrush(Qt::NoBrush);
+        p.drawLine(14,18,14,22); p.drawLine(9,22,19,22);
+    });
     m_videoAction = new QAction(this);
     m_videoAction->setCheckable(true);
     connect(m_videoAction, &QAction::toggled, this, [this](bool on) {
         m_videoOut->setVisible(on);
     });
-    auto *videoPill = new PillToggle(tr("Video"), QColor(0x3c,0xc8,0x7a));
+    auto *videoPill = new PillToggle(videoOutIcon, QColor(0x3c,0xc8,0x7a));
     videoPill->setToolTip(tr("Mostra / nascondi finestra Video Out"));
     connect(videoPill, &PillToggle::toggled, m_videoAction, &QAction::setChecked);
     connect(m_videoAction, &QAction::toggled, videoPill, &PillToggle::setChecked);
     tb->addWidget(videoPill);
 
-    // Text Out
+    auto textOutIcon = makeTbIcon(QColor(0x0a,0x5a,0x7a), [](QPainter &p) {
+        p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,30));
+        p.drawRoundedRect(6,3,16,22,1,1); p.setPen(QPen(Qt::white,1.5));
+        p.drawLine(9,9,19,9); p.drawLine(9,13,19,13);
+        p.drawLine(9,17,19,17); p.drawLine(9,21,16,21);
+    });
     m_textAction = new QAction(this);
     m_textAction->setCheckable(true);
     connect(m_textAction, &QAction::toggled, this, [this](bool on) {
         m_textOut->setVisible(on);
     });
-    auto *textPill = new PillToggle(tr("Testo"), QColor(0x1e,0xb4,0xd2));
+    auto *textPill = new PillToggle(textOutIcon, QColor(0x1e,0xb4,0xd2));
     textPill->setToolTip(tr("Mostra / nascondi finestra Text Out"));
     connect(textPill, &PillToggle::toggled, m_textAction, &QAction::setChecked);
     connect(m_textAction, &QAction::toggled, textPill, &PillToggle::setChecked);
@@ -914,15 +899,29 @@ void MainWindow::buildToolBar() {
     tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(tbSpacer);
 
-    // Dark Mode
-    auto *darkPill = new PillToggle(tr("Dark"), QColor(0xb8,0xa0,0x50));
-    darkPill->setToolTip(tr("Ultra Dark Mode — finestra terminale nera"));
+    // Dark Mode — luna
+    auto darkIcon = makeTbIconFlat([](QPainter &p) {
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        p.drawEllipse(6,5,18,18);
+        p.setBrush(QColor(0x12,0x15,0x1f));
+        p.drawEllipse(10,3,16,16);
+    });
+    auto *darkPill = new PillToggle(darkIcon, QColor(0xb8,0xa0,0x50));
+    darkPill->setToolTip(tr("Ultra Dark Mode — nascondi tutto tranne la lista cue"));
     connect(darkPill, &PillToggle::toggled, this, [this](bool on) { applyUltraDark(on); });
     m_ultraDarkBtn = darkPill;
     tb->addWidget(darkPill);
 
-    // Show Mode
-    auto *showPill = new PillToggle(tr("Show"), QColor(0x3c,0xcc,0x77));
+    // Show Mode — occhio
+    auto showModeIcon = makeTbIcon(QColor(0x33,0x55,0x66), [](QPainter &p) {
+        p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
+        QPainterPath eyePath;
+        eyePath.moveTo(2,14); eyePath.quadTo(14,3,26,14);
+        eyePath.quadTo(14,25,2,14); p.drawPath(eyePath);
+        p.setBrush(Qt::white); p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(14,14), 4.5, 4.5);
+    });
+    auto *showPill = new PillToggle(showModeIcon, QColor(0x3c,0xcc,0x77));
     showPill->setToolTip(tr("Modalità Show — visualizzazione senza modifiche"));
     connect(showPill, &PillToggle::toggled, this, [this](bool on) {
         m_showMode = on;
@@ -1220,13 +1219,67 @@ void MainWindow::applyUltraDark(bool on) {
     m_ultraDark = on;
 
     if (on) {
-        if (!m_ultraDarkWin) {
-            m_ultraDarkWin = new UltraDarkWindow(m_model, m_cueView->selectionModel(), this);
+        m_normalMainSplit = m_mainSplit ? m_mainSplit->sizes() : QList<int>{};
+        m_normalTopSplit  = m_topSplit  ? m_topSplit->sizes()  : QList<int>{};
+
+        if (m_toolBar)    m_toolBar->hide();
+        menuBar()->hide();
+        statusBar()->hide();
+        if (m_activeCues) m_activeCues->hide();
+        if (m_infoBar)    m_infoBar->hide();
+        // hide the scroll area wrapping the inspector (widget(1) of m_mainSplit)
+        if (m_mainSplit && m_mainSplit->count() > 1)
+            m_mainSplit->widget(1)->hide();
+
+        if (m_normalQss.isEmpty()) m_normalQss = qApp->styleSheet();
+        static const QString kExtra =
+            "QMainWindow{background:#000000;}"
+            "QScrollBar:vertical{background:#000000;width:6px;}"
+            "QScrollBar::handle:vertical{background:#1a1a1a;border-radius:3px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}";
+        qApp->setStyleSheet(m_normalQss + kExtra);
+        m_cueView->setUltraDark(true);
+
+        // Show one-time hint dialog (unless user disabled it)
+        QSettings cfg("OQL", "OQL");
+        if (!cfg.value("ui/ultraDarkHintShown", false).toBool()) {
+            QDialog dlg(this);
+            dlg.setWindowTitle(tr("Ultra Dark Mode"));
+            dlg.setWindowFlags(dlg.windowFlags() & ~Qt::WindowContextHelpButtonHint);
+            auto *vlay = new QVBoxLayout(&dlg);
+            auto *lbl = new QLabel(
+                tr("<b>Ultra Dark Mode attivato</b><br><br>"
+                   "Visibile solo la lista cue.<br>"
+                   "Premi <b>↵ Invio</b> (o riclicca la luna) per uscire."), &dlg);
+            lbl->setWordWrap(true);
+            vlay->addWidget(lbl);
+            auto *cb  = new QCheckBox(tr("Non mostrare più"), &dlg);
+            vlay->addWidget(cb);
+            auto *btn = new QPushButton(tr("OK"), &dlg);
+            btn->setDefault(true);
+            connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+            vlay->addWidget(btn);
+            dlg.exec();
+            if (cb->isChecked())
+                cfg.setValue("ui/ultraDarkHintShown", true);
         }
-        m_ultraDarkWin->show();
-        m_ultraDarkWin->raise();
     } else {
-        if (m_ultraDarkWin) m_ultraDarkWin->hide();
+        if (m_toolBar)    m_toolBar->show();
+        menuBar()->show();
+        statusBar()->show();
+        if (m_activeCues) m_activeCues->show();
+        if (m_infoBar)    m_infoBar->show();
+        if (m_mainSplit && m_mainSplit->count() > 1)
+            m_mainSplit->widget(1)->show();
+
+        qApp->setStyleSheet(m_normalQss);
+        m_cueView->setUltraDark(false);
+
+
+        if (m_mainSplit && !m_normalMainSplit.isEmpty())
+            m_mainSplit->setSizes(m_normalMainSplit);
+        if (m_topSplit  && !m_normalTopSplit.isEmpty())
+            m_topSplit->setSizes(m_normalTopSplit);
     }
 }
 
@@ -1545,6 +1598,15 @@ void MainWindow::toggleVideoOutput() {
 // ── Event filter: sync toggle-action checked state with window visibility ─────
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
+    // Intercept Enter on cueView to exit ultra dark before QTableView consumes it
+    if (m_ultraDark && obj == m_cueView && ev->type() == QEvent::KeyPress) {
+        const auto *ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            if (m_ultraDarkBtn) static_cast<PillToggle*>(m_ultraDarkBtn)->setChecked(false);
+            return true;
+        }
+    }
+
     const auto type = ev->type();
     if (type == QEvent::Show || type == QEvent::Hide) {
         const bool visible = (type == QEvent::Show);
@@ -1675,7 +1737,12 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {
-    // Spacebar go is handled by QAction shortcut — pass others through
+    if (m_ultraDark && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+        // setChecked(false) emits toggled(false) which triggers applyUltraDark(false)
+        if (m_ultraDarkBtn) static_cast<PillToggle*>(m_ultraDarkBtn)->setChecked(false);
+        event->accept();
+        return;
+    }
     QMainWindow::keyPressEvent(event);
 }
 
