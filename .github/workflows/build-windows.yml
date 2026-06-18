@@ -63,11 +63,16 @@ jobs:
             $src = "$vcpkgBin\$dll"
             if (Test-Path $src) { Copy-Item $src dist\ }
           }
-          Compress-Archive -Path dist\* -DestinationPath oql-windows-ci.zip
+          $version = git describe --tags --always 2>$null
+          if (-not $version) { $version = "0.1.0" }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
+            /DMyAppVersion="$version" `
+            /DOutputFile="oql-windows-ci" `
+            installer.iss
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: oql-windows-ci
-          path: oql-windows-ci.zip
+          path: oql-windows-ci.exe
           retention-days: 7

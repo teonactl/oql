@@ -27,7 +27,7 @@ jobs:
 
           - os: windows-2022
             artifact: oql-beta-windows
-            ext: zip
+            ext: exe
 
     runs-on: ${{ matrix.os }}
 
@@ -154,7 +154,12 @@ jobs:
             $src = "$vcpkgBin\$dll"
             if (Test-Path $src) { Copy-Item $src dist\ }
           }
-          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
+          $version = git describe --tags --always 2>$null
+          if (-not $version) { $version = "0.1.0" }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
+            /DMyAppVersion="$version" `
+            /DOutputFile="${{ matrix.artifact }}" `
+            installer.iss
 
       # ── Upload artifact (30-day backup) ──────────────────────────
       - name: Upload artifact
