@@ -1,12 +1,7 @@
-name: Build Beta (Full + scadenza)
+name: Build Beta (Full)
 
 on:
   workflow_dispatch:
-    inputs:
-      expiry:
-        description: 'Data scadenza beta (YYYY-MM-DD)'
-        required: false
-        default: '2026-12-14'
 
 permissions:
   contents: write
@@ -61,8 +56,7 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOQL_EDITION=full \
-            -DOQL_BETA_EXPIRY="${{ inputs.expiry || '2026-12-14' }}"
+            -DOQL_EDITION=full
 
       # ── macOS ────────────────────────────────────────────────────
       - name: Install dependencies (macOS)
@@ -76,7 +70,6 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOQL_EDITION=full \
-            -DOQL_BETA_EXPIRY="${{ inputs.expiry || '2026-12-14' }}" \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}"
 
       # ── Windows ──────────────────────────────────────────────────
@@ -96,7 +89,6 @@ jobs:
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=Release `
             -DOQL_EDITION=full `
-            "-DOQL_BETA_EXPIRY=${{ inputs.expiry || '2026-12-14' }}" `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
@@ -174,12 +166,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: beta-latest
-          name: "Beta — versione di test (scade ${{ inputs.expiry || '2026-12-14' }})"
+          name: "Beta — versione di test"
           prerelease: true
           body: |
             **Versione BETA per test interno.**
 
-            - Scade il ${{ inputs.expiry || '2026-12-14' }}
             - Edizione: Full (include tutti i cue type)
             - Non distribuire a terzi
 
