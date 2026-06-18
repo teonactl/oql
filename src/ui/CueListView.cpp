@@ -48,6 +48,17 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
     auto *h = horizontalHeader();
     h->setSectionResizeMode(QHeaderView::Interactive);
     h->setMinimumSectionSize(24);
+    h->setStyleSheet(
+        "QHeaderView::section {"
+        "  background: #1a1e2a;"
+        "  color: #8892a4;"
+        "  border: none;"
+        "  border-right: 1px solid #3a3e4a;"
+        "  padding: 0 6px;"
+        "  font-size: 11px;"
+        "}"
+        "QHeaderView::section:last { border-right: none; }"
+    );
 
     const QList<int> defaults = { 50, 60, 220, 200, 70, 70, 70, 30 };
     const QList<int> saved    = AppSettings::instance().cueListColumnWidths();

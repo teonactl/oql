@@ -840,7 +840,7 @@ void MainWindow::buildToolBar() {
 #endif
 
     // ── Toggle pill buttons ─────────────────────────────────────────────────────
-    auto webIcon = makeTbIcon(QColor(0x1a,0x5c,0xcc), [](QPainter &p) {
+    auto webIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(QPen(Qt::white, 1.5)); p.setBrush(Qt::NoBrush);
         p.drawEllipse(4,4,20,20); p.drawLine(14,4,14,24);
         p.drawArc(7,6,14,16,0,180*16); p.drawLine(4,14,24,14);
@@ -856,9 +856,8 @@ void MainWindow::buildToolBar() {
     webPill->setToolTip(tr("Avvia / ferma Web Remote"));
     connect(webPill, &PillToggle::toggled, m_webAction, &QAction::setChecked);
     connect(m_webAction, &QAction::toggled, webPill, &PillToggle::setChecked);
-    tb->addWidget(webPill);
 
-    auto videoOutIcon = makeTbIcon(QColor(0x1a,0x6a,0x44), [](QPainter &p) {
+    auto videoOutIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,40));
         p.drawRoundedRect(3,4,22,14,2,2);
         p.setPen(Qt::NoPen); p.setBrush(Qt::white);
@@ -875,9 +874,8 @@ void MainWindow::buildToolBar() {
     videoPill->setToolTip(tr("Mostra / nascondi finestra Video Out"));
     connect(videoPill, &PillToggle::toggled, m_videoAction, &QAction::setChecked);
     connect(m_videoAction, &QAction::toggled, videoPill, &PillToggle::setChecked);
-    tb->addWidget(videoPill);
 
-    auto textOutIcon = makeTbIcon(QColor(0x0a,0x5a,0x7a), [](QPainter &p) {
+    auto textOutIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,30));
         p.drawRoundedRect(6,3,16,22,1,1); p.setPen(QPen(Qt::white,1.5));
         p.drawLine(9,9,19,9); p.drawLine(9,13,19,13);
@@ -892,7 +890,6 @@ void MainWindow::buildToolBar() {
     textPill->setToolTip(tr("Mostra / nascondi finestra Text Out"));
     connect(textPill, &PillToggle::toggled, m_textAction, &QAction::setChecked);
     connect(m_textAction, &QAction::toggled, textPill, &PillToggle::setChecked);
-    tb->addWidget(textPill);
 
     // ── Expanding spacer ────────────────────────────────────────────────────────
     auto *tbSpacer = new QWidget;
@@ -912,8 +909,8 @@ void MainWindow::buildToolBar() {
     m_ultraDarkBtn = darkPill;
     tb->addWidget(darkPill);
 
-    // Show Mode — occhio
-    auto showModeIcon = makeTbIcon(QColor(0x33,0x55,0x66), [](QPainter &p) {
+    // Show Mode — occhio (flat, no background)
+    auto showModeIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(QPen(Qt::white, 2.0)); p.setBrush(Qt::NoBrush);
         QPainterPath eyePath;
         eyePath.moveTo(2,14); eyePath.quadTo(14,3,26,14);
@@ -942,6 +939,12 @@ void MainWindow::buildToolBar() {
     });
     m_showModeBtn = showPill;
     tb->addWidget(showPill);
+
+    // Output toggle pills — separati dal gruppo dark/show
+    tb->addSeparator();
+    tb->addWidget(webPill);
+    tb->addWidget(videoPill);
+    tb->addWidget(textPill);
 
     m_showModeShortcut = new QShortcut(AppSettings::instance().keyShowMode(), this);
     connect(m_showModeShortcut, &QShortcut::activated, this, [showPill]() {
