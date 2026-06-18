@@ -4,6 +4,12 @@
 
 ---
 
+## Documentation
+
+For an illustrated introduction with screenshots and step-by-step guidance, see the **[online documentation](https://teonactl.github.io/oql/docs)**.
+
+---
+
 ## Contents
 
 | Page | Description |
@@ -24,7 +30,7 @@ git clone https://github.com/teonactl/oql.git
 cd oql
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-./build/openqlab
+./build/oql
 # — or install with icon/launcher —
 ./install.sh
 ```
@@ -49,4 +55,4 @@ cmake --build build -j$(nproc)
 
 ## License
 
-MIT — see [LICENSE](https://github.com/teonactl/oql/blob/main/LICENSE).
+GPL-3.0 — see [LICENSE](https://github.com/teonactl/oql/blob/main/LICENSE).
