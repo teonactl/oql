@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OQL — Documentation</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%23111420'/%3E%3Ccircle cx='230' cy='230' r='140' fill='none' stroke='%23e88020' stroke-width='50'/%3E%3Cline x1='322' y1='322' x2='428' y2='428' stroke='%23e88020' stroke-width='50' stroke-linecap='round'/%3E%3Cpolygon points='178,162 178,298 312,230' fill='%23e8eaf0'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --bg:      #0f1117;
+      --surface: #181c27;
+      --card:    #1e2334;
+      --border:  #2a3050;
+      --accent:  #4f8ef7;
+      --text:    #e2e8f0;
+      --muted:   #8892a4;
+      --radius:  12px;
+
+      /* Cue type colours */
+      --c-audio:  #1e40af;
+      --c-video:  #065f46;
+      --c-text:   #5b21b6;
+      --c-mic:    #0e7490;
+      --c-group:  #374151;
+      --c-label:  #78350f;
+      --c-stop:   #991b1b;
+      --c-pause:  #92400e;
+      --c-play:   #14532d;
+      --c-fade:   #312e81;
+      --c-speed:  #713f12;
+      --c-effect: #831843;
+      --c-reset:  #1e3a5f;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { overflow-x: hidden; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,17,23,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 56px;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: .55rem;
+      font-weight: 700; font-size: 1.15rem; letter-spacing: -.5px;
+      text-decoration: none; color: var(--text);
+    }
+    .nav-logo:hover { text-decoration: none; }
+    .nav-logo span { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; font-size: .9rem; }
+    .nav-links a { color: var(--muted); transition: color .15s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--text); text-decoration: none; }
+
+    /* HERO */
+    .hero {
+      text-align: center;
+      padding: 5rem 1.5rem 3.5rem;
+      background: radial-gradient(ellipse 80% 50% at 50% -10%,
+                  rgba(79,142,247,.15) 0%, transparent 70%);
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(79,142,247,.12);
+      border: 1px solid rgba(79,142,247,.35);
+      color: var(--accent);
+      font-size: .75rem; font-weight: 600;
+      letter-spacing: .08em; text-transform: uppercase;
+      padding: .3em .9em; border-radius: 999px;
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800; letter-spacing: -1px;
+      line-height: 1.15; margin-bottom: 1rem;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p { font-size: 1.05rem; color: var(--muted); max-width: 520px; margin: 0 auto 2rem; }
+
+    /* TOC pills */
+    .toc {
+      display: flex; flex-wrap: wrap; gap: .5rem;
+      justify-content: center; max-width: 700px; margin: 0 auto;
+    }
+    .toc a {
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--muted); font-size: .82rem; font-weight: 500;
+      padding: .35em .9em; border-radius: 999px;
+      transition: border-color .15s, color .15s;
+    }
+    .toc a:hover { border-color: var(--accent); color: var(--text); text-decoration: none; }
+
+    /* SECTIONS */
+    section {
+      max-width: 1000px; margin: 0 auto; padding: 4rem 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+    section:first-of-type { border-top: none; }
+    section h2 {
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 800; letter-spacing: -.6px; margin-bottom: .4rem;
+    }
+    section h2 span { color: var(--accent); }
+    .section-sub { color: var(--muted); margin-bottom: 2.5rem; font-size: 1rem; }
+
+    /* INTERFACE MOCKUP */
+    .ui-overview {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      margin-bottom: 2.5rem;
+    }
+    .ui-titlebar {
+      background: #0c0e17; padding: .5rem 1rem;
+      display: flex; align-items: center; gap: .5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .tbar-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .tbar-dot.r { background: #ef4444; }
+    .tbar-dot.y { background: #f59e0b; }
+    .tbar-dot.g { background: #22c55e; }
+    .tbar-title { font-size: .78rem; color: var(--muted); margin-left: .5rem; flex: 1; text-align: center; }
+    .ui-toolbar {
+      background: #12151f; padding: .55rem 1rem;
+      display: flex; align-items: center; gap: .75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .go-btn {
+      background: #15803d; color: #fff;
+      font-size: .72rem; font-weight: 800; letter-spacing: .06em;
+      padding: .3em .9em; border-radius: 6px;
+    }
+    .tb-label { font-size: .72rem; color: var(--muted); background: var(--card);
+                border: 1px solid var(--border); padding: .2em .6em; border-radius: 5px; }
+    .ui-body {
+      display: grid; grid-template-columns: 1fr 1fr;
+      min-height: 240px;
+    }
+    .ui-panel {
+      padding: .75rem;
+      position: relative;
+    }
+    .ui-panel + .ui-panel { border-left: 1px solid var(--border); }
+    .panel-label {
+      font-size: .65rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: .5rem;
+      padding: .2em .5em; background: rgba(79,142,247,.07);
+      border-radius: 4px; display: inline-block;
+    }
+    .mock-row {
+      display: flex; gap: 7px; align-items: center;
+      background: var(--card); border-radius: 6px;
+      padding: .35rem .7rem; margin-bottom: 4px;
+    }
+    .mock-row.selected { background: rgba(79,142,247,.15); border: 1px solid rgba(79,142,247,.3); }
+    .mock-row.playing  { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.25); }
+    .mock-num { font-size: .68rem; color: var(--muted); width: 18px; text-align: right; flex-shrink: 0; }
+    .mock-badge {
+      font-size: .58rem; font-weight: 800; letter-spacing: .07em;
+      padding: .18em .5em; border-radius: 3px; color: #fff; flex-shrink: 0;
+    }
+    .mock-name { flex: 1; font-size: .78rem; }
+    .mock-name.playing { color: #4ade80; font-weight: 600; }
+    .mock-dur { font-size: .68rem; color: var(--muted); }
+    .go-arrow {
+      background: #15803d; color: #fff;
+      font-size: .58rem; font-weight: 800; padding: .18em .5em; border-radius: 3px;
+    }
+    .insp-field {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: .4rem 0; border-bottom: 1px solid rgba(255,255,255,.04);
+      font-size: .8rem;
+    }
+    .insp-field:last-child { border-bottom: none; }
+    .insp-key { color: var(--muted); }
+    .insp-val {
+      background: var(--card); border: 1px solid var(--border);
+      padding: .2em .6em; border-radius: 5px; font-size: .75rem;
+    }
+    .waveform-mock {
+      height: 40px; background: #0f1117; border-radius: 6px; margin: .5rem 0;
+      overflow: hidden; position: relative;
+    }
+    .wave-bar {
+      position: absolute; bottom: 0;
+      background: rgba(79,142,247,.5); border-radius: 2px 2px 0 0;
+    }
+    .ui-bottom {
+      border-top: 1px solid var(--border);
+      padding: .6rem .75rem;
+      display: flex; gap: .75rem; align-items: center;
+    }
+    .active-card {
+      background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.25);
+      border-radius: 6px; padding: .35rem .75rem; font-size: .75rem; flex: 1;
+    }
+    .active-card-name { color: #4ade80; font-weight: 600; font-size: .75rem; }
+    .progress-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: .3rem; }
+    .progress-fill { height: 100%; background: #22c55e; border-radius: 2px; width: 60%; }
+
+    /* AREA LABELS */
+    .ui-areas {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .area-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.1rem 1.25rem;
+      display: flex; gap: .85rem; align-items: flex-start;
+    }
+    .area-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: rgba(79,142,247,.1); border: 1px solid rgba(79,142,247,.25);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .area-card h4 { font-size: .9rem; font-weight: 700; margin-bottom: .2rem; }
+    .area-card p  { font-size: .82rem; color: var(--muted); }
+
+    /* WORKFLOW STEPS */
+    .steps { display: flex; flex-direction: column; gap: 1.25rem; }
+    .step {
+      display: flex; gap: 1.25rem; align-items: flex-start;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.4rem 1.5rem;
+    }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      font-weight: 800; font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .step-body h3 { font-size: 1rem; font-weight: 700; margin-bottom: .3rem; }
+    .step-body p  { font-size: .88rem; color: var(--muted); }
+    .step-body code {
+      background: rgba(79,142,247,.12); color: var(--accent);
+      padding: .1em .4em; border-radius: 4px; font-size: .85em;
+    }
+    .kbd-list { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
+    .kbd {
+      background: var(--card); border: 1px solid var(--border);
+      border-bottom-width: 2px; border-radius: 5px;
+      font-family: monospace; font-size: .78rem;
+      padding: .15em .5em; color: var(--text);
+    }
+
+    /* CUE TYPES */
+    .cue-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 1.25rem;
+    }
+    .cue-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.4rem 1.5rem;
+      transition: border-color .2s, transform .15s;
+    }
+    .cue-card:hover { border-color: #4a5070; transform: translateY(-2px); }
+    .cue-header { display: flex; align-items: center; gap: .85rem; margin-bottom: 1rem; }
+    .cue-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .cue-title { font-size: 1.05rem; font-weight: 700; }
+    .cue-badge {
+      font-size: .6rem; font-weight: 800; letter-spacing: .08em;
+      padding: .2em .55em; border-radius: 3px; color: #fff;
+      display: inline-block; margin-top: .15rem;
+    }
+    .cue-desc { font-size: .86rem; color: var(--muted); margin-bottom: 1rem; line-height: 1.55; }
+    .cue-params { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .cue-params th {
+      text-align: left; color: var(--muted); font-weight: 600;
+      font-size: .72rem; letter-spacing: .06em; text-transform: uppercase;
+      padding: .3rem 0; border-bottom: 1px solid var(--border);
+    }
+    .cue-params td {
+      padding: .4rem 0; border-bottom: 1px solid rgba(255,255,255,.04);
+      vertical-align: top;
+    }
+    .cue-params td:first-child { color: var(--text); font-weight: 600; padding-right: .75rem; white-space: nowrap; }
+    .cue-params td:last-child { color: var(--muted); }
+    .cue-params tr:last-child td { border-bottom: none; }
+    .cue-tip {
+      margin-top: .9rem; padding: .6rem .85rem;
+      background: rgba(79,142,247,.07); border-left: 2px solid var(--accent);
+      border-radius: 0 6px 6px 0; font-size: .8rem; color: var(--muted);
+    }
+    .cue-tip strong { color: var(--text); }
+
+    /* TIMING */
+    .timing-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 1.25rem; margin-bottom: 2rem; }
+    .timing-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.25rem 1.4rem;
+    }
+    .timing-card h4 { font-size: .95rem; font-weight: 700; margin-bottom: .35rem; color: var(--accent); }
+    .timing-card p { font-size: .84rem; color: var(--muted); }
+    .chain-diagram {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
+      font-family: monospace; font-size: .8rem; color: var(--muted);
+      overflow-x: auto;
+    }
+    .chain-diagram .hl { color: var(--accent); }
+    .chain-diagram .ok { color: #22c55e; }
+
+    /* SHORTCUTS */
+    .shortcut-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .shortcut-table th {
+      text-align: left; padding: .6rem 1rem; font-size: .75rem;
+      letter-spacing: .07em; text-transform: uppercase; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .shortcut-table td {
+      padding: .6rem 1rem; border-bottom: 1px solid rgba(255,255,255,.04);
+      vertical-align: middle;
+    }
+    .shortcut-table tr:last-child td { border-bottom: none; }
+    .shortcut-table tr:nth-child(even) td { background: rgba(255,255,255,.015); }
+    .shortcut-table td:first-child { white-space: nowrap; }
+
+    /* FOOTER */
+    footer {
+      background: var(--bg); border-top: 1px solid var(--border);
+      text-align: center; padding: 2.5rem 1.5rem;
+      color: var(--muted); font-size: .85rem;
+    }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .ui-body { grid-template-columns: 1fr; }
+      .ui-panel + .ui-panel { border-left: none; border-top: 1px solid var(--border); }
+      .ui-areas { grid-template-columns: 1fr; }
+      .timing-grid { grid-template-columns: 1fr; }
+      .nav-links { gap: .75rem; font-size: .8rem; }
+    }
+    @media (max-width: 380px) { .nav-links { display: none; } }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="/oql/">
+    <svg width="26" height="26" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <rect width="512" height="512" rx="80" fill="#111420"/>
+      <circle cx="230" cy="230" r="140" fill="none" stroke="#e88020" stroke-width="50"/>
+      <line x1="322" y1="322" x2="428" y2="428" stroke="#e88020" stroke-width="50" stroke-linecap="round"/>
+      <polygon points="178,162 178,298 312,230" fill="#e8eaf0"/>
+    </svg>
+    <span>OQL</span>
+  </a>
+  <div class="nav-links">
+    <a href="/oql/#features">Features</a>
+    <a href="/oql/#editions">Editions</a>
+    <a href="/oql/docs" class="active">Docs</a>
+    <a href="https://github.com/teonactl/oql/wiki">Wiki</a>
+    <a href="https://github.com/teonactl/oql">GitHub</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="badge">Documentation</div>
+  <h1>Working with <span>OQL</span></h1>
+  <p>Interface overview, every cue type explained, timing system, and keyboard shortcuts.</p>
+  <div class="toc">
+    <a href="#interface">Interface</a>
+    <a href="#workflow">Workflow</a>
+    <a href="#audio">Audio</a>
+    <a href="#video">Video</a>
+    <a href="#text">Text</a>
+    <a href="#mic">Mic</a>
+    <a href="#control">Control cues</a>
+    <a href="#effect">Effects</a>
+    <a href="#group">Group &amp; Label</a>
+    <a href="#timing">Timing</a>
+    <a href="#shortcuts">Shortcuts</a>
+  </div>
+</div>
+
+<!-- ── INTERFACE ─────────────────────────────────────────────────────────── -->
+<section id="interface">
+  <h2>The <span>interface</span></h2>
+  <p class="section-sub">OQL has four main areas — cue list, inspector, active cues, and the info bar.</p>
+
+  <div class="ui-overview">
+    <div class="ui-titlebar">
+      <div class="tbar-dot r"></div>
+      <div class="tbar-dot y"></div>
+      <div class="tbar-dot g"></div>
+      <div class="tbar-title">OpenQLab — Show_01.oqlab</div>
+    </div>
+    <div class="ui-toolbar">
+      <div class="go-btn">GO</div>
+      <div class="tb-label">STOP ALL</div>
+      <div class="tb-label">SHOW MODE</div>
+      <div style="margin-left:auto;font-size:.72rem;color:var(--muted);">Next: 3 · Intro Music</div>
+    </div>
+    <div class="ui-body">
+      <!-- CUE LIST -->
+      <div class="ui-panel">
+        <div class="panel-label">Cue List</div>
+        <div class="mock-row playing">
+          <div class="mock-num">1</div>
+          <div class="mock-badge" style="background:var(--c-audio)">AUDIO</div>
+          <div class="mock-name playing">Preshow Ambient</div>
+          <div class="mock-dur">4:32</div>
+        </div>
+        <div class="mock-row">
+          <div class="mock-num">2</div>
+          <div class="mock-badge" style="background:var(--c-fade)">FADE</div>
+          <div class="mock-name">Fade out ambient</div>
+          <div class="mock-dur">3s</div>
+        </div>
+        <div class="mock-row selected">
+          <div class="mock-num">3</div>
+          <div class="mock-badge" style="background:var(--c-audio)">AUDIO</div>
+          <div class="mock-name">Intro Music</div>
+          <div class="mock-dur">2:14</div>
+          <div class="go-arrow">▶ GO</div>
+        </div>
+        <div class="mock-row">
+          <div class="mock-num">4</div>
+          <div class="mock-badge" style="background:var(--c-video)">VIDEO</div>
+          <div class="mock-name">Opening title</div>
+          <div class="mock-dur">0:45</div>
+        </div>
+        <div class="mock-row">
+          <div class="mock-num">5</div>
+          <div class="mock-badge" style="background:var(--c-label)">LABEL</div>
+          <div class="mock-name" style="color:var(--muted);font-style:italic;">── Act 1 ──</div>
+          <div class="mock-dur"></div>
+        </div>
+      </div>
+      <!-- INSPECTOR -->
+      <div class="ui-panel">
+        <div class="panel-label">Inspector — Cue 3 · Intro Music</div>
+        <div class="waveform-mock" id="wf">
+          <script>
+            (function(){
+              var wf = document.getElementById('wf');
+              for(var i=0;i<42;i++){
+                var b=document.createElement('div');
+                b.className='wave-bar';
+                var h=8+Math.sin(i*.7)*18+Math.random()*14;
+                b.style.cssText='width:4px;height:'+h+'px;left:'+(i*7+4)+'px;opacity:'+(0.4+Math.random()*.5);
+                wf.appendChild(b);
+              }
+            })();
+          </script>
+        </div>
+        <div class="insp-field"><span class="insp-key">Volume</span><span class="insp-val">0 dB</span></div>
+        <div class="insp-field"><span class="insp-key">Fade in</span><span class="insp-val">1.5 s</span></div>
+        <div class="insp-field"><span class="insp-key">Fade out</span><span class="insp-val">2.0 s</span></div>
+        <div class="insp-field"><span class="insp-key">Loop</span><span class="insp-val">0×</span></div>
+        <div class="insp-field"><span class="insp-key">Pre-wait</span><span class="insp-val">0 s</span></div>
+        <div class="insp-field"><span class="insp-key">Auto-follow</span><span class="insp-val">off</span></div>
+      </div>
+    </div>
+    <!-- ACTIVE CUES -->
+    <div class="ui-bottom">
+      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;">Active</div>
+      <div class="active-card">
+        <div class="active-card-name">1 · Preshow Ambient</div>
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);">2:43 / 4:32</div>
+    </div>
+  </div>
+
+  <div class="ui-areas">
+    <div class="area-card">
+      <div class="area-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--accent)" stroke-width="1.5"/>
+          <line x1="3" y1="8" x2="21" y2="8" stroke="var(--accent)" stroke-width="1.5"/>
+          <line x1="3" y1="13" x2="21" y2="13" stroke="var(--accent)" stroke-width="1" stroke-dasharray="2 2"/>
+          <line x1="3" y1="18" x2="21" y2="18" stroke="var(--accent)" stroke-width="1" stroke-dasharray="2 2"/>
+        </svg>
+      </div>
+      <div>
+        <h4>Cue List</h4>
+        <p>All the cues in sequence. Click to select, <strong>Space</strong> / GO to fire the next one. Drag rows to reorder. Right-click for the context menu.</p>
+      </div>
+    </div>
+    <div class="area-card">
+      <div class="area-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--accent)" stroke-width="1.5"/>
+          <line x1="7" y1="8" x2="17" y2="8" stroke="var(--accent)" stroke-width="1.5"/>
+          <line x1="7" y1="12" x2="13" y2="12" stroke="var(--accent)" stroke-width="1.5"/>
+          <rect x="7" y="15" width="10" height="3" rx="1" stroke="var(--accent)" stroke-width="1"/>
+        </svg>
+      </div>
+      <div>
+        <h4>Inspector</h4>
+        <p>All parameters for the selected cue. Changes take effect immediately. For Audio cues this also shows the waveform with trim and fade handles.</p>
+      </div>
+    </div>
+    <div class="area-card">
+      <div class="area-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+          <rect x="2" y="14" width="4" height="8" rx="1" fill="var(--accent)" fill-opacity=".3" stroke="var(--accent)" stroke-width="1.2"/>
+          <rect x="8" y="9" width="4" height="13" rx="1" fill="var(--accent)" fill-opacity=".3" stroke="var(--accent)" stroke-width="1.2"/>
+          <rect x="14" y="5" width="4" height="17" rx="1" fill="var(--accent)" fill-opacity=".3" stroke="var(--accent)" stroke-width="1.2"/>
+        </svg>
+      </div>
+      <div>
+        <h4>Active Cues</h4>
+        <p>Live view of everything currently playing. Each card shows a progress bar and elapsed time. Click the stop button on a card to stop just that cue.</p>
+      </div>
+    </div>
+    <div class="area-card">
+      <div class="area-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" stroke="var(--accent)" stroke-width="1.5"/>
+          <polyline points="12,7 12,12 15,15" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h4>Cue Info Bar</h4>
+        <p>Always shows the number and name of the <em>next</em> cue about to fire. During a show this is your at-a-glance reference without having to look at the list.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── WORKFLOW ───────────────────────────────────────────────────────────── -->
+<section id="workflow">
+  <h2>Basic <span>workflow</span></h2>
+  <p class="section-sub">From blank page to running your show in four steps.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h3>Create a workspace</h3>
+        <p><strong>File → New</strong> opens a blank show. Save it straight away with <code>Ctrl+S</code> — OQL workspaces are <code>.oqlab</code> files (plain JSON, human-readable). Use <strong>File → Recent Files</strong> to reopen a show quickly.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h3>Add cues</h3>
+        <p>Right-click anywhere in the cue list and choose <strong>Add cue</strong>, or use the keyboard shortcuts below. Cues are inserted after the current selection.</p>
+        <div class="kbd-list">
+          <span class="kbd">Ctrl+Shift+A</span><span style="font-size:.8rem;color:var(--muted)">Audio</span>
+          <span style="color:var(--border)">·</span>
+          <span class="kbd">Ctrl+Shift+V</span><span style="font-size:.8rem;color:var(--muted)">Video</span>
+          <span style="color:var(--border)">·</span>
+          <span class="kbd">Ctrl+Shift+T</span><span style="font-size:.8rem;color:var(--muted)">Text</span>
+          <span style="color:var(--border)">·</span>
+          <span class="kbd">Ctrl+Shift+M</span><span style="font-size:.8rem;color:var(--muted)">Mic</span>
+          <span style="color:var(--border)">·</span>
+          <span class="kbd">Ctrl+Shift+G</span><span style="font-size:.8rem;color:var(--muted)">Group</span>
+          <span style="color:var(--border)">·</span>
+          <span class="kbd">Ctrl+Shift+L</span><span style="font-size:.8rem;color:var(--muted)">Label</span>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h3>Configure each cue</h3>
+        <p>Click a cue to select it. The <strong>Inspector</strong> on the right shows all its parameters. For Audio cues, drag the waveform trim handles to set start/end points, and drag the fade regions to set fade durations. Every change is instantly undoable with <code>Ctrl+Z</code>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h3>Run the show</h3>
+        <p>Press <strong>Space</strong> or click <strong>GO</strong> to fire the selected cue and advance the playhead. To test a single cue without advancing, click the <strong>▶ Play</strong> button in the Inspector. Press <strong>Escape</strong> to stop everything instantly. Toggle <strong>Show Mode</strong> in the toolbar to hide the interface and show only a clean cue-info overlay.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CUE TYPES ─────────────────────────────────────────────────────────── -->
+<section id="cues">
+  <h2>Cue <span>types</span></h2>
+  <p class="section-sub">Every cue shares Number, Name, Notes, Pre-wait, Post-wait, Auto-continue and Auto-follow fields. The parameters below are type-specific.</p>
+
+  <div class="cue-grid">
+
+    <!-- AUDIO -->
+    <div class="cue-card" id="audio">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(30,64,175,.25);border:1px solid rgba(30,64,175,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <path d="M3 9h4l5-5v16l-5-5H3z" fill="#60a5fa" fill-opacity=".8"/>
+            <path d="M16 6.5 Q20 12 16 17.5" stroke="#60a5fa" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <path d="M19 3.5 Q25 12 19 20.5" stroke="#60a5fa" stroke-width="1.5" fill="none" stroke-linecap="round" opacity=".5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Audio Cue</div>
+          <div class="cue-badge" style="background:var(--c-audio)">AUDIO</div>
+        </div>
+      </div>
+      <p class="cue-desc">Plays an audio file through the system output. Supports MP3, WAV, FLAC, AAC, OGG. Includes a waveform editor with trim handles, fade envelope, and per-cue VST2/LV2 plugin chain.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>File</td><td>Path to the audio file. Click … to browse.</td></tr>
+        <tr><td>Volume</td><td>Playback level in dB (default 0 dB)</td></tr>
+        <tr><td>Loop count</td><td>Extra repeats after the first play (0 = once)</td></tr>
+        <tr><td>Channel</td><td>Stereo / Left only / Right only</td></tr>
+        <tr><td>Fade in / out</td><td>Linear fade duration at start or end (seconds)</td></tr>
+        <tr><td>Trim start / end</td><td>Skip the first / last N seconds of the file</td></tr>
+        <tr><td>Volume automation</td><td>Click in the waveform to add envelope points; drag to adjust level over time</td></tr>
+        <tr><td>Effects chain</td><td>Click <em>Effects…</em> to add VST2 or LV2 plugins</td></tr>
+      </table>
+      <div class="cue-tip"><strong>Waveform tips:</strong> drag the left/right trim handles to crop the file; drag the fade-in/out shaded region to resize the fade; right-click an automation point to delete it.</div>
+    </div>
+
+    <!-- VIDEO -->
+    <div class="cue-card" id="video">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(6,95,70,.25);border:1px solid rgba(6,95,70,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <rect x="2" y="6" width="14" height="12" rx="2" fill="#34d399" fill-opacity=".2" stroke="#34d399" stroke-width="1.5"/>
+            <polygon points="16,9 22,6 22,18 16,15" fill="#34d399" fill-opacity=".8"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Video Cue</div>
+          <div class="cue-badge" style="background:var(--c-video)">VIDEO</div>
+        </div>
+      </div>
+      <p class="cue-desc">Plays a video file on a dedicated fullscreen output window — ideal for projection mapping, backdrops, or title sequences. The output window stays on top and is borderless during playback.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>File</td><td>Path to the video file</td></tr>
+        <tr><td>Volume</td><td>Audio level of the video's soundtrack (dB)</td></tr>
+        <tr><td>Loop count</td><td>Extra repeats after the first play</td></tr>
+      </table>
+      <div class="cue-tip"><strong>Tip:</strong> the Video Out window opens on the secondary display if available. Toggle visibility with the <strong>Video Out</strong> pill button in the toolbar.</div>
+    </div>
+
+    <!-- TEXT -->
+    <div class="cue-card" id="text">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(91,33,182,.25);border:1px solid rgba(91,33,182,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <path d="M4 5h16M12 5v14" stroke="#c084fc" stroke-width="2" stroke-linecap="round"/>
+            <path d="M7 13h10M7 18h6" stroke="#c084fc" stroke-width="1.3" stroke-linecap="round" opacity=".5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Text Cue</div>
+          <div class="cue-badge" style="background:var(--c-text)">TEXT</div>
+        </div>
+      </div>
+      <p class="cue-desc">Displays formatted text on a dedicated output window. Perfect for supertitles, lyrics, subtitles, or presentation slides. Full typography control including font, size, color, and alignment.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Text</td><td>The content to display</td></tr>
+        <tr><td>Font / Size</td><td>Typography settings</td></tr>
+        <tr><td>Bold / Italic</td><td>Style toggles</td></tr>
+        <tr><td>Text colour</td><td>Foreground colour</td></tr>
+        <tr><td>Background</td><td>Window background colour</td></tr>
+        <tr><td>Alignment</td><td>Left / Centre / Right</td></tr>
+      </table>
+      <div class="cue-tip"><strong>Tip:</strong> chain multiple Text cues with <strong>Auto-follow</strong> to flip through slides automatically.</div>
+    </div>
+
+    <!-- MIC -->
+    <div class="cue-card" id="mic">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(14,116,144,.25);border:1px solid rgba(14,116,144,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <rect x="9" y="2" width="6" height="12" rx="3" fill="#22d3ee" fill-opacity=".2" stroke="#22d3ee" stroke-width="1.5"/>
+            <path d="M5 11a7 7 0 0014 0" stroke="#22d3ee" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <line x1="12" y1="18" x2="12" y2="22" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="8" y1="22" x2="16" y2="22" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Mic Cue</div>
+          <div class="cue-badge" style="background:var(--c-mic)">MIC</div>
+        </div>
+      </div>
+      <p class="cue-desc">Passes live audio from a microphone or any input device straight to the output. The cue stays active until explicitly stopped — useful for live announcements or presenters.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Input device</td><td>Select from detected audio input devices (or Default)</td></tr>
+        <tr><td>Volume</td><td>Gain applied to the live signal (dB)</td></tr>
+      </table>
+      <div class="cue-tip"><strong>Tip:</strong> pair with a <strong>Stop Cue</strong> later in the list to cut the mic automatically when the presenter is done.</div>
+    </div>
+
+    <!-- STOP -->
+    <div class="cue-card" id="control">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(153,27,27,.25);border:1px solid rgba(153,27,27,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <rect x="4" y="4" width="16" height="16" rx="3" fill="#f87171"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Stop Cue</div>
+          <div class="cue-badge" style="background:var(--c-stop)">STOP</div>
+        </div>
+      </div>
+      <p class="cue-desc">Immediately stops a target cue (audio, video, mic, or any other active cue). The target resets to idle.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The cue to stop, selected from a dropdown of all cues in the list</td></tr>
+      </table>
+    </div>
+
+    <!-- PAUSE -->
+    <div class="cue-card">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(146,64,14,.25);border:1px solid rgba(146,64,14,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <rect x="5" y="4" width="5" height="16" rx="2" fill="#fb923c"/>
+            <rect x="14" y="4" width="5" height="16" rx="2" fill="#fb923c"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Pause Cue</div>
+          <div class="cue-badge" style="background:var(--c-pause)">PAUSE</div>
+        </div>
+      </div>
+      <p class="cue-desc">Pauses a playing cue at its current position. Use a <strong>Play Cue</strong> to resume from exactly where it stopped.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The cue to pause</td></tr>
+      </table>
+    </div>
+
+    <!-- PLAY -->
+    <div class="cue-card">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(20,83,45,.25);border:1px solid rgba(20,83,45,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <polygon points="5,3 5,21 21,12" fill="#4ade80"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Play Cue</div>
+          <div class="cue-badge" style="background:var(--c-play)">PLAY</div>
+        </div>
+      </div>
+      <p class="cue-desc">Resumes a paused cue from its current position, or restarts a stopped one from the beginning.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The cue to resume or restart</td></tr>
+      </table>
+    </div>
+
+    <!-- FADE -->
+    <div class="cue-card" id="fade">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(49,46,129,.25);border:1px solid rgba(49,46,129,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <rect x="2" y="17" width="3" height="5" rx="1" fill="#818cf8"/>
+            <rect x="7" y="13" width="3" height="9" rx="1" fill="#818cf8" opacity=".8"/>
+            <rect x="12" y="8"  width="3" height="14" rx="1" fill="#818cf8" opacity=".6"/>
+            <rect x="17" y="3"  width="3" height="19" rx="1" fill="#818cf8" opacity=".4"/>
+            <line x1="2" y1="22" x2="22" y2="2" stroke="#818cf8" stroke-width="1.2" opacity=".4" stroke-dasharray="3 2"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Fade Cue</div>
+          <div class="cue-badge" style="background:var(--c-fade)">FADE</div>
+        </div>
+      </div>
+      <p class="cue-desc">Smoothly interpolates the volume of a target Audio or Video cue to a new level over a specified duration. Can optionally stop the target when the fade reaches its destination.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The Audio or Video cue whose volume to change</td></tr>
+        <tr><td>Target volume</td><td>Destination level in dB</td></tr>
+        <tr><td>Duration</td><td>How long the fade takes (seconds)</td></tr>
+        <tr><td>Stop at end</td><td>If checked, stops the target cue when the fade completes</td></tr>
+      </table>
+      <div class="cue-tip"><strong>Classic crossfade:</strong> fire Cue A (music), then later fire a Fade Cue targeting A with "Stop at end" enabled — it fades out and stops cleanly.</div>
+    </div>
+
+    <!-- SPEED -->
+    <div class="cue-card">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(113,63,18,.25);border:1px solid rgba(113,63,18,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <circle cx="12" cy="13" r="9" stroke="#fbbf24" stroke-width="1.5" fill="none"/>
+            <path d="M12 13 L17 7" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="13" r="2" fill="#fbbf24"/>
+            <path d="M8 4.5 L9.5 6M16 4.5 L14.5 6" stroke="#fbbf24" stroke-width="1.3" stroke-linecap="round" opacity=".5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Speed Cue</div>
+          <div class="cue-badge" style="background:var(--c-speed)">SPEED</div>
+        </div>
+      </div>
+      <p class="cue-desc">Changes the playback rate of an Audio or Video cue dynamically. Pitchless time-stretching via SoundTouch keeps the audio natural at moderate rate changes.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The cue to speed up or slow down</td></tr>
+        <tr><td>Rate</td><td>Multiplier: 1.0 = normal, 2.0 = double speed, 0.5 = half speed</td></tr>
+      </table>
+    </div>
+
+    <!-- EFFECT -->
+    <div class="cue-card" id="effect">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(131,24,67,.25);border:1px solid rgba(131,24,67,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <circle cx="6"  cy="8"  r="2.5" stroke="#f472b6" stroke-width="1.5"/>
+            <circle cx="18" cy="8"  r="2.5" stroke="#f472b6" stroke-width="1.5"/>
+            <circle cx="12" cy="16" r="2.5" stroke="#f472b6" stroke-width="1.5"/>
+            <line x1="2"  y1="8"  x2="3.5" y2="8"  stroke="#f472b6" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="8.5" y1="8" x2="21" y2="8"  stroke="#f472b6" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="2"  y1="16" x2="9.5" y2="16" stroke="#f472b6" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="14.5" y1="16" x2="21" y2="16" stroke="#f472b6" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Effect Cue</div>
+          <div class="cue-badge" style="background:var(--c-effect)">EFFECT</div>
+        </div>
+      </div>
+      <p class="cue-desc">Applies a VST2 / LV2 plugin chain to a target Audio cue's live audio stream. The original chain is restored automatically when the effect ends or is reset.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The Audio cue to process</td></tr>
+        <tr><td>Duration</td><td>How long the effect stays active (s). 0 = permanent until stopped.</td></tr>
+        <tr><td>Effects chain</td><td>Click <em>Effects…</em> to build the plugin chain (VST2 or LV2)</td></tr>
+      </table>
+      <div class="cue-tip"><strong>How it works:</strong> when fired, OQL snapshots the target's current plugin chain, merges your effect on top, then restores the original chain when the duration expires or a Reset Effect Cue fires.</div>
+    </div>
+
+    <!-- RESET EFFECT -->
+    <div class="cue-card">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(30,58,95,.25);border:1px solid rgba(30,58,95,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <path d="M4 12a8 8 0 1 1 1.5 4.8" stroke="#7dd3fc" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+            <polyline points="4,8 4,13 9,13" stroke="#7dd3fc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Reset Effect</div>
+          <div class="cue-badge" style="background:var(--c-reset)">RESET</div>
+        </div>
+      </div>
+      <p class="cue-desc">Immediately restores a target Audio cue's plugin chain to the state it had before the last Effect Cue was applied.</p>
+      <table class="cue-params">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td>Target</td><td>The Audio cue whose chain to restore</td></tr>
+      </table>
+    </div>
+
+    <!-- GROUP -->
+    <div class="cue-card" id="group">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(55,65,81,.35);border:1px solid rgba(107,114,128,.4)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <path d="M2 7h8l2 3h10v11H2z" fill="#9ca3af" fill-opacity=".2" stroke="#9ca3af" stroke-width="1.5" stroke-linejoin="round"/>
+            <line x1="6" y1="14" x2="16" y2="14" stroke="#9ca3af" stroke-width="1" opacity=".5"/>
+            <line x1="6" y1="17" x2="13" y2="17" stroke="#9ca3af" stroke-width="1" opacity=".5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Group Cue</div>
+          <div class="cue-badge" style="background:var(--c-group)">GROUP</div>
+        </div>
+      </div>
+      <p class="cue-desc">A collapsible container that holds other cues. Collapsing a group replaces its members with a single row in the cue list. Firing a group fires all its members according to their own timing settings — simultaneous by default.</p>
+      <div class="cue-tip"><strong>Tip:</strong> select multiple cues in the list and press <strong>Ctrl+G</strong> to group them instantly.</div>
+    </div>
+
+    <!-- LABEL -->
+    <div class="cue-card">
+      <div class="cue-header">
+        <div class="cue-icon" style="background:rgba(120,53,15,.25);border:1px solid rgba(120,53,15,.5)">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+            <path d="M3 7h18M3 12h14M3 17h10" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>
+            <rect x="1" y="5" width="3" height="14" rx="1" fill="#fbbf24" fill-opacity=".5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="cue-title">Label Cue</div>
+          <div class="cue-badge" style="background:var(--c-label)">LABEL</div>
+        </div>
+      </div>
+      <p class="cue-desc">A visual-only section marker with no playback behaviour. Use labels to divide your cue list into named sections — "Act 1", "Scene 3", "Intermission". Labels are never fired and are skipped by the GO button.</p>
+      <div class="cue-tip"><strong>Tip:</strong> double-click the name cell of a Label cue to rename it inline. Use descriptive names so your operator can navigate at a glance.</div>
+    </div>
+
+  </div><!-- /cue-grid -->
+</section>
+
+<!-- ── TIMING ─────────────────────────────────────────────────────────────── -->
+<section id="timing">
+  <h2>Timing &amp; <span>chaining</span></h2>
+  <p class="section-sub">Every cue has four timing fields that control how and when cues chain together automatically.</p>
+
+  <div class="timing-grid">
+    <div class="timing-card">
+      <h4>Pre-wait</h4>
+      <p>Seconds to wait <em>after</em> the cue is triggered before it actually starts. Useful for building in deliberate pauses without adding extra Label cues.</p>
+    </div>
+    <div class="timing-card">
+      <h4>Post-wait</h4>
+      <p>Seconds to wait <em>after</em> this cue finishes before the Auto-follow chain fires. Lets you add a beat of silence between chained cues.</p>
+    </div>
+    <div class="timing-card">
+      <h4>Auto-continue</h4>
+      <p>Immediately fires the <em>next</em> cue as soon as <em>this</em> cue <strong>starts</strong>. Use it to launch parallel playback — e.g. a video and an audio cue running simultaneously.</p>
+    </div>
+    <div class="timing-card">
+      <h4>Auto-follow</h4>
+      <p>Immediately fires the next cue as soon as <em>this</em> cue <strong>ends</strong>. Use it to chain sequential actions — e.g. Audio → Fade out → Stop — without pressing GO each time.</p>
+    </div>
+  </div>
+
+  <div class="chain-diagram">
+    <div style="color:var(--muted);margin-bottom:.75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">Example — crossfade sequence</div>
+    <div>Cue 1  <span class="hl">AUDIO</span>  "Scene 1 Music"      auto-follow: <span class="ok">off</span></div>
+    <div>  GO ────────────────── music starts playing ──────</div>
+    <div style="margin-top:.5rem;">Cue 2  <span class="hl">FADE</span>   "Fade to 0 dB, 4s"   auto-follow: <span class="ok">on</span>  stop-at-end: <span class="ok">on</span></div>
+    <div>  GO ────────── fade fires → after 4s: Cue 1 stops, Cue 3 fires automatically</div>
+    <div style="margin-top:.5rem;">Cue 3  <span class="hl">AUDIO</span>  "Scene 2 Music"</div>
+    <div>  starts immediately after the fade completes ─────</div>
+  </div>
+</section>
+
+<!-- ── SHORTCUTS ──────────────────────────────────────────────────────────── -->
+<section id="shortcuts">
+  <h2>Keyboard <span>shortcuts</span></h2>
+  <p class="section-sub">All the shortcuts you need to run a show without touching the mouse.</p>
+
+  <table class="shortcut-table">
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><span class="kbd">Space</span></td><td>GO — fire the next cue and advance the playhead</td></tr>
+      <tr><td><span class="kbd">Escape</span></td><td>Stop all active cues immediately</td></tr>
+      <tr><td><span class="kbd">Ctrl+Z</span></td><td>Undo</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+Z</span></td><td>Redo</td></tr>
+      <tr><td><span class="kbd">Ctrl+S</span></td><td>Save workspace</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+S</span></td><td>Save as…</td></tr>
+      <tr><td><span class="kbd">Delete</span></td><td>Delete selected cue(s)</td></tr>
+      <tr><td><span class="kbd">Ctrl+D</span></td><td>Duplicate selected cue</td></tr>
+      <tr><td><span class="kbd">F2</span></td><td>Rename selected cue inline</td></tr>
+      <tr><td><span class="kbd">Ctrl+G</span></td><td>Group selected cues</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+A</span></td><td>Add Audio Cue</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+V</span></td><td>Add Video Cue</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+T</span></td><td>Add Text Cue</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+M</span></td><td>Add Mic Cue</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+G</span></td><td>Add Group Cue</td></tr>
+      <tr><td><span class="kbd">Ctrl+Shift+L</span></td><td>Add Label Cue</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    OQL is released under the
+    <a href="https://github.com/teonactl/oql/blob/main/LICENSE">GPL-3.0</a> license.
+    &nbsp;·&nbsp;
+    <a href="https://github.com/teonactl/oql/issues">Report a bug</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/teonactl/oql/wiki">Full Wiki →</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/teonactl/oql">GitHub</a>
+  </p>
+  <p style="margin-top:.5rem;font-size:.75rem;">© 2026 <a href="https://stefanoaresu.com" target="_blank" rel="noopener">Stefano Aresu</a></p>
+</footer>
+
+</body>
+</html>
