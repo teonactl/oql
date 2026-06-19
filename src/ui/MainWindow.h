@@ -11,6 +11,7 @@
 #include "engine/Cue.h"
 #include "ui/VideoOutputWindow.h"
 #include "ui/TextOutputWindow.h"
+#include "ui/ImageOutputWindow.h"
 #include "ui/CueInfoBar.h"
 
 class CueListModel;
@@ -18,6 +19,7 @@ class CueListView;
 class InspectorPanel;
 class ActiveCuesPanel;
 class WebServer;
+class VideoCue;
 class QLabel;
 class QAction;
 class QMenu;
@@ -54,6 +56,7 @@ private slots:
     void addGroupCue();
     void addLabelCue();
     void addTextCue();
+    void addImageCue();
     void addPlayCue();
 #ifndef OQL_BASE
     void addSpeedUpCue();
@@ -83,6 +86,7 @@ private:
     void buildToolBar();
     bool confirmUnsaved();
     void setupNewVideoCue(int index);
+    void wireVideoCueOpacity(VideoCue *cue);
     void addToRecentFiles(const QString &path);
     void rebuildRecentMenu();
     QString nextCueNumber();
@@ -95,6 +99,7 @@ private:
     ActiveCuesPanel   *m_activeCues      = nullptr;
     VideoOutputWindow *m_videoOut        = nullptr;
     TextOutputWindow  *m_textOut         = nullptr;
+    ImageOutputWindow *m_imageOut        = nullptr;
     CueInfoBar        *m_infoBar         = nullptr;
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;
@@ -107,6 +112,7 @@ private:
     QAction           *m_webAction        = nullptr;
     QAction           *m_videoAction      = nullptr;
     QAction           *m_textAction       = nullptr;
+    QAction           *m_imageAction      = nullptr;
     QLabel            *m_webUrlLabel      = nullptr;
     QToolButton       *m_webCopyBtn       = nullptr;
     QString            m_currentWebUrl;

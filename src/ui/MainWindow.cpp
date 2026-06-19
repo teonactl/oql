@@ -14,11 +14,13 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#include "engine/ImageCue.h"
 #ifndef OQL_BASE
 #include "engine/ScriptCue.h"
 #include "engine/RecordCue.h"
 #endif
 #include "TextOutputWindow.h"
+#include "ImageOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
 #include <QMenuBar>
@@ -189,8 +191,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_videoOut  = new VideoOutputWindow(this);
     m_textOut   = new TextOutputWindow(this);
+    m_imageOut  = new ImageOutputWindow(this);
     m_videoOut->installEventFilter(this);
     m_textOut->installEventFilter(this);
+    m_imageOut->installEventFilter(this);
     m_undoStack = new QUndoStack(this);
 
     buildUi();   // m_cueView is created here
@@ -246,6 +250,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                 m_textOut->showCue(static_cast<TextCue*>(cue));
             else if (state == Cue::State::Idle)
                 m_textOut->clearText();
+        }
+        if (cue->type() == Cue::Type::Image) {
+            if (state == Cue::State::Playing)
+                m_imageOut->showCue(static_cast<ImageCue*>(cue));
+            else if (state == Cue::State::Idle)
+                m_imageOut->clearImage();
         }
         // Show mode: inspector stacks waveforms of all playing audio cues
         if (m_showMode && cue->type() == Cue::Type::Audio) {
@@ -397,6 +407,7 @@ void MainWindow::buildUi() {
     connect(m_cueView, &CueListView::addGroupRequested, this, &MainWindow::addGroupCue);
     connect(m_cueView, &CueListView::addLabelRequested, this, &MainWindow::addLabelCue);
     connect(m_cueView, &CueListView::addTextRequested,         this, &MainWindow::addTextCue);
+    connect(m_cueView, &CueListView::addImageRequested,        this, &MainWindow::addImageCue);
 #ifndef OQL_BASE
     connect(m_cueView, &CueListView::addEffectRequested,      this, &MainWindow::addEffectCue);
     connect(m_cueView, &CueListView::addResetEffectRequested, this, &MainWindow::addResetEffectCue);
@@ -523,6 +534,7 @@ void MainWindow::buildUi() {
     connect(makeSc("audio"),       &QShortcut::activated, this, &MainWindow::addAudioCue);
     connect(makeSc("video"),       &QShortcut::activated, this, &MainWindow::addVideoCue);
     connect(makeSc("text"),        &QShortcut::activated, this, &MainWindow::addTextCue);
+    connect(makeSc("image"),       &QShortcut::activated, this, &MainWindow::addImageCue);
     connect(makeSc("mic"),         &QShortcut::activated, this, &MainWindow::addMicCue);
 #ifndef OQL_BASE
     connect(makeSc("record"),      &QShortcut::activated, this, &MainWindow::addRecordCue);
@@ -593,6 +605,7 @@ void MainWindow::buildMenus() {
     menuAction(edit, tr("Aggiungi &Gruppo"),            QKeySequence("Ctrl+Shift+G"), this, &MainWindow::addGroupCue);
     menuAction(edit, tr("Aggiungi &Etichetta"),         QKeySequence("Ctrl+Shift+E"), this, &MainWindow::addLabelCue);
     menuAction(edit, tr("Aggiungi &Testo"),             QKeySequence("Ctrl+Shift+T"), this, &MainWindow::addTextCue);
+    menuAction(edit, tr("Aggiungi &Immagine"),          QKeySequence("Ctrl+Shift+I"), this, &MainWindow::addImageCue);
     edit->addSeparator();
 #ifndef OQL_BASE
     menuAction(edit, tr("Aggiungi cue E&ffetto"),       QKeySequence("Ctrl+Shift+X"), this, &MainWindow::addEffectCue);
@@ -728,10 +741,20 @@ void MainWindow::buildToolBar() {
     auto textIcon = makeTbIcon(QColor(0x0a, 0x72, 0x8a), [](QPainter &p) {
         p.drawRect(2, 4, 24, 4); p.drawRect(10, 4, 6, 20);
     });
+    auto imageIcon = makeTbIcon(QColor(0xb0, 0x3a, 0x6b), [](QPainter &p) {
+        p.setBrush(Qt::NoBrush); p.setPen(QPen(Qt::white, 1.5));
+        p.drawRoundedRect(2, 5, 24, 18, 2, 2);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        p.drawEllipse(7, 9, 5, 5);
+        QPolygon mtn; mtn << QPoint(5,21) << QPoint(12,12) << QPoint(17,17)
+                          << QPoint(21,13) << QPoint(25,21);
+        p.drawPolygon(mtn);
+    });
 
     addCueBtn(audioIcon, tr("+ Audio Cue"), &MainWindow::addAudioCue);
     addCueBtn(videoIcon, tr("+ Video Cue"), &MainWindow::addVideoCue);
     addCueBtn(textIcon,  tr("+ Testo"),     &MainWindow::addTextCue);
+    addCueBtn(imageIcon, tr("+ Immagine"),  &MainWindow::addImageCue);
     tb->addSeparator();
 
     // ── Controllo: Fade prima, poi Stop/Pause/Play ────────────────────────────
@@ -891,6 +914,24 @@ void MainWindow::buildToolBar() {
     connect(textPill, &PillToggle::toggled, m_textAction, &QAction::setChecked);
     connect(m_textAction, &QAction::toggled, textPill, &PillToggle::setChecked);
 
+    auto imageOutIcon = makeTbIconFlat([](QPainter &p) {
+        p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,30));
+        p.drawRoundedRect(4,5,20,18,2,2);
+        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
+        p.drawEllipse(8,9,4,4);
+        QPolygon mtn; mtn<<QPoint(7,21)<<QPoint(13,13)<<QPoint(17,17)<<QPoint(20,14)<<QPoint(23,21);
+        p.drawPolygon(mtn);
+    });
+    m_imageAction = new QAction(this);
+    m_imageAction->setCheckable(true);
+    connect(m_imageAction, &QAction::toggled, this, [this](bool on) {
+        m_imageOut->setVisible(on);
+    });
+    auto *imagePill = new PillToggle(imageOutIcon, QColor(0xb0,0x3a,0x6b));
+    imagePill->setToolTip(tr("Mostra / nascondi finestra Image Out"));
+    connect(imagePill, &PillToggle::toggled, m_imageAction, &QAction::setChecked);
+    connect(m_imageAction, &QAction::toggled, imagePill, &PillToggle::setChecked);
+
     // ── Expanding spacer ────────────────────────────────────────────────────────
     auto *tbSpacer = new QWidget;
     tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -945,6 +986,7 @@ void MainWindow::buildToolBar() {
     tb->addWidget(webPill);
     tb->addWidget(videoPill);
     tb->addWidget(textPill);
+    tb->addWidget(imagePill);
 
     m_showModeShortcut = new QShortcut(AppSettings::instance().keyShowMode(), this);
     connect(m_showModeShortcut, &QShortcut::activated, this, [showPill]() {
@@ -1130,6 +1172,20 @@ void MainWindow::addTextCue() {
     m_cueView->setFocus();
 }
 
+void MainWindow::addImageCue() {
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
+    doUndoable("Aggiungi Immagine Cue", [&] {
+        auto cue = std::make_unique<ImageCue>();
+        cue->setNumber(nextCueNumber());
+        cue->setName("Immagine");
+        m_workspace.cueList()->addCue(std::move(cue), idx);
+    });
+    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
+    m_cueView->selectRow(m_model->visibleRowForActual(actual));
+    m_cueView->setFocus();
+}
+
 #ifndef OQL_BASE
 void MainWindow::addSpeedUpCue()   { addControlCueImpl(Cue::Type::Speed, 1.5); }
 void MainWindow::addSpeedDownCue() { addControlCueImpl(Cue::Type::Speed, 0.5); }
@@ -1165,10 +1221,27 @@ void MainWindow::addRecordCue() {
 }
 #endif // OQL_BASE
 
+void MainWindow::wireVideoCueOpacity(VideoCue *cue) {
+    // disconnect any previous wiring for this cue (context = cue) before re-connecting,
+    // so calling this repeatedly (e.g. on every project load) never stacks duplicate connections
+    disconnect(cue, &Cue::displayChanged, cue, nullptr);
+    disconnect(cue, &Cue::propertyChanged, cue, nullptr);
+    auto pushVisuals = [this, cue]() {
+        m_videoOut->setBackground(VideoOutputWindow::Background(int(cue->background())),
+                                   cue->backgroundImagePath());
+        m_videoOut->setOpacity(cue->visualLevel());
+    };
+    connect(cue, &Cue::displayChanged,  cue, pushVisuals);
+    connect(cue, &Cue::propertyChanged, cue, pushVisuals);
+    pushVisuals();
+}
+
 void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));
-    if (cue)
+    if (cue) {
         cue->setVideoSink(m_videoOut->videoWidget()->videoSink());
+        wireVideoCueOpacity(cue);
+    }
 }
 
 void MainWindow::showAbout() {
@@ -1303,8 +1376,10 @@ void MainWindow::assignVideoSinkToAll() {
     auto *list = m_workspace.cueList();
     for (int i = 0; i < list->count(); ++i) {
         auto *cue = qobject_cast<VideoCue*>(list->cueAt(i));
-        if (cue)
+        if (cue) {
             cue->setVideoSink(m_videoOut->videoWidget()->videoSink());
+            wireVideoCueOpacity(cue);
+        }
     }
 }
 
@@ -1619,6 +1694,9 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
         } else if (obj == m_textOut && m_textAction && m_textAction->isChecked() != visible) {
             const QSignalBlocker b(m_textAction);
             m_textAction->setChecked(visible);
+        } else if (obj == m_imageOut && m_imageAction && m_imageAction->isChecked() != visible) {
+            const QSignalBlocker b(m_imageAction);
+            m_imageAction->setChecked(visible);
         }
     }
     return QMainWindow::eventFilter(obj, ev);

@@ -16,6 +16,7 @@
   --card-group:#1e233e;
   --card-label:#26220c;
   --card-text:#0c2c38;
+  --card-image:#2c0e28;
   --card-playhead:#3a2d06;
   --border:#2a3050;
   --accent:#4f8ef7;
@@ -97,6 +98,7 @@ header{
 .card.type-group{background:var(--card-group)}
 .card.type-label{background:var(--card-label);opacity:.75}
 .card.type-text {background:var(--card-text)}
+.card.type-image{background:var(--card-image)}
 
 .card-row{
   display:flex;align-items:center;gap:7px;
@@ -131,6 +133,7 @@ header{
 .b-group      {background:#374151}
 .b-label      {background:#6b5a0a}
 .b-text       {background:#0e4f5c}
+.b-image      {background:#9d2f63}
 .b-effect     {background:#5b21b6}
 .b-reseteffect{background:#1e406e}
 .b-script     {background:#166534}
@@ -197,7 +200,7 @@ header{
 
 <script>
 const BADGE = {
-  audio:'AUDIO', video:'VIDEO', text:'TEXT', mic:'MIC',
+  audio:'AUDIO', video:'VIDEO', text:'TEXT', image:'IMAGE', mic:'MIC',
   stop:'STOP', pause:'PAUSE', play:'PLAY', fade:'FADE',
   speed:'SPEED', effect:'FX', reseteffect:'RESET',
   group:'GROUP', label:'LABEL', record:'REC', script:'SCRIPT'

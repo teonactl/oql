@@ -122,6 +122,7 @@ void ActiveCuesPanel::rebuildCards() {
         switch (cue->type()) {
         case Cue::Type::Audio: badgeColor = QColor(0x2a, 0x6d, 0xcc); break;
         case Cue::Type::Video: badgeColor = QColor(0x2a, 0x88, 0x44); break;
+        case Cue::Type::Image: badgeColor = QColor(0xb0, 0x3a, 0x6b); break;
         case Cue::Type::Stop:        badgeColor = QColor(0xcc, 0x33, 0x33); break;
         case Cue::Type::Fade:        badgeColor = QColor(0xcc, 0x77, 0x22); break;
         case Cue::Type::Pause:       badgeColor = QColor(0x88, 0x55, 0xcc); break;

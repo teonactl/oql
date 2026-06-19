@@ -26,6 +26,8 @@ class PluginChainWidget;
 class VuMeter;
 class QPlainTextEdit;
 class QTableWidget;
+class QListWidget;
+class ImageCue;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
@@ -75,6 +77,17 @@ private slots:
     void onTextColorClicked();
     void onBgColorClicked();
     void onTextAlignChanged(int idx);
+    void onSlideDurationChanged(double v);
+    void onTransitionDurationChanged(double v);
+    void onTransitionTypeChanged(int idx);
+    void onLoopChanged(bool v);
+    void onAddImages();
+    void onRemoveSelectedImages();
+    void onImageListReordered();
+    void onBackgroundChanged(int idx);
+    void onChooseBackgroundImage();
+    void onVideoBackgroundChanged(int idx);
+    void onChooseVideoBackgroundImage();
 
 protected:
     void changeEvent(QEvent *event) override;
@@ -85,6 +98,7 @@ private:
     void loadFromCue();
     void blockSignals(bool block);
     void updateMediaSection();
+    void refreshImageList();
     void syncPlayButton(Cue::State state);
     QVector<double>  buildSliceMarkers(AudioCue *a) const;
     void             rebuildSliceTable(AudioCue *a);
@@ -112,6 +126,8 @@ private:
     QPushButton    *m_browseBtn;
     QDoubleSpinBox *m_volumeSpin;
     QSpinBox       *m_loopSpin  = nullptr;
+    QComboBox      *m_videoBgCombo    = nullptr;
+    QPushButton    *m_videoBgImageBtn = nullptr;
 
     // Audio-only fade
     QGroupBox      *m_fadeGroup;
@@ -161,6 +177,23 @@ private:
     QPushButton    *m_textColorBtn   = nullptr;
     QPushButton    *m_textBgColorBtn = nullptr;
     QComboBox      *m_textAlignCombo = nullptr;
+
+    // Image cue (slideshow)
+    QWidget        *m_imageSection           = nullptr;
+    QGroupBox      *m_imageGroup             = nullptr;
+    QFormLayout    *m_imageForm              = nullptr;
+    QPushButton    *m_imagesBtn              = nullptr;
+    QDoubleSpinBox *m_slideDurationSpin      = nullptr;
+    QDoubleSpinBox *m_transitionDurationSpin = nullptr;
+    QComboBox      *m_transitionCombo        = nullptr;
+    QCheckBox      *m_loopCheck              = nullptr;
+    QComboBox      *m_backgroundCombo        = nullptr;
+    QPushButton    *m_backgroundImageBtn     = nullptr;
+    QDialog        *m_imageListDialog        = nullptr;   // non-modal: lista immagini riordinabile
+    QListWidget    *m_imageList              = nullptr;
+    QPushButton    *m_addImagesBtn           = nullptr;
+    QPushButton    *m_removeImagesBtn        = nullptr;
+    QLabel         *m_imageCountLbl          = nullptr;
 
     // Slice dialog (audio cue only)
     QDialog        *m_sliceDialog    = nullptr;   // non-modal dialog with slice table

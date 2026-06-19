@@ -1,6 +1,7 @@
 #include "TextOutputWindow.h"
 #include "engine/TextCue.h"
 #include <QLabel>
+#include <QGraphicsOpacityEffect>
 #include <QVBoxLayout>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -21,9 +22,13 @@ TextOutputWindow::TextOutputWindow(QWidget *parent)
     m_label->setAlignment(Qt::AlignCenter);
     m_label->setStyleSheet("background: transparent; color: white;");
     layout->addWidget(m_label);
+
+    m_opacity = new QGraphicsOpacityEffect(m_label);
+    m_label->setGraphicsEffect(m_opacity);
 }
 
 void TextOutputWindow::showCue(const TextCue *cue) {
+    if (m_connection) disconnect(m_connection);
     if (!cue) { clearText(); return; }
 
     QFont font(cue->fontFamily(), cue->fontSize());
@@ -39,12 +44,19 @@ void TextOutputWindow::showCue(const TextCue *cue) {
     m_label->setAlignment(Qt::Alignment(cue->alignment()));
     m_label->setText(cue->text());
 
+    m_opacity->setOpacity(cue->visualLevel());
+    m_connection = connect(cue, &Cue::displayChanged, this, [this, cue]() {
+        m_opacity->setOpacity(cue->visualLevel());
+    });
+
     show();
     raise();
 }
 
 void TextOutputWindow::clearText() {
+    if (m_connection) disconnect(m_connection);
     m_label->clear();
+    m_opacity->setOpacity(1.0);
 }
 
 void TextOutputWindow::toggleFullScreen() {

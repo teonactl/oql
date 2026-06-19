@@ -6,6 +6,7 @@
 #include "GroupCue.h"
 #include "LabelCue.h"
 #include "TextCue.h"
+#include "ImageCue.h"
 #include "ScriptCue.h"
 #include "RecordCue.h"
 #include "ScriptEngine.h"
@@ -340,6 +341,10 @@ void CueList::fromJson(const QJsonArray &arr) {
             cue = std::move(c);
         } else if (t == "text") {
             auto c = std::make_unique<TextCue>();
+            c->fromJson(obj);
+            cue = std::move(c);
+        } else if (t == "image") {
+            auto c = std::make_unique<ImageCue>();
             c->fromJson(obj);
             cue = std::move(c);
         }

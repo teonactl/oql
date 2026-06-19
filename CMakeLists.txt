@@ -52,6 +52,8 @@ qt_add_executable(oql
     src/engine/LabelCue.cpp
     src/engine/TextCue.h
     src/engine/TextCue.cpp
+    src/engine/ImageCue.h
+    src/engine/ImageCue.cpp
     src/engine/Workspace.h
     src/engine/Workspace.cpp
     src/engine/AppSettings.h
@@ -70,6 +72,8 @@ qt_add_executable(oql
     src/ui/VideoOutputWindow.cpp
     src/ui/TextOutputWindow.h
     src/ui/TextOutputWindow.cpp
+    src/ui/ImageOutputWindow.h
+    src/ui/ImageOutputWindow.cpp
     src/ui/CueInfoBar.h
     src/ui/CueInfoBar.cpp
     src/ui/ActiveCuesPanel.h

@@ -3,14 +3,23 @@
 TextCue::TextCue(QObject *parent) : Cue(parent) {}
 
 void TextCue::go() {
+    m_visualLevel = 1.0;
     setState(State::Playing);
+    emit displayChanged();
     // stays playing until stop() is called
 }
 
 void TextCue::stop() {
-    if (m_state == State::Idle) return;
+    m_visualLevel = 1.0;
+    if (m_state == State::Idle) { emit displayChanged(); return; }
     setState(State::Idle);
+    emit displayChanged();
     emit finished();
+}
+
+void TextCue::setPlaybackVolume(double v) {
+    m_visualLevel = qBound(0.0, v, 1.0);
+    emit displayChanged();
 }
 
 QJsonObject TextCue::toJson() const {

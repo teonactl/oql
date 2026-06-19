@@ -1,8 +1,10 @@
 #pragma once
 #include <QWidget>
+#include <QMetaObject>
 
 class TextCue;
 class QLabel;
+class QGraphicsOpacityEffect;
 
 class TextOutputWindow : public QWidget {
     Q_OBJECT
@@ -18,4 +20,6 @@ protected:
 
 private:
     QLabel *m_label;
+    QGraphicsOpacityEffect *m_opacity;
+    QMetaObject::Connection m_connection;
 };

@@ -280,6 +280,7 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction(tr("Aggiungi Gruppo"),               this, &CueListView::addGroupRequested);
     menu.addAction(tr("Aggiungi Etichetta"),            this, &CueListView::addLabelRequested);
     menu.addAction(tr("Aggiungi Testo"),                this, &CueListView::addTextRequested);
+    menu.addAction(tr("Aggiungi Immagine"),             this, &CueListView::addImageRequested);
     menu.addSeparator();
 #ifndef OQL_BASE
     menu.addAction(tr("Aggiungi Effect Cue"),        this, &CueListView::addEffectRequested);

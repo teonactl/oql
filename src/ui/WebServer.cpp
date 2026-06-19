@@ -15,6 +15,7 @@ static QByteArray typeStr(Cue::Type t) {
     case Cue::Type::Audio:       return "audio";
     case Cue::Type::Video:       return "video";
     case Cue::Type::Text:        return "text";
+    case Cue::Type::Image:       return "image";
     case Cue::Type::Mic:         return "mic";
     case Cue::Type::Stop:        return "stop";
     case Cue::Type::Pause:       return "pause";

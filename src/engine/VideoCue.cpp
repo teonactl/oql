@@ -28,7 +28,14 @@ void VideoCue::setVolume(double v) {
 }
 
 void VideoCue::setPlaybackVolume(double v) {
-    m_audioOutput->setVolume(float(qBound(0.0, v, 1.0)));
+    const double clamped = qBound(0.0, v, 1.0);
+    m_audioOutput->setVolume(float(clamped));
+    // Normalizza rispetto al volume base (come AudioCue::m_playbackScale) cosi
+    // un fade arriva a opacita visiva 0 anche se il volume base e' < 1.0.
+    m_visualLevel = (m_volume > 0.001)
+        ? qBound(0.0, 1.0, clamped / m_volume)
+        : (clamped > 0.001 ? 1.0 : 0.0);
+    emit displayChanged();
 }
 
 void VideoCue::setVideoSink(QVideoSink *sink) {
@@ -56,8 +63,10 @@ void VideoCue::go() {
     m_player->stop();
     m_restarting = false;
 
+    m_visualLevel = 1.0;
     m_player->play();
     setState(State::Playing);
+    emit displayChanged();
 }
 
 void VideoCue::stop() {
@@ -65,7 +74,9 @@ void VideoCue::stop() {
     m_player->stop();
     m_restarting = false;
     m_audioOutput->setVolume(float(m_volume));
+    m_visualLevel = 1.0;
     setState(State::Idle);
+    emit displayChanged();
 }
 
 void VideoCue::pause() {
@@ -79,7 +90,9 @@ double VideoCue::position() const { return m_player->position() / 1000.0; }
 void VideoCue::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
     if (state == QMediaPlayer::StoppedState && m_state == State::Playing && !m_restarting) {
         m_audioOutput->setVolume(float(m_volume));
+        m_visualLevel = 1.0;
         setState(State::Idle);
+        emit displayChanged();
         emit finished();
     }
 }
@@ -90,6 +103,8 @@ QJsonObject VideoCue::toJson() const {
     obj["filePath"]  = m_filePath;
     obj["volume"]    = m_volume;
     obj["loopCount"] = m_loopCount;
+    obj["background"]      = static_cast<int>(m_background);
+    obj["backgroundImage"] = m_backgroundImagePath;
     return obj;
 }
 
@@ -99,4 +114,7 @@ void VideoCue::fromJson(const QJsonObject &o) {
     if (!path.isEmpty()) setFilePath(path);
     setVolume(o["volume"].toDouble(1.0));
     m_loopCount = o["loopCount"].toInt(1);
+    m_background = static_cast<Background>(o["background"].toInt(
+                        static_cast<int>(Background::Black)));
+    m_backgroundImagePath = o["backgroundImage"].toString();
 }

@@ -53,6 +53,7 @@ QColor CueRowDelegate::badgeColor(Cue::Type t, bool ultraDark)
     switch (t) {
     case T::Audio:       return QColor(0x1e, 0x40, 0xaf);
     case T::Video:       return QColor(0x06, 0x5f, 0x46);
+    case T::Image:       return QColor(0xb0, 0x3a, 0x6b);
     case T::Fade:        return QColor(0x92, 0x40, 0x07);
     case T::Stop:        return QColor(0x99, 0x1b, 0x1b);
     case T::Pause:       return QColor(0x78, 0x35, 0x0f);
@@ -76,6 +77,7 @@ QString CueRowDelegate::badgeLabel(Cue::Type t)
     switch (t) {
     case T::Audio:       return QStringLiteral("AUDIO");
     case T::Video:       return QStringLiteral("VIDEO");
+    case T::Image:       return QStringLiteral("IMAGE");
     case T::Fade:        return QStringLiteral("FADE");
     case T::Stop:        return QStringLiteral("STOP");
     case T::Pause:       return QStringLiteral("PAUSE");

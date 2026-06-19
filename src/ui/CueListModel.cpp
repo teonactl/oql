@@ -6,6 +6,7 @@
 #include "engine/GroupCue.h"
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
+#include "engine/ImageCue.h"
 #include "engine/RecordCue.h"
 #include <QColor>
 #include <QFileInfo>
@@ -38,6 +39,7 @@ static QIcon makeCueIcon(Cue::Type type) {
     case Cue::Type::Group: bg = QColor(0x44, 0x48, 0x58); break;
     case Cue::Type::Label: bg = QColor(0x60, 0x55, 0x10); break;
     case Cue::Type::Text:        bg = QColor(0x0a, 0x72, 0x8a); break;
+    case Cue::Type::Image:       bg = QColor(0xb0, 0x3a, 0x6b); break;
     case Cue::Type::Effect:      bg = QColor(0x7b, 0x35, 0x9e); break;
     case Cue::Type::ResetEffect: bg = QColor(0x35, 0x7b, 0x9e); break;
     case Cue::Type::Script:      bg = QColor(0x5a, 0x8a, 0x3a); break;
@@ -127,6 +129,20 @@ static QIcon makeCueIcon(Cue::Type type) {
         p.setBrush(Qt::white);
         p.drawRect(2, 2, 12, 3);   // top bar of T
         p.drawRect(6, 2, 4, 12);   // stem of T
+        break;
+    }
+    case Cue::Type::Image: {
+        // Frame with a mountain glyph
+        p.setPen(QPen(Qt::white, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(2, 2, 12, 12, 2, 2);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Qt::white);
+        p.drawEllipse(4, 4, 3, 3);
+        QPolygon mtn;
+        mtn << QPoint(3, 12) << QPoint(7, 7) << QPoint(9, 9)
+            << QPoint(11, 7) << QPoint(13, 12);
+        p.drawPolygon(mtn);
         break;
     }
     case Cue::Type::Effect: {
@@ -395,6 +411,17 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
                 return vc->filePath().isEmpty() ? QColor(200, 50, 50) : QColor(160, 210, 160);
             if (role == Qt::ToolTipRole)
                 return vc->filePath();
+            return {};
+        }
+        if (const auto *ic = dynamic_cast<const ImageCue*>(cue)) {
+            if (role == Qt::DisplayRole)
+                return ic->imageCount() == 0
+                    ? tr("✗ nessuna immagine")
+                    : tr("%1 immagini").arg(ic->imageCount());
+            if (role == Qt::ForegroundRole)
+                return ic->imageCount() == 0 ? QColor(200, 50, 50) : QColor(160, 210, 160);
+            if (role == Qt::ToolTipRole)
+                return ic->imagePaths().join("\n");
             return {};
         }
         const auto *cc = dynamic_cast<const ControlCue*>(cue);

@@ -20,6 +20,7 @@ signals:
     void addGroupRequested();
     void addLabelRequested();
     void addTextRequested();
+    void addImageRequested();
 #ifndef OQL_BASE
     void addEffectRequested();
     void addResetEffectRequested();

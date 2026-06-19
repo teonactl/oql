@@ -10,6 +10,7 @@
 #include "engine/ControlCues.h"
 #include "engine/MicCue.h"
 #include "engine/TextCue.h"
+#include "engine/ImageCue.h"
 #include "engine/RecordCue.h"
 #include <QMediaDevices>
 #include <QAudioDevice>
@@ -37,6 +38,8 @@
 #include <QFontComboBox>
 #include <QColorDialog>
 #include <QTableWidget>
+#include <QListWidget>
+#include <QSet>
 #include <QHeaderView>
 #include <QScrollArea>
 #include <QGuiApplication>
@@ -304,6 +307,21 @@ void InspectorPanel::buildUi() {
     m_mediaForm->addRow(tr("File:"), fileRow);
     m_mediaForm->addRow(tr("Volume:"), m_volumeSpin);
     m_mediaForm->addRow(tr("Loop:"), m_loopSpin);
+
+    // Sfondo per il fade visivo (solo Video — Audio non ha contenuto visivo)
+    auto *videoBgRow = new QWidget;
+    auto *videoBgRowLay = new QHBoxLayout(videoBgRow);
+    videoBgRowLay->setContentsMargins(0, 0, 0, 0);
+    videoBgRowLay->setSpacing(4);
+    m_videoBgCombo = new QComboBox;
+    m_videoBgCombo->addItem(tr("Nero"),     int(VideoCue::Background::Black));
+    m_videoBgCombo->addItem(tr("Bianco"),   int(VideoCue::Background::White));
+    m_videoBgCombo->addItem(tr("Immagine"), int(VideoCue::Background::Image));
+    videoBgRowLay->addWidget(m_videoBgCombo);
+    m_videoBgImageBtn = new QPushButton(tr("Scegli immagine…"));
+    videoBgRowLay->addWidget(m_videoBgImageBtn);
+    m_mediaForm->addRow(tr("Sfondo (fade):"), videoBgRow);
+
     groupsLay->addWidget(m_mediaGroup);
 
     // Fade group (audio only) — with enable/disable checkboxes
@@ -634,6 +652,37 @@ void InspectorPanel::buildUi() {
     );
     dlgLay->addWidget(m_sliceTable);
 
+    // ── Image list dialog (image cue only) ──────────────────────
+    m_imageListDialog = new QDialog(this, Qt::Window);
+    m_imageListDialog->setWindowTitle(tr("Immagini"));
+    m_imageListDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    m_imageListDialog->resize(420, 360);
+
+    auto *imgDlgLay = new QVBoxLayout(m_imageListDialog);
+    imgDlgLay->setContentsMargins(8, 8, 8, 8);
+    imgDlgLay->setSpacing(6);
+
+    auto *imgToolbar = new QWidget;
+    auto *imgToolLay = new QHBoxLayout(imgToolbar);
+    imgToolLay->setContentsMargins(0, 0, 0, 0);
+    imgToolLay->setSpacing(6);
+    m_addImagesBtn = new QPushButton(tr("+ Aggiungi…"));
+    m_addImagesBtn->setFixedHeight(24);
+    m_removeImagesBtn = new QPushButton(tr("Rimuovi selezionate"));
+    m_removeImagesBtn->setFixedHeight(24);
+    m_imageCountLbl = new QLabel;
+    m_imageCountLbl->setStyleSheet("color:#8892a4; font-size:11px;");
+    imgToolLay->addWidget(m_addImagesBtn);
+    imgToolLay->addWidget(m_removeImagesBtn);
+    imgToolLay->addStretch();
+    imgToolLay->addWidget(m_imageCountLbl);
+    imgDlgLay->addWidget(imgToolbar);
+
+    m_imageList = new QListWidget;
+    m_imageList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_imageList->setDragDropMode(QAbstractItemView::InternalMove);
+    imgDlgLay->addWidget(m_imageList);
+
     propsLay->addWidget(m_audioSection, 1);
 
     // ── Text cue section ────────────────────────────────────
@@ -699,6 +748,71 @@ void InspectorPanel::buildUi() {
     textRowLay->addWidget(m_textFmtGroup, 3);
     textLay->addWidget(textRow);
     propsLay->addWidget(m_textSection);
+
+    // ── Image cue section (slideshow) ─────────────────────────
+    m_imageSection = new QWidget;
+    auto *imageLay = new QVBoxLayout(m_imageSection);
+    imageLay->setContentsMargins(0, 2, 0, 0);
+    imageLay->setSpacing(4);
+
+    auto *imageRow = new QWidget;
+    auto *imageRowLay = new QHBoxLayout(imageRow);
+    imageRowLay->setContentsMargins(0, 0, 0, 0);
+    imageRowLay->setSpacing(6);
+
+    m_imageGroup = new QGroupBox(tr("Slideshow"));
+    m_imageForm  = new QFormLayout(m_imageGroup);
+    m_imageForm->setSpacing(3);
+    auto *imageGroup = m_imageGroup;
+    auto *imageForm  = m_imageForm;
+
+    m_imagesBtn = new QPushButton(tr("Immagini…"));
+    m_imagesBtn->setToolTip(tr("Apri elenco immagini della slideshow"));
+    connect(m_imagesBtn, &QPushButton::clicked, this, [this]() {
+        if (m_imageListDialog) { m_imageListDialog->show(); m_imageListDialog->raise(); m_imageListDialog->activateWindow(); }
+    });
+    imageForm->addRow(m_imagesBtn);
+
+    m_slideDurationSpin = new QDoubleSpinBox;
+    m_slideDurationSpin->setRange(0.1, 600.0);
+    m_slideDurationSpin->setSingleStep(0.5);
+    m_slideDurationSpin->setDecimals(2);
+    m_slideDurationSpin->setSuffix(" s");
+    imageForm->addRow(tr("Durata immagine:"), m_slideDurationSpin);
+
+    m_transitionDurationSpin = new QDoubleSpinBox;
+    m_transitionDurationSpin->setRange(0.0, 60.0);
+    m_transitionDurationSpin->setSingleStep(0.1);
+    m_transitionDurationSpin->setDecimals(2);
+    m_transitionDurationSpin->setSuffix(" s");
+    imageForm->addRow(tr("Durata transizione:"), m_transitionDurationSpin);
+
+    m_transitionCombo = new QComboBox;
+    m_transitionCombo->addItem(tr("Dissolvenza incrociata"), int(ImageCue::Transition::Crossfade));
+    m_transitionCombo->addItem(tr("Cut"),                    int(ImageCue::Transition::Cut));
+    m_transitionCombo->addItem(tr("Slide orizzontale"),      int(ImageCue::Transition::SlideHorizontal));
+    imageForm->addRow(tr("Transizione:"), m_transitionCombo);
+
+    m_loopCheck = new QCheckBox(tr("Loop"));
+    imageForm->addRow(m_loopCheck);
+
+    auto *backgroundRow = new QWidget;
+    auto *backgroundRowLay = new QHBoxLayout(backgroundRow);
+    backgroundRowLay->setContentsMargins(0, 0, 0, 0);
+    backgroundRowLay->setSpacing(4);
+    m_backgroundCombo = new QComboBox;
+    m_backgroundCombo->addItem(tr("Nero"),    int(ImageCue::Background::Black));
+    m_backgroundCombo->addItem(tr("Bianco"),  int(ImageCue::Background::White));
+    m_backgroundCombo->addItem(tr("Immagine"), int(ImageCue::Background::Image));
+    backgroundRowLay->addWidget(m_backgroundCombo);
+    m_backgroundImageBtn = new QPushButton(tr("Scegli immagine…"));
+    backgroundRowLay->addWidget(m_backgroundImageBtn);
+    imageForm->addRow(tr("Sfondo:"), backgroundRow);
+
+    imageRowLay->addWidget(imageGroup);
+    imageRowLay->addStretch();
+    imageLay->addWidget(imageRow);
+    propsLay->addWidget(m_imageSection);
 
     // ── Script section ───────────────────────────────────────
     m_scriptSection = new QWidget;
@@ -992,6 +1106,9 @@ void InspectorPanel::buildUi() {
     });
     connect(m_loopSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &InspectorPanel::onLoopCountChanged);
+    connect(m_videoBgCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorPanel::onVideoBackgroundChanged);
+    connect(m_videoBgImageBtn, &QPushButton::clicked, this, &InspectorPanel::onChooseVideoBackgroundImage);
 
     connect(m_textContent, &QTextEdit::textChanged, this, &InspectorPanel::onTextContentChanged);
     connect(m_fontFamilyCombo, &QFontComboBox::currentFontChanged,
@@ -1004,6 +1121,20 @@ void InspectorPanel::buildUi() {
     connect(m_textBgColorBtn,  &QPushButton::clicked, this, &InspectorPanel::onBgColorClicked);
     connect(m_textAlignCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onTextAlignChanged);
+    connect(m_slideDurationSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &InspectorPanel::onSlideDurationChanged);
+    connect(m_transitionDurationSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &InspectorPanel::onTransitionDurationChanged);
+    connect(m_transitionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorPanel::onTransitionTypeChanged);
+    connect(m_loopCheck, &QCheckBox::toggled, this, &InspectorPanel::onLoopChanged);
+    connect(m_backgroundCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorPanel::onBackgroundChanged);
+    connect(m_backgroundImageBtn, &QPushButton::clicked, this, &InspectorPanel::onChooseBackgroundImage);
+    connect(m_addImagesBtn, &QPushButton::clicked, this, &InspectorPanel::onAddImages);
+    connect(m_removeImagesBtn, &QPushButton::clicked, this, &InspectorPanel::onRemoveSelectedImages);
+    connect(m_imageList->model(), &QAbstractItemModel::rowsMoved,
+            this, &InspectorPanel::onImageListReordered);
 }
 
 void InspectorPanel::changeEvent(QEvent *event) {
@@ -1070,6 +1201,17 @@ void InspectorPanel::retranslateUi() {
     if (auto *l = fl(m_mediaForm, 0)) l->setText(tr("File:"));
     if (auto *l = fl(m_mediaForm, 1)) l->setText(tr("Volume:"));
     if (auto *l = fl(m_mediaForm, 2)) l->setText(tr("Loop:"));
+    if (auto *l = fl(m_mediaForm, 3)) l->setText(tr("Sfondo (fade):"));
+    if (m_videoBgCombo) {
+        const int cur = m_videoBgCombo->currentIndex();
+        m_videoBgCombo->setItemText(0, tr("Nero"));
+        m_videoBgCombo->setItemText(1, tr("Bianco"));
+        m_videoBgCombo->setItemText(2, tr("Immagine"));
+        m_videoBgCombo->setCurrentIndex(cur);
+    }
+    if (m_videoBgImageBtn && (!m_cue || m_cue->type() != Cue::Type::Video
+                               || static_cast<VideoCue*>(m_cue)->backgroundImagePath().isEmpty()))
+        m_videoBgImageBtn->setText(tr("Scegli immagine…"));
     if (m_fileEdit)  m_fileEdit->setPlaceholderText(tr("Nessun file..."));
     if (m_loopSpin)  m_loopSpin->setToolTip(tr("Ripetizioni: 0 = loop infinito, 1 = una volta"));
 
@@ -1155,6 +1297,42 @@ void InspectorPanel::retranslateUi() {
         m_textAlignCombo->setCurrentIndex(cur);
     }
 
+    // Image section (slideshow)
+    if (m_imageGroup) m_imageGroup->setTitle(tr("Slideshow"));
+    if (m_imagesBtn) {
+        m_imagesBtn->setToolTip(tr("Apri elenco immagini della slideshow"));
+        if (m_cue && m_cue->type() == Cue::Type::Image) {
+            const int n = static_cast<ImageCue*>(m_cue)->imageCount();
+            m_imagesBtn->setText(n > 0 ? tr("Immagini (%1)…").arg(n) : tr("Immagini…"));
+        }
+    }
+    if (auto *l = fl(m_imageForm, 1)) l->setText(tr("Durata immagine:"));
+    if (auto *l = fl(m_imageForm, 2)) l->setText(tr("Durata transizione:"));
+    if (auto *l = fl(m_imageForm, 3)) l->setText(tr("Transizione:"));
+    if (m_loopCheck) m_loopCheck->setText(tr("Loop"));
+    if (auto *l = fl(m_imageForm, 5)) l->setText(tr("Sfondo:"));
+    if (m_transitionCombo) {
+        const int cur = m_transitionCombo->currentIndex();
+        m_transitionCombo->setItemText(0, tr("Dissolvenza incrociata"));
+        m_transitionCombo->setItemText(1, tr("Cut"));
+        m_transitionCombo->setItemText(2, tr("Slide orizzontale"));
+        m_transitionCombo->setCurrentIndex(cur);
+    }
+    if (m_backgroundCombo) {
+        const int cur = m_backgroundCombo->currentIndex();
+        m_backgroundCombo->setItemText(0, tr("Nero"));
+        m_backgroundCombo->setItemText(1, tr("Bianco"));
+        m_backgroundCombo->setItemText(2, tr("Immagine"));
+        m_backgroundCombo->setCurrentIndex(cur);
+    }
+    if (m_backgroundImageBtn && (!m_cue || m_cue->type() != Cue::Type::Image
+                                  || static_cast<ImageCue*>(m_cue)->backgroundImagePath().isEmpty()))
+        m_backgroundImageBtn->setText(tr("Scegli immagine…"));
+    if (m_addImagesBtn)    m_addImagesBtn->setText(tr("+ Aggiungi…"));
+    if (m_removeImagesBtn) m_removeImagesBtn->setText(tr("Rimuovi selezionate"));
+    if (m_imageListDialog && m_cue && m_cue->type() == Cue::Type::Image)
+        m_imageListDialog->setWindowTitle(tr("Immagini — %1").arg(m_cue->name()));
+
     // Record section
     if (auto *l = fl(m_recForm, 0)) l->setText(tr("Ingresso:"));
     if (auto *l = fl(m_recForm, 1)) l->setText(tr("Cue audio:"));
@@ -1232,21 +1410,27 @@ void InspectorPanel::updateMediaSection() {
     const bool isSpeed   = (t == Cue::Type::Speed);
     const bool isMic       = (t == Cue::Type::Mic);
     const bool isTextCue   = (t == Cue::Type::Text);
+    const bool isImageCue  = (t == Cue::Type::Image);
     const bool isScriptCue = (t == Cue::Type::Script);
     const bool isRecord    = (t == Cue::Type::Record);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
+    if (auto *item = m_mediaForm->itemAt(3, QFormLayout::LabelRole))
+        if (auto *l = item->widget()) l->setVisible(isVideo);
+    m_videoBgCombo->parentWidget()->setVisible(isVideo);
     m_fadeGroup->setVisible(isAudio);
     m_audioSection->setVisible(isAudio);
     m_controlSection->setVisible(isControl);
     m_micSection->setVisible(isMic);
     m_textSection->setVisible(isTextCue);
+    m_imageSection->setVisible(isImageCue);
     m_scriptSection->setVisible(isScriptCue);
     m_recordSection->setVisible(isRecord);
     m_uscitaLabel->setVisible(isAudio);
     m_channelCombo->setVisible(isAudio);
     if (m_audioExtrasPanel) m_audioExtrasPanel->setVisible(isAudio);
     if (!isAudio && m_sliceDialog) m_sliceDialog->hide();
+    if (!isImageCue && m_imageListDialog) m_imageListDialog->hide();
 
     if (isAudio) {
         auto *a = static_cast<AudioCue*>(m_cue);
@@ -1298,6 +1482,16 @@ void InspectorPanel::updateMediaSection() {
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
         m_volumeSpin->setValue(linearToDb(v->volume()));
         m_loopSpin->setValue(v->loopCount());
+
+        m_videoBgCombo->blockSignals(true);
+        const int vbgIdx = m_videoBgCombo->findData(int(v->background()));
+        m_videoBgCombo->setCurrentIndex(vbgIdx >= 0 ? vbgIdx : 0);
+        m_videoBgCombo->blockSignals(false);
+        m_videoBgImageBtn->setEnabled(v->background() == VideoCue::Background::Image);
+        m_videoBgImageBtn->setText(v->backgroundImagePath().isEmpty()
+            ? tr("Scegli immagine…")
+            : QFileInfo(v->backgroundImagePath()).fileName());
+
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isMic) {
@@ -1394,6 +1588,41 @@ void InspectorPanel::updateMediaSection() {
         m_textBoldCheck->blockSignals(false);
         m_textItalicCheck->blockSignals(false);
         m_textAlignCombo->blockSignals(false);
+        m_pluginChainWidget->setChain(nullptr);
+        m_effectPluginChainWidget->setChain(nullptr);
+    } else if (isImageCue) {
+        auto *ic = static_cast<ImageCue*>(m_cue);
+        m_slideDurationSpin->blockSignals(true);
+        m_transitionDurationSpin->blockSignals(true);
+        m_transitionCombo->blockSignals(true);
+        m_loopCheck->blockSignals(true);
+        m_backgroundCombo->blockSignals(true);
+
+        m_slideDurationSpin->setValue(ic->slideDuration());
+        m_transitionDurationSpin->setValue(ic->transitionDuration());
+        const int transIdx = m_transitionCombo->findData(int(ic->transitionType()));
+        m_transitionCombo->setCurrentIndex(transIdx >= 0 ? transIdx : 0);
+        m_loopCheck->setChecked(ic->loop());
+        m_imagesBtn->setText(ic->imageCount() > 0
+            ? tr("Immagini (%1)…").arg(ic->imageCount())
+            : tr("Immagini…"));
+
+        const int bgIdx = m_backgroundCombo->findData(int(ic->background()));
+        m_backgroundCombo->setCurrentIndex(bgIdx >= 0 ? bgIdx : 0);
+        m_backgroundImageBtn->setEnabled(ic->background() == ImageCue::Background::Image);
+        m_backgroundImageBtn->setText(ic->backgroundImagePath().isEmpty()
+            ? tr("Scegli immagine…")
+            : QFileInfo(ic->backgroundImagePath()).fileName());
+
+        m_slideDurationSpin->blockSignals(false);
+        m_transitionDurationSpin->blockSignals(false);
+        m_transitionCombo->blockSignals(false);
+        m_loopCheck->blockSignals(false);
+        m_backgroundCombo->blockSignals(false);
+
+        if (m_imageListDialog)
+            m_imageListDialog->setWindowTitle(tr("Immagini — %1").arg(ic->name()));
+        refreshImageList();
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isRecord) {
@@ -1726,6 +1955,130 @@ void InspectorPanel::onBgColorClicked() {
 void InspectorPanel::onTextAlignChanged(int idx) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
         static_cast<TextCue*>(m_cue)->setAlignment(m_textAlignCombo->itemData(idx).toInt());
+}
+
+// ── Image cue (slideshow) ─────────────────────────────────────────────────────
+
+void InspectorPanel::onSlideDurationChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Image)
+        static_cast<ImageCue*>(m_cue)->setSlideDuration(v);
+}
+
+void InspectorPanel::onTransitionDurationChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Image)
+        static_cast<ImageCue*>(m_cue)->setTransitionDuration(v);
+}
+
+void InspectorPanel::onTransitionTypeChanged(int idx) {
+    if (m_cue && m_cue->type() == Cue::Type::Image)
+        static_cast<ImageCue*>(m_cue)->setTransitionType(
+            ImageCue::Transition(m_transitionCombo->itemData(idx).toInt()));
+}
+
+void InspectorPanel::onLoopChanged(bool v) {
+    if (m_cue && m_cue->type() == Cue::Type::Image)
+        static_cast<ImageCue*>(m_cue)->setLoop(v);
+}
+
+void InspectorPanel::onBackgroundChanged(int idx) {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    const auto bg = ImageCue::Background(m_backgroundCombo->itemData(idx).toInt());
+    ic->setBackground(bg);
+    m_backgroundImageBtn->setEnabled(bg == ImageCue::Background::Image);
+}
+
+void InspectorPanel::onChooseBackgroundImage() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    const QString file = QFileDialog::getOpenFileName(
+        this, tr("Seleziona immagine di sfondo"), QString(),
+        tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
+    if (file.isEmpty()) return;
+    ic->setBackgroundImagePath(file);
+    m_backgroundImageBtn->setText(QFileInfo(file).fileName());
+}
+
+void InspectorPanel::onVideoBackgroundChanged(int idx) {
+    if (!m_cue || m_cue->type() != Cue::Type::Video) return;
+    auto *vc = static_cast<VideoCue*>(m_cue);
+    const auto bg = VideoCue::Background(m_videoBgCombo->itemData(idx).toInt());
+    vc->setBackground(bg);
+    m_videoBgImageBtn->setEnabled(bg == VideoCue::Background::Image);
+}
+
+void InspectorPanel::onChooseVideoBackgroundImage() {
+    if (!m_cue || m_cue->type() != Cue::Type::Video) return;
+    auto *vc = static_cast<VideoCue*>(m_cue);
+    const QString file = QFileDialog::getOpenFileName(
+        this, tr("Seleziona immagine di sfondo"), QString(),
+        tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
+    if (file.isEmpty()) return;
+    vc->setBackgroundImagePath(file);
+    m_videoBgImageBtn->setText(QFileInfo(file).fileName());
+}
+
+void InspectorPanel::refreshImageList() {
+    if (!m_imageList) return;
+    if (!m_cue || m_cue->type() != Cue::Type::Image) {
+        m_imageList->clear();
+        if (m_imageCountLbl) m_imageCountLbl->setText(QString());
+        return;
+    }
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    m_imageList->blockSignals(true);
+    m_imageList->clear();
+    for (const QString &path : ic->imagePaths()) {
+        auto *item = new QListWidgetItem(QFileInfo(path).fileName());
+        item->setData(Qt::UserRole, path);
+        item->setToolTip(path);
+        m_imageList->addItem(item);
+    }
+    m_imageList->blockSignals(false);
+    if (m_imageCountLbl)
+        m_imageCountLbl->setText(tr("%1 immagini").arg(ic->imageCount()));
+}
+
+void InspectorPanel::onAddImages() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Seleziona immagini"), QString(),
+        tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
+    if (files.isEmpty()) return;
+    QStringList paths = ic->imagePaths();
+    paths.append(files);
+    ic->setImagePaths(paths);
+    refreshImageList();
+    m_imagesBtn->setText(tr("Immagini (%1)…").arg(ic->imageCount()));
+}
+
+void InspectorPanel::onRemoveSelectedImages() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    const QList<QListWidgetItem*> selected = m_imageList->selectedItems();
+    if (selected.isEmpty()) return;
+    QSet<QListWidgetItem*> toRemove(selected.begin(), selected.end());
+    QStringList paths;
+    for (int i = 0; i < m_imageList->count(); ++i) {
+        QListWidgetItem *item = m_imageList->item(i);
+        if (!toRemove.contains(item))
+            paths << item->data(Qt::UserRole).toString();
+    }
+    ic->setImagePaths(paths);
+    refreshImageList();
+    m_imagesBtn->setText(ic->imageCount() > 0
+        ? tr("Immagini (%1)…").arg(ic->imageCount())
+        : tr("Immagini…"));
+}
+
+void InspectorPanel::onImageListReordered() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue);
+    QStringList paths;
+    for (int i = 0; i < m_imageList->count(); ++i)
+        paths << m_imageList->item(i)->data(Qt::UserRole).toString();
+    ic->setImagePaths(paths);
 }
 
 // ── Slice helpers ─────────────────────────────────────────────────────────────

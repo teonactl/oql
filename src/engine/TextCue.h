@@ -13,6 +13,10 @@ public:
     void    pause()          override {}
     double  duration() const override { return 0.0; }
 
+    // Fade visivo (FadeCue): nessun "volume" persistito, solo livello runtime.
+    void   setPlaybackVolume(double v) override;
+    double visualLevel()       const { return m_visualLevel; }
+
     QString text()            const { return m_text; }
     QString fontFamily()      const { return m_fontFamily; }
     int     fontSize()        const { return m_fontSize; }
@@ -43,4 +47,5 @@ private:
     QColor  m_textColor       = Qt::white;
     QColor  m_backgroundColor = Qt::black;
     int     m_alignment       = Qt::AlignCenter;
+    double  m_visualLevel     = 1.0;
 };
