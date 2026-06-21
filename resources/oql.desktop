@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=OpenQLab
+Name=OQL
 GenericName=Show Control Software
 Comment=Cue-based show control for audio, video and lighting
 Exec=oql
@@ -8,4 +8,4 @@ Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Midi;
 Keywords=cue;show;audio;theater;stage;
-StartupWMClass=openqlab
+StartupWMClass=oql

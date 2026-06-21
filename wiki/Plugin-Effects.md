@@ -1,6 +1,6 @@
 # Plugin Effects (VST2 / LV2)
 
-OpenQLab supports audio effect plugins in two formats:
+OQL supports audio effect plugins in two formats:
 
 | Format | Typical location (Linux) |
 |---|---|
@@ -68,7 +68,7 @@ VST2 plugins that provide a graphical editor show an **Apri editor grafico del p
 
 ## Audio engine settings
 
-OpenQLab uses **miniaudio** for low-latency playback with a fixed block size of **512 frames**. This value is also passed to VST2 plugins via `effSetBlockSize`, ensuring the plugin and the engine always agree on buffer size. The sample rate is chosen automatically by the driver.
+OQL uses **miniaudio** for low-latency playback with a fixed block size of **512 frames**. This value is also passed to VST2 plugins via `effSetBlockSize`, ensuring the plugin and the engine always agree on buffer size. The sample rate is chosen automatically by the driver.
 
 ---
 
@@ -103,5 +103,5 @@ Firing cue 11 adds ZynReverb to the ambient loop in real time. Firing cue 12 rem
 | Plugin not listed | `.so` / bundle not in scanned folders | Copy plugin to `~/.vst/` or `~/.lv2/` |
 | Buzzing / noise on first use | Block size mismatch | Ensure miniaudio block size = 512 (default) |
 | Editor window black | OpenGL unavailable | Install Mesa: `sudo pacman -S mesa` |
-| Crash on parameter change | Plugin not thread-safe | Update to latest OpenQLab (mutex fix applied since v0.1) |
+| Crash on parameter change | Plugin not thread-safe | Update to latest OQL (mutex fix applied since v0.1) |
 | Parameters lost after reload | Plugin uses chunk state | Should save automatically; report as a bug if not |

@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes OpenQLab's internal design for developers who want to contribute or extend the application.
+This page describes OQL's internal design for developers who want to contribute or extend the application.
 
 ---
 

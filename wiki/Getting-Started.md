@@ -28,7 +28,7 @@ Binary packages are not yet available; they are on the [roadmap](https://github.
 
 ## First launch
 
-When OpenQLab opens you see three main areas:
+When OQL opens you see three main areas:
 
 ```
 ┌─────────────────────────────────────────────────────────┐

@@ -45,11 +45,11 @@ jobs:
           $(brew --prefix qt6)/bin/macdeployqt build/oql.app -dmg || true
 
       - name: Rename DMG
-        run: mv build/oql.dmg build/OpenQLab-macOS-${{ matrix.arch }}.dmg
+        run: mv build/oql.dmg build/OQL-macOS-${{ matrix.arch }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenQLab-macOS-${{ matrix.arch }}
-          path: build/OpenQLab-macOS-${{ matrix.arch }}.dmg
+          name: OQL-macOS-${{ matrix.arch }}
+          path: build/OQL-macOS-${{ matrix.arch }}.dmg
           retention-days: 30

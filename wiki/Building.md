@@ -78,7 +78,7 @@ git clone https://github.com/teonactl/oql.git
 cd oql
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(sysctl -n hw.logicalcpu)
-open build/openqlab.app   # or ./build/openqlab
+open build/oql.app   # or ./build/oql
 ```
 
 > Native VST2 editor embedding is currently Linux-only (requires X11). VST2 audio processing works on macOS; only the GUI editor window is disabled.
@@ -96,7 +96,7 @@ git clone https://github.com/teonactl/oql.git
 cd oql
 cmake -B build -DCMAKE_PREFIX_PATH="C:\Qt\6.x.x\msvc2022_64"
 cmake --build build --config Release
-.\build\Release\openqlab.exe
+.\build\Release\oql.exe
 ```
 
 > LV2 support on Windows requires building lilv from source or disabling it via `-DWITH_LV2=OFF` (cmake option not yet wired — comment out the `pkg_check_modules(LILV …)` line in `CMakeLists.txt`).
@@ -116,7 +116,7 @@ cmake --build build --config Release
 
 ```
 build/
-└── openqlab          # the executable
+└── oql          # the executable
 ```
 
 All resources are compiled into the binary via Qt's resource system (`resources.qrc`).
@@ -125,7 +125,7 @@ All resources are compiled into the binary via Qt's resource system (`resources.
 
 ## Optional: VST2 plugins for testing
 
-OpenQLab ships no plugins. For testing, install ZynFusion's standalone effects:
+OQL ships no plugins. For testing, install ZynFusion's standalone effects:
 
 ```bash
 # Arch

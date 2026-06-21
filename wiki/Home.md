@@ -1,6 +1,6 @@
-# OpenQLab Wiki
+# OQL Wiki
 
-**OpenQLab** is a free, open-source show-control application for live theatre, concerts and events — inspired by QLab, built with C++20 and Qt6.
+**OQL** is a free, open-source show-control application for live theatre, concerts and events — inspired by QLab, built with C++20 and Qt6.
 
 ---
 

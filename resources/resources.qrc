@@ -1,6 +1,6 @@
 <RCC>
     <qresource prefix="/icons">
-        <file>openqlab.svg</file>
+        <file>oql.svg</file>
         <file>arrow-up.svg</file>
         <file>arrow-down.svg</file>
     </qresource>

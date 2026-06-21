@@ -1,6 +1,6 @@
 # Workspace Format
 
-OpenQLab workspaces are saved as `.oqlab` files — plain JSON, human-readable and version-control friendly.
+OQL workspaces are saved as `.oqlab` files — plain JSON, human-readable and version-control friendly.
 
 ---
 
@@ -238,4 +238,4 @@ Plugin state is saved either as `params` (array of floats, one per parameter) or
 - **Bulk-adjust volumes** — find/replace `"volume"` in an audio cue section.
 - **Strip all effects** — set every `"plugins"` array to `[]`.
 
-Always make a backup before hand-editing. OpenQLab validates the format on open and will report parse errors in the console.
+Always make a backup before hand-editing. OQL validates the format on open and will report parse errors in the console.

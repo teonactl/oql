@@ -29,7 +29,7 @@ Makefile
 *.so
 *.dll
 *.exe
-openqlab
+oql
 
 # IDE
 .vscode/

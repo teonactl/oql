@@ -83,7 +83,7 @@ Keywords=cue;show;audio;theater;
 X-AppImage-Version=${VERSION}
 DESKTOP
 
-cp resources/openqlab.svg "$APPDIR/usr/share/icons/hicolor/scalable/apps/oql.svg"
+cp resources/oql.svg "$APPDIR/usr/share/icons/hicolor/scalable/apps/oql.svg"
 
 # ── 4. Lancia linuxdeploy con il plugin Qt ───────────────────────────────────
 echo ""
@@ -101,7 +101,7 @@ LINUXDEPLOY_DISABLE_STRIP=1 \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/oql" \
     --desktop-file "$APPDIR/usr/share/applications/oql.desktop" \
-    --icon-file "resources/openqlab.svg" \
+    --icon-file "resources/oql.svg" \
     --plugin qt \
     || true   # gli errori di strip sul bundled-strip vecchio sono non fatali
 

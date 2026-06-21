@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — installa OpenQLab per l'utente corrente (nessun sudo richiesto)
+# install.sh — installa OQL per l'utente corrente (nessun sudo richiesto)
 # Compatibile con: KDE Plasma, GNOME, Ubuntu (Unity/GNOME), XFCE, MATE,
 #                  Cinnamon, LXQt, LXDE, Budgie e qualsiasi DE XDG-compliant.
 set -euo pipefail
@@ -9,8 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ── Trova il binario compilato ────────────────────────────────────────────────
 BINARY=""
 for candidate in \
-    "$SCRIPT_DIR/build/openqlab" \
-    "$SCRIPT_DIR/build_asan/openqlab"
+    "$SCRIPT_DIR/build/oql" \
+    "$SCRIPT_DIR/build_asan/oql"
 do
     if [[ -x "$candidate" ]]; then
         BINARY="$candidate"
@@ -40,17 +40,17 @@ mkdir -p "$BIN_DIR" \
          "$DESKTOP_DIR"
 
 # ── Installa il binario ───────────────────────────────────────────────────────
-cp -f "$BINARY" "$BIN_DIR/openqlab"
-chmod +x "$BIN_DIR/openqlab"
-echo "  [✓] Binario  → $BIN_DIR/openqlab"
+cp -f "$BINARY" "$BIN_DIR/oql"
+chmod +x "$BIN_DIR/oql"
+echo "  [✓] Binario  → $BIN_DIR/oql"
 
 # ── Installa icona SVG ────────────────────────────────────────────────────────
-cp -f "$SCRIPT_DIR/resources/openqlab.svg" "$ICONS_DIR/scalable/apps/openqlab.svg"
+cp -f "$SCRIPT_DIR/resources/oql.svg" "$ICONS_DIR/scalable/apps/oql.svg"
 echo "  [✓] Icona SVG installata"
 
 # ── Genera icone PNG rasterizzate ─────────────────────────────────────────────
 # Necessario per KDE e alcuni temi GTK che non supportano SVG nell'hicolor cache.
-_svg="$ICONS_DIR/scalable/apps/openqlab.svg"
+_svg="$ICONS_DIR/scalable/apps/oql.svg"
 _converter=""
 if   command -v rsvg-convert &>/dev/null; then _converter="rsvg"
 elif command -v inkscape      &>/dev/null; then _converter="inkscape"
@@ -59,7 +59,7 @@ fi
 
 if [[ -n "$_converter" ]]; then
     for size in 256 128 64 48; do
-        _out="$ICONS_DIR/${size}x${size}/apps/openqlab.png"
+        _out="$ICONS_DIR/${size}x${size}/apps/oql.png"
         case "$_converter" in
             rsvg)    rsvg-convert -w "$size" -h "$size" "$_svg" -o "$_out" ;;
             inkscape) inkscape --export-type=png --export-width="$size" \
@@ -75,11 +75,11 @@ else
 fi
 
 # ── Installa il file .desktop ─────────────────────────────────────────────────
-sed "s|Exec=openqlab|Exec=$BIN_DIR/openqlab|" \
-    "$SCRIPT_DIR/resources/openqlab.desktop" \
-    > "$DESKTOP_DIR/openqlab.desktop"
-chmod 644 "$DESKTOP_DIR/openqlab.desktop"
-echo "  [✓] Launcher → $DESKTOP_DIR/openqlab.desktop"
+sed "s|Exec=oql|Exec=$BIN_DIR/oql|" \
+    "$SCRIPT_DIR/resources/oql.desktop" \
+    > "$DESKTOP_DIR/oql.desktop"
+chmod 644 "$DESKTOP_DIR/oql.desktop"
+echo "  [✓] Launcher → $DESKTOP_DIR/oql.desktop"
 
 # ── Aggiorna le cache (tutti i DE) ────────────────────────────────────────────
 echo ""
@@ -127,7 +127,7 @@ fi
 # ── Risultato ─────────────────────────────────────────────────────────────────
 echo ""
 echo "Installazione completata."
-echo "OpenQLab dovrebbe ora apparire nel menu applicazioni."
+echo "OQL dovrebbe ora apparire nel menu applicazioni."
 echo "Se non appare subito, fai logout e login per forzare il refresh del menu."
 
 # ── Avvisa se ~/.local/bin non è nel PATH ─────────────────────────────────────

@@ -1,4 +1,4 @@
-; OpenQLab — Inno Setup installer script
+; OQL — Inno Setup installer script
 ; Uso da CI: ISCC /DMyAppVersion="1.2.3" /DOutputFile="oql-beta-windows" installer.iss
 
 #ifndef MyAppVersion
@@ -8,16 +8,16 @@
   #define OutputFile "oql-windows-setup"
 #endif
 
-#define MyAppName      "OpenQLab"
+#define MyAppName      "OQL"
 #define MyAppExeName   "oql.exe"
-#define MyAppPublisher "OpenQLab"
+#define MyAppPublisher "OQL"
 
 [Setup]
 AppId={{3F8A2B1C-D4E5-4F60-9ABC-DEF012345678}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-AppPublisherURL=https://github.com/teonactl/openqlab
+AppPublisherURL=https://github.com/teonactl/oql
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes

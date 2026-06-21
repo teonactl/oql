@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationName("OQL");
     app.setApplicationVersion("0.1.0");
     app.setOrganizationName("OQL");
-    app.setWindowIcon(QIcon(":/icons/openqlab.svg"));
+    app.setWindowIcon(QIcon(":/icons/oql.svg"));
     applyDarkTheme(app);
 
     AppSettings::applyLanguage();

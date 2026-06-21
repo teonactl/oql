@@ -107,11 +107,11 @@ jobs:
           chmod +x linuxdeploy linuxdeploy-plugin-qt
 
           install -Dm755 build/oql AppDir/usr/bin/oql
-          install -Dm644 resources/openqlab.svg \
+          install -Dm644 resources/oql.svg \
             AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
           mkdir -p AppDir/usr/share/applications
           sed 's|^Exec=.*|Exec=oql|; s|^Icon=.*|Icon=oql|' \
-            resources/openqlab.desktop \
+            resources/oql.desktop \
             > AppDir/usr/share/applications/oql.desktop
 
           QMAKE=$(which qmake) \
@@ -140,11 +140,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item build\Release\oql.exe dist\
-          windeployqt --release dist\oql.exe
+          windeployqt --release --compiler-runtime dist\oql.exe
+          Copy-Item "$env:QT_ROOT_DIR\bin\Qt6*.dll" dist\ -Force
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
           foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
             $src = "$vcpkgBin\$dll"
-            if (Test-Path $src) { Copy-Item $src dist\ }
+            if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
+            Copy-Item $src dist\
           }
           $version = git describe --tags --always 2>$null
           if (-not $version) { $version = "0.1.0" }
