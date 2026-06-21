@@ -13,13 +13,18 @@
 #define MyAppPublisher "OQL"
 
 [Setup]
-AppId={{3F8A2B1C-D4E5-4F60-9ABC-DEF012345678}
+; GUID nuovo (era legato al vecchio branding "OpenQLab"): con l'AppId
+; precedente, Inno Setup riusava la cartella di installazione registrata
+; dalla vecchia versione (es. C:\Program Files\OpenQLab) invece di
+; DefaultDirName, anche dopo aver rinominato l'app in OQL.
+AppId={{3A2321AF-5A0B-4F01-AB6C-A95E4E8F954C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL=https://github.com/teonactl/oql
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+SetupIconFile=resources\oql.ico
 AllowNoIcons=yes
 OutputDir=.
 OutputBaseFilename={#OutputFile}

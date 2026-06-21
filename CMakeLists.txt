@@ -98,6 +98,10 @@ qt_add_executable(oql
     src/engine/RecordCue.cpp
 )
 
+if(WIN32)
+    target_sources(oql PRIVATE resources/oql.rc)
+endif()
+
 target_link_libraries(oql PRIVATE
     Qt6::Core
     Qt6::Widgets
