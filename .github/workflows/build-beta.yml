@@ -81,7 +81,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DOQL_EDITION=full \
             -DOQL_BETA_EXPIRY="${{ inputs.expiry || '2027-06-21' }}" \
-            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}"
+            -DCMAKE_PREFIX_PATH="${Qt6_DIR}"
 
       # ── Windows ──────────────────────────────────────────────────
       - name: Install dependencies (Windows)
@@ -140,7 +140,7 @@ jobs:
         run: |
           APP=$(find build -name "oql.app" -maxdepth 4 | head -1)
           echo "Found app bundle: $APP"
-          "${QT_ROOT_DIR}/bin/macdeployqt" "$APP" -dmg
+          "${Qt6_DIR}/bin/macdeployqt" "$APP" -dmg
           DMG=$(find build -name "oql.dmg" -maxdepth 4 | head -1)
           echo "Found dmg: $DMG"
           mv "$DMG" ${{ matrix.artifact }}.dmg
