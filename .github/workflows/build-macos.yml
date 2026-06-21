@@ -26,23 +26,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          modules: 'qtmultimedia'
+          cache: true
+
       - name: Install dependencies
-        run: |
-          brew install cmake qt6 pkg-config lilv
+        run: brew install lilv sound-touch pkg-config
 
       - name: Configure
         run: |
-          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix lilv)/lib/pkgconfig"
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qt6)"
+            -DCMAKE_PREFIX_PATH="${Qt6_DIR}"
 
       - name: Build
         run: cmake --build build --parallel
 
+      # Niente "|| true": Qt di Homebrew (qt6 formula) non risolveva i rpath
+      # di QtPdf/QtVirtualKeyboard/libbrotli/libwebp/libsharpyuv e falliva la
+      # verifica della firma codesign — errori mascherati finora. Con la
+      # distribuzione Qt ufficiale (auto-contenuta) non si presentano.
       - name: Deploy Qt
         run: |
-          $(brew --prefix qt6)/bin/macdeployqt build/oql.app -dmg || true
+          "${Qt6_DIR}/bin/macdeployqt" build/oql.app -dmg
 
       - name: Rename DMG
         run: mv build/oql.dmg build/OQL-macOS-${{ matrix.arch }}.dmg
