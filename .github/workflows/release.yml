@@ -20,46 +20,40 @@ permissions:
   contents: write
 
 jobs:
+  # Job-level `if` non può leggere il contesto `matrix` (non è ancora
+  # materializzato), quindi la matrice va filtrata qui e passata al job
+  # `build` già pronta via fromJSON.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          EDITION="both"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EDITION="${{ inputs.edition }}"
+          fi
+
+          BASE='{"os":"ubuntu-22.04","edition":"base","artifact":"oql-linux-base","ext":"AppImage"},{"os":"macos-13","edition":"base","artifact":"oql-macos-base","ext":"dmg"},{"os":"windows-2022","edition":"base","artifact":"oql-windows-base","ext":"zip"}'
+          FULL='{"os":"ubuntu-22.04","edition":"full","artifact":"oql-linux-full","ext":"AppImage"},{"os":"macos-13","edition":"full","artifact":"oql-macos-full","ext":"dmg"},{"os":"windows-2022","edition":"full","artifact":"oql-windows-full","ext":"zip"}'
+
+          case "$EDITION" in
+            base) ITEMS="$BASE" ;;
+            full) ITEMS="$FULL" ;;
+            *) ITEMS="$BASE,$FULL" ;;
+          esac
+
+          echo "matrix={\"include\":[$ITEMS]}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # ── Linux ──────────────────────────────────────────────
-          - os: ubuntu-22.04
-            edition: base
-            artifact: oql-linux-base
-            ext: AppImage
-
-          - os: ubuntu-22.04
-            edition: full
-            artifact: oql-linux-full
-            ext: AppImage
-
-          # ── macOS ──────────────────────────────────────────────
-          - os: macos-13
-            edition: base
-            artifact: oql-macos-base
-            ext: dmg
-
-          - os: macos-13
-            edition: full
-            artifact: oql-macos-full
-            ext: dmg
-
-          # ── Windows ────────────────────────────────────────────
-          - os: windows-2022
-            edition: base
-            artifact: oql-windows-base
-            ext: zip
-
-          - os: windows-2022
-            edition: full
-            artifact: oql-windows-full
-            ext: zip
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'workflow_dispatch' || inputs.edition == 'both' || inputs.edition == matrix.edition
 
     steps:
       # ── Checkout ──────────────────────────────────────────────
