@@ -149,7 +149,7 @@ jobs:
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item build\Release\oql.exe dist\
           windeployqt --release --compiler-runtime dist\oql.exe
-          Copy-Item "$env:QT_ROOT_DIR\bin\Qt6*.dll" dist\ -Force
+          Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
           foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
             $src = "$vcpkgBin\$dll"
