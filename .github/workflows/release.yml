@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edizione da buildare'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - base
+          - full
 
 permissions:
   contents: write
@@ -48,6 +59,7 @@ jobs:
             ext: zip
 
     runs-on: ${{ matrix.os }}
+    if: github.event_name != 'workflow_dispatch' || inputs.edition == 'both' || inputs.edition == matrix.edition
 
     steps:
       # ── Checkout ──────────────────────────────────────────────
@@ -191,6 +203,7 @@ jobs:
 
       # ── Create / update GitHub Release ───────────────────────
       - name: Publish to GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.artifact }}.${{ matrix.ext }}
