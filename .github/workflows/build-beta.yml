@@ -150,20 +150,17 @@ jobs:
           Copy-Item build\Release\oql.exe dist\
           windeployqt --release --compiler-runtime dist\oql.exe
           Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
-          # --compiler-runtime non trova VCINSTALLDIR su questo runner e non
-          # copia il redistributable MSVC: lo prendiamo da System32, dove il
-          # VC++ Redistributable è sempre preinstallato sui runner Windows.
-          foreach ($dll in @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll")) {
-            $src = "C:\Windows\System32\$dll"
-            if (-not (Test-Path $src)) { throw "Runtime MSVC non trovato: $src" }
-            Copy-Item $src dist\ -Force
-          }
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
           foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
             $src = "$vcpkgBin\$dll"
             if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
             Copy-Item $src dist\
           }
+          # Il runtime MSVC (msvcp140/vcruntime140) lo installa il redistributable
+          # ufficiale firmato Microsoft via [Run] in installer.iss, non copiando
+          # le DLL a mano: alcuni antivirus le quarantinano se depositate da un
+          # installer non firmato (pattern simile al DLL side-loading).
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
           $version = git describe --tags --always 2>$null
           if (-not $version) { $version = "0.1.0" }
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
