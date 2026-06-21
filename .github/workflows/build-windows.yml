@@ -60,7 +60,7 @@ jobs:
           windeployqt --release --compiler-runtime dist\oql.exe
           Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
-          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","soundtouch.dll")) {
+          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","sratom-0.dll","zix-0.dll","soundtouch.dll")) {
             $src = "$vcpkgBin\$dll"
             if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
             Copy-Item $src dist\
@@ -69,6 +69,11 @@ jobs:
           # ufficiale firmato Microsoft via [Run] in installer.iss, non copiando
           # le DLL a mano: alcuni antivirus le quarantinano se depositate da un
           # installer non firmato (pattern simile al DLL side-loading).
+          # msvcp140_1.dll a parte: il vc_redist non garantisce sempre questo
+          # file sulla macchina di destinazione (versioni preesistenti del
+          # redistributable), quindi lo affianchiamo direttamente all'exe.
+          $sys32Msvcp140_1 = "C:\Windows\System32\msvcp140_1.dll"
+          if (Test-Path $sys32Msvcp140_1) { Copy-Item $sys32Msvcp140_1 dist\ -Force }
           Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
           $version = git describe --tags --always 2>$null
           if (-not $version) { $version = "0.1.0" }
