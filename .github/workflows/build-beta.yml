@@ -22,7 +22,11 @@ jobs:
             ext: AppImage
 
           - os: macos-13
-            artifact: oql-beta-macos
+            artifact: oql-beta-macos-x64
+            ext: dmg
+
+          - os: macos-latest
+            artifact: oql-beta-macos-arm64
             ext: dmg
 
           - os: windows-2022
