@@ -156,6 +156,10 @@ if(OQL_EDITION STREQUAL "base")
     target_compile_definitions(oql PRIVATE OQL_BASE)
 endif()
 
+if(DEFINED OQL_BETA_EXPIRY AND NOT OQL_BETA_EXPIRY STREQUAL "")
+    target_compile_definitions(oql PRIVATE OQL_BETA_EXPIRY="${OQL_BETA_EXPIRY}")
+endif()
+
 
 qt_add_translations(oql
     TS_FILES
