@@ -140,6 +140,7 @@ target_include_directories(oql PRIVATE
 
 target_link_directories(oql PRIVATE
     ${LILV_LIBRARY_DIRS}
+    ${SOUNDTOUCH_LIBRARY_DIRS}
     $<$<NOT:$<BOOL:${APPLE}>>:${SUIL_LIBRARY_DIRS}>
 )
 
