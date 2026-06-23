@@ -19,7 +19,7 @@ jobs:
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.8.4'
+          version: '6.9.3'
           modules: 'qtmultimedia'
           cache: true
 

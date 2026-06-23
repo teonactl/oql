@@ -59,15 +59,17 @@ jobs:
       # ── Checkout ──────────────────────────────────────────────
       - uses: actions/checkout@v4
 
-      # ── Qt 6.8 ────────────────────────────────────────────────
+      # ── Qt 6.9 ────────────────────────────────────────────────
       # v3 dell'action. 6.5.3 rotto su macOS 26 "Tahoe": linka ancora
       # AGL.framework, rimosso dall'SDK (ld: framework 'AGL' not found).
-      # qtsvg e qtdeclarative sono nel pacchetto base di Qt 6.8.
+      # 6.8.4+ è solo commerciale (non disponibile via aqt open-source);
+      # 6.9.x è l'ultimo ramo open-source che include la fix Tahoe.
+      # qtsvg e qtdeclarative sono nel pacchetto base di Qt 6.9.
       # qtmultimedia è l'unico addon separato necessario.
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.8.4'
+          version: '6.9.3'
           modules: 'qtmultimedia'
           cache: true
 
