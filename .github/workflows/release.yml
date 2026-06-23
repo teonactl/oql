@@ -36,8 +36,8 @@ jobs:
             EDITION="${{ inputs.edition }}"
           fi
 
-          BASE='{"os":"ubuntu-22.04","edition":"base","artifact":"oql-linux-base","ext":"AppImage"},{"os":"macos-13","edition":"base","artifact":"oql-macos-base","ext":"dmg"},{"os":"windows-2022","edition":"base","artifact":"oql-windows-base","ext":"zip"}'
-          FULL='{"os":"ubuntu-22.04","edition":"full","artifact":"oql-linux-full","ext":"AppImage"},{"os":"macos-13","edition":"full","artifact":"oql-macos-full","ext":"dmg"},{"os":"windows-2022","edition":"full","artifact":"oql-windows-full","ext":"zip"}'
+          BASE='{"os":"ubuntu-22.04","edition":"base","artifact":"oql-linux-base","ext":"AppImage"},{"os":"macos-15-intel","edition":"base","artifact":"oql-macos-base","ext":"dmg"},{"os":"windows-2022","edition":"base","artifact":"oql-windows-base","ext":"zip"}'
+          FULL='{"os":"ubuntu-22.04","edition":"full","artifact":"oql-linux-full","ext":"AppImage"},{"os":"macos-15-intel","edition":"full","artifact":"oql-macos-full","ext":"dmg"},{"os":"windows-2022","edition":"full","artifact":"oql-windows-full","ext":"zip"}'
 
           case "$EDITION" in
             base) ITEMS="$BASE" ;;

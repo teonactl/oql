@@ -21,7 +21,7 @@ jobs:
             artifact: oql-beta-linux
             ext: AppImage
 
-          - os: macos-13
+          - os: macos-15-intel  # macos-13 ritirato da GitHub a dic 2025
             artifact: oql-beta-macos-x64
             ext: dmg
 
