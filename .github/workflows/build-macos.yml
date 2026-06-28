@@ -52,10 +52,25 @@ jobs:
       # distribuzione Qt ufficiale (auto-contenuta) non si presentano.
       - name: Deploy Qt
         run: |
-          "${Qt6_DIR}/bin/macdeployqt" build/oql.app -dmg
+          "${Qt6_DIR}/bin/macdeployqt" build/oql.app
 
-      - name: Rename DMG
-        run: mv build/oql.dmg build/OQL-macOS-${{ matrix.arch }}.dmg
+      # Ad-hoc signing: evita "danneggiato" su Apple Silicon e problemi di
+      # permessi su Intel. Non richiede Apple Developer account.
+      - name: Sign (ad-hoc)
+        run: |
+          codesign --sign - --force --deep \
+            --preserve-metadata=entitlements,requirements,flags,runtime \
+            build/oql.app
+
+      # macdeployqt -dmg genera un alias HFS interno che Finder non riesce ad
+      # aprire su Intel (errore "(null)"). hdiutil crea un DMG semplice e
+      # affidabile senza alias.
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "OQL" \
+            -srcfolder build/oql.app \
+            -ov -format UDZO \
+            build/OQL-macOS-${{ matrix.arch }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
