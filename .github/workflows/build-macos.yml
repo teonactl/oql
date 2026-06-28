@@ -54,13 +54,20 @@ jobs:
         run: |
           "${Qt6_DIR}/bin/macdeployqt" build/oql.app
 
-      # Ad-hoc signing: evita "danneggiato" su Apple Silicon e problemi di
-      # permessi su Intel. Non richiede Apple Developer account.
+      # Ad-hoc signing dall'interno verso l'esterno: --deep è deprecato e non
+      # gestisce l'ordine corretto per bundle Qt. macdeployqt modifica i binari
+      # con install_name_tool invalidando la firma originale Apple; usare
+      # --preserve-metadata preserverebbe quella firma rotta. Si firma invece
+      # bottom-up: dylib → binari framework → bundle framework → app.
       - name: Sign (ad-hoc)
         run: |
-          codesign --sign - --force --deep \
-            --preserve-metadata=entitlements,requirements,flags,runtime \
-            build/oql.app
+          find build/oql.app -name "*.dylib" \
+            -exec codesign --sign - --force {} \;
+          find build/oql.app/Contents/Frameworks -type f ! -name "*.*" \
+            -exec codesign --sign - --force {} \;
+          find build/oql.app/Contents/Frameworks -maxdepth 1 -name "*.framework" \
+            -exec codesign --sign - --force {} \;
+          codesign --sign - --force build/oql.app
 
       # macdeployqt -dmg genera un alias HFS interno che Finder non riesce ad
       # aprire su Intel (errore "(null)"). hdiutil crea un DMG semplice e
