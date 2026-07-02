@@ -19,7 +19,21 @@ cmake --build build -j$(nproc)
 > **Requirements:** CMake ≥ 3.20, Qt 6.4+, GCC 11+ or Clang 14+.
 > See [Building from Source](Building) for the full dependency list.
 
-### macOS / Windows
+### macOS
+
+Pre-built DMG files are available as [GitHub Actions artifacts](https://github.com/teonactl/oql/actions/workflows/build-macos.yml) (arm64 and x86_64). Download the DMG for your architecture, open it and drag **OQL** into `/Applications`.
+
+> **Important — first launch on macOS**
+>
+> Because OQL is not yet notarized by Apple, macOS Gatekeeper will block it on the first open. After installing the app, run this command once in Terminal:
+>
+> ```bash
+> xattr -cr /Applications/OQL.app
+> ```
+>
+> This removes the quarantine flag. After that the app opens normally. You will need to repeat this every time you install a new version.
+
+### Windows
 
 Build from source — see [Building from Source](Building).
 Binary packages are not yet available; they are on the [roadmap](https://github.com/teonactl/oql/blob/main/README.md#roadmap).
