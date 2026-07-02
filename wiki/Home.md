@@ -14,7 +14,9 @@ For an illustrated introduction with screenshots and step-by-step guidance, see 
 
 | Page | Description |
 |---|---|
-| [Getting Started](Getting-Started) | Installation, first launch, basic workflow |
+| [Download](Download) | Pre-built packages and installation instructions (macOS/Windows first-launch warnings) |
+| [Beta Testing](Beta) | Beta builds — download, install, and report issues |
+| [Getting Started](Getting-Started) | First launch, basic workflow, keyboard shortcuts |
 | [Cue Types](Cue-Types) | Reference for every cue type and its parameters |
 | [Plugin Effects (VST2 / LV2)](Plugin-Effects) | Loading and using audio effects plugins |
 | [Workspace Format](Workspace-Format) | `.oqlab` JSON file format reference |

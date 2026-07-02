@@ -72,7 +72,19 @@ jobs:
       # ── macOS ────────────────────────────────────────────────────
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install lilv sound-touch pkg-config
+        run: brew install lilv sound-touch pkg-config librsvg
+
+      - name: Generate icon (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir resources/oql.iconset
+          for size in 16 32 128 256 512; do
+            rsvg-convert -w $size -h $size resources/oql.svg \
+              -o resources/oql.iconset/icon_${size}x${size}.png
+            rsvg-convert -w $((size*2)) -h $((size*2)) resources/oql.svg \
+              -o resources/oql.iconset/icon_${size}x${size}@2x.png
+          done
+          iconutil -c icns resources/oql.iconset -o resources/oql.icns
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
