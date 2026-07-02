@@ -36,6 +36,18 @@ jobs:
       - name: Install dependencies
         run: brew install lilv sound-touch pkg-config
 
+      - name: Generate icon
+        run: |
+          brew install librsvg
+          mkdir resources/oql.iconset
+          for size in 16 32 128 256 512; do
+            rsvg-convert -w $size -h $size resources/oql.svg \
+              -o resources/oql.iconset/icon_${size}x${size}.png
+            rsvg-convert -w $((size*2)) -h $((size*2)) resources/oql.svg \
+              -o resources/oql.iconset/icon_${size}x${size}@2x.png
+          done
+          iconutil -c icns resources/oql.iconset -o resources/oql.icns
+
       - name: Configure
         run: |
           export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"

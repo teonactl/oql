@@ -181,5 +181,12 @@ set_target_properties(oql PROPERTIES
 if(APPLE)
     set_target_properties(oql PROPERTIES
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/MacOSXBundleInfo.plist.in"
+        MACOSX_BUNDLE_ICON_FILE oql
     )
+    set(_MACOS_ICON "${CMAKE_SOURCE_DIR}/resources/oql.icns")
+    if(EXISTS "${_MACOS_ICON}")
+        set_source_files_properties("${_MACOS_ICON}" PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources)
+        target_sources(oql PRIVATE "${_MACOS_ICON}")
+    endif()
 endif()
