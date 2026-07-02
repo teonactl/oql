@@ -62,13 +62,28 @@ jobs:
       # di QtPdf/QtVirtualKeyboard/libbrotli/libwebp/libsharpyuv e falliva la
       # verifica della firma codesign — errori mascherati finora. Con la
       # distribuzione Qt ufficiale (auto-contenuta) non si presentano.
-      #
-      # -codesign=- delega la firma ad-hoc a macdeployqt stesso: firma ogni
-      # framework e plugin nell'ordine corretto nel momento in cui li copia,
-      # evitando il disallineamento firma/contenuto che causava SIGKILL su arm64.
-      - name: Deploy Qt + Sign (ad-hoc)
+      - name: Deploy Qt
         run: |
-          "${Qt6_DIR}/bin/macdeployqt" build/oql.app -codesign=-
+          "${Qt6_DIR}/bin/macdeployqt" build/oql.app
+
+      # macdeployqt -codesign=- non passa --force a codesign: i framework Qt
+      # (già firmati da Qt Company) mantengono la firma originale, invalida dopo
+      # la modifica degli rpath. Si firma manualmente con --force in ordine:
+      # 1. dylib standalone in Frameworks (lilv, soundtouch, ecc.)
+      # 2. dylib in PlugIns
+      # 3. bundle .framework (firma internamente il binario Qt senza step separato)
+      # 4. app bundle
+      # I binari Qt dentro i .framework NON si firmano separatamente: lo fa
+      # codesign quando firma il bundle, evitando firme doppie incoerenti.
+      - name: Sign (ad-hoc)
+        run: |
+          find build/oql.app/Contents/Frameworks -maxdepth 1 -name "*.dylib" \
+            -exec codesign --sign - --force {} \;
+          find build/oql.app/Contents/PlugIns -name "*.dylib" \
+            -exec codesign --sign - --force {} \;
+          find build/oql.app/Contents/Frameworks -name "*.framework" \
+            -exec codesign --sign - --force {} \;
+          codesign --sign - --force build/oql.app
 
       # macdeployqt -dmg genera un alias HFS interno che Finder non riesce ad
       # aprire su Intel (errore "(null)"). hdiutil crea un DMG semplice e
