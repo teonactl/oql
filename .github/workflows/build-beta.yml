@@ -153,10 +153,11 @@ jobs:
         run: |
           APP=$(find build -name "oql.app" -maxdepth 4 | head -1)
           echo "Found app bundle: $APP"
-          "${Qt6_DIR}/bin/macdeployqt" "$APP" -dmg
-          DMG=$(find build -name "oql.dmg" -maxdepth 4 | head -1)
-          echo "Found dmg: $DMG"
-          mv "$DMG" ${{ matrix.artifact }}.dmg
+          "${Qt6_DIR}/bin/macdeployqt" "$APP" -codesign=-
+          hdiutil create -volname "OQL" \
+            -srcfolder "$APP" \
+            -ov -format UDZO \
+            ${{ matrix.artifact }}.dmg
 
       # ── Package Windows ───────────────────────────────────────────
       - name: Package (Windows)
