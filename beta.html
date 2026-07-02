@@ -179,6 +179,48 @@
       cursor: default; opacity: .6;
     }
     .dl-ver { font-size: .75rem; color: var(--muted); margin-top: .6rem; }
+
+    /* INSTALL NOTES */
+    .install-notes {
+      margin-top: 2.5rem;
+      border: 1px solid var(--amber-br);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .install-notes-header {
+      background: var(--amber-bg);
+      border-bottom: 1px solid var(--amber-br);
+      padding: .9rem 1.4rem;
+      display: flex; align-items: center; gap: .6rem;
+      font-weight: 700; font-size: .95rem; color: var(--amber);
+    }
+    .install-platform {
+      padding: 1.2rem 1.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .install-platform:last-child { border-bottom: none; }
+    .install-platform-title {
+      font-weight: 700; font-size: .9rem; margin-bottom: .7rem;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .install-platform ol {
+      margin: 0; padding-left: 1.3rem;
+      font-size: .87rem; color: var(--text); line-height: 1.7;
+    }
+    .install-platform code {
+      background: rgba(255,255,255,.07);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: .15em .5em;
+      font-family: 'Cascadia Code', 'Fira Mono', monospace;
+      font-size: .88em; color: var(--go);
+    }
+    .install-platform .why {
+      margin-top: .6rem; padding: .6rem .9rem;
+      background: rgba(255,255,255,.03);
+      border-left: 3px solid var(--border);
+      font-size: .8rem; color: var(--muted); line-height: 1.5;
+    }
     .tag-beta {
       display: inline-block;
       background: var(--amber-bg); border: 1px solid var(--amber-br);
@@ -343,6 +385,58 @@
         ⬇ Download installer
       </a>
       <div class="dl-ver">Full edition · beta-latest</div>
+    </div>
+  </div>
+
+  <!-- INSTALL NOTES -->
+  <div class="install-notes">
+    <div class="install-notes-header">
+      ⚠️ Istruzioni di installazione — leggi prima di aprire il file
+    </div>
+
+    <div class="install-platform">
+      <div class="install-platform-title">🐧 Linux — AppImage</div>
+      <ol>
+        <li>Se il browser chiede <strong>"Mantenere il file?"</strong> clicca <strong>Mantieni</strong>.</li>
+        <li>Rendi eseguibile il file e avvialo:<br>
+          <code>chmod +x oql-beta-linux.AppImage &amp;&amp; ./oql-beta-linux.AppImage</code></li>
+      </ol>
+    </div>
+
+    <div class="install-platform">
+      <div class="install-platform-title">🍎 macOS — DMG</div>
+      <ol>
+        <li>Se il browser chiede <strong>"Consentire il download?"</strong> o <strong>"Mantenere?"</strong> clicca <strong>Consenti</strong> / <strong>Mantieni</strong>.</li>
+        <li>Apri il file <strong>.dmg</strong> scaricato.</li>
+        <li>Trascina <strong>OQL</strong> nella cartella <strong>Applicazioni</strong>.</li>
+        <li>Espelli il disco e apri il <strong>Terminale</strong> (Applicazioni → Utility → Terminale).</li>
+        <li>Esegui questo comando:<br>
+          <code>xattr -cr /Applications/OQL.app</code></li>
+        <li>Ora puoi aprire OQL normalmente dal Launchpad o dalla cartella Applicazioni.</li>
+      </ol>
+      <div class="why">
+        <strong>Perché è necessario?</strong> OQL non è ancora notarizzata da Apple.
+        macOS blocca qualsiasi app scaricata da internet non notarizzata, mostrando il messaggio
+        "OQL è danneggiato e non può essere aperto". Il comando <code>xattr -cr</code> rimuove il
+        flag di quarantena aggiunto automaticamente dal browser. Va ripetuto ad ogni aggiornamento.
+      </div>
+    </div>
+
+    <div class="install-platform">
+      <div class="install-platform-title">🪟 Windows — Installer</div>
+      <ol>
+        <li>Se il browser mostra <strong>"Questo file potrebbe essere dannoso"</strong> clicca <strong>Mantieni comunque</strong> (o <strong>Keep anyway</strong>).</li>
+        <li>Avvia il file <strong>.exe</strong> scaricato.</li>
+        <li>Se appare <strong>Windows Defender SmartScreen</strong> con "Il PC è stato protetto":<br>
+          clicca <strong>"Ulteriori informazioni"</strong> → <strong>"Esegui comunque"</strong>.</li>
+        <li>Segui la procedura guidata di installazione.</li>
+      </ol>
+      <div class="why">
+        <strong>Perché appare SmartScreen?</strong> L'installer OQL non è ancora firmato con un
+        certificato code-signing a pagamento. SmartScreen avvisa per qualsiasi installer non firmato
+        da un publisher noto. Il software è sicuro — il codice sorgente è pubblico su
+        <a href="https://github.com/teonactl/oql">github.com/teonactl/oql</a>.
+      </div>
     </div>
   </div>
 
