@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -101,3 +104,14 @@ jobs:
           name: OQL-macOS-${{ matrix.arch }}
           path: build/OQL-macOS-${{ matrix.arch }}.dmg
           retention-days: 30
+
+      - name: Publish dev-latest
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: "Dev build (latest main)"
+          prerelease: true
+          make_latest: false
+          body: "Ultima build automatica dal branch `main`. Aggiornata ad ogni commit."
+          files: build/OQL-macOS-${{ matrix.arch }}.dmg

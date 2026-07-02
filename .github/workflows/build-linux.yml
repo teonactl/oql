@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -75,3 +78,14 @@ jobs:
           name: oql-linux-ci
           path: oql-linux.AppImage
           retention-days: 7
+
+      - name: Publish dev-latest
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: "Dev build (latest main)"
+          prerelease: true
+          make_latest: false
+          body: "Ultima build automatica dal branch `main`. Aggiornata ad ogni commit."
+          files: oql-linux.AppImage
