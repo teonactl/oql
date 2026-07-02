@@ -69,24 +69,36 @@ jobs:
         run: |
           "${Qt6_DIR}/bin/macdeployqt" build/oql.app
 
-      # macdeployqt -codesign=- non passa --force a codesign: i framework Qt
-      # (già firmati da Qt Company) mantengono la firma originale, invalida dopo
-      # la modifica degli rpath. Si firma manualmente con --force in ordine:
-      # 1. dylib standalone in Frameworks (lilv, soundtouch, ecc.)
+      # Ordine di firma bottom-up con --force:
+      # 1. dylib standalone in Frameworks
       # 2. dylib in PlugIns
-      # 3. bundle .framework (firma internamente il binario Qt senza step separato)
+      # 3. Per ogni .framework: prima firma il binario Mach-O interno (che ha
+      #    una firma embedded propria modificata da macdeployqt), poi il bundle
       # 4. app bundle
-      # I binari Qt dentro i .framework NON si firmano separatamente: lo fa
-      # codesign quando firma il bundle, evitando firme doppie incoerenti.
       - name: Sign (ad-hoc)
         run: |
           find build/oql.app/Contents/Frameworks -maxdepth 1 -name "*.dylib" \
             -exec codesign --sign - --force {} \;
           find build/oql.app/Contents/PlugIns -name "*.dylib" \
             -exec codesign --sign - --force {} \;
-          find build/oql.app/Contents/Frameworks -name "*.framework" \
-            -exec codesign --sign - --force {} \;
+          find build/oql.app/Contents/Frameworks -maxdepth 1 -name "*.framework" | while read fw; do
+            bin=$(basename "$fw" .framework)
+            find "$fw" -type f -name "$bin" -exec codesign --sign - --force {} \;
+            codesign --sign - --force "$fw"
+          done
           codesign --sign - --force build/oql.app
+
+      - name: Verify bundle
+        run: |
+          echo "=== Resources (icona) ==="
+          ls -la build/oql.app/Contents/Resources/
+          echo "=== CFBundleIconFile ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" \
+            build/oql.app/Contents/Info.plist 2>/dev/null || echo "(non trovato)"
+          echo "=== Verifica firma ==="
+          codesign --verify --deep --strict --verbose=4 build/oql.app 2>&1 || true
+          echo "=== Firma app ==="
+          codesign -dvvv build/oql.app 2>&1 | grep -E "Identifier|TeamID|Signature|flags|CDHash" || true
 
       # macdeployqt -dmg genera un alias HFS interno che Finder non riesce ad
       # aprire su Intel (errore "(null)"). hdiutil crea un DMG semplice e
