@@ -1,6 +1,7 @@
 #include "PluginChain.h"
 #include "VstPlugin.h"
 #include "Lv2Plugin.h"
+#include "BuiltinPlugins.h"
 #include <algorithm>
 
 void PluginChain::prepare(int sampleRate, int blockSize) {
@@ -58,6 +59,11 @@ void PluginChain::fromJson(const QJsonArray &arr) {
             plug = std::make_unique<VstPlugin>(obj["path"].toString().toStdString());
         } else if (type == "lv2") {
             plug = std::make_unique<Lv2Plugin>(obj["uri"].toString().toStdString());
+        } else if (type == "builtin") {
+            const QString id = obj["builtin_id"].toString();
+            if      (id == GainPlugin::BUILTIN_ID)   plug = std::make_unique<GainPlugin>();
+            else if (id == DelayPlugin::BUILTIN_ID)  plug = std::make_unique<DelayPlugin>();
+            else if (id == ReverbPlugin::BUILTIN_ID) plug = std::make_unique<ReverbPlugin>();
         }
         if (plug && plug->isValid()) {
             plug->fromJson(obj);

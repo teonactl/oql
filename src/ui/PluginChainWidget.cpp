@@ -3,6 +3,7 @@
 #include "engine/PluginChain.h"
 #include "engine/VstPlugin.h"
 #include "engine/Lv2Plugin.h"
+#include "engine/BuiltinPlugins.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
@@ -257,11 +258,32 @@ private:
 static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     auto *dlg = new QDialog(parent);
     dlg->setWindowTitle("Aggiungi effetto");
-    dlg->resize(480, 400);
+    dlg->resize(480, 420);
 
     auto *lay  = new QVBoxLayout(dlg);
     auto *tabs = new QTabWidget;
     lay->addWidget(tabs);
+
+    // ── Built-in tab (sempre disponibile, nessun plugin esterno) ─────────────
+    auto *builtinTab = new QWidget;
+    auto *builtinLay = new QVBoxLayout(builtinTab);
+    auto *builtinList = new QListWidget;
+    builtinLay->addWidget(new QLabel("Effetti integrati (disponibili su tutte le piattaforme):"));
+    builtinLay->addWidget(builtinList, 1);
+    tabs->addTab(builtinTab, "Built-in");
+
+    struct BuiltinInfo { QString id; QString name; QString desc; };
+    const QList<BuiltinInfo> builtins = {
+        { GainPlugin::BUILTIN_ID,   "Gain",   "Regola il volume (+/- dB)" },
+        { DelayPlugin::BUILTIN_ID,  "Delay",  "Eco con ritardo e feedback regolabili" },
+        { ReverbPlugin::BUILTIN_ID, "Reverb", "Riverbero algoritmico (Freeverb)" },
+    };
+    for (const auto &bi : builtins) {
+        auto *item = new QListWidgetItem(bi.name + " — " + bi.desc);
+        item->setData(Qt::UserRole,     bi.id);
+        item->setData(Qt::UserRole + 1, "builtin");
+        builtinList->addItem(item);
+    }
 
     // ── VST2 tab ──────────────────────────────────────────────────────────────
     auto *vstTab    = new QWidget;
@@ -328,21 +350,30 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
 
     if (dlg->exec() != QDialog::Accepted) { delete dlg; return nullptr; }
 
-    // Read data before deleting the dialog — sel becomes dangling after delete dlg
-    QListWidget *active = (tabs->currentIndex() == 0) ? vstList : lv2List;
-    QListWidgetItem *sel = active->currentItem();
+    // Determina quale lista è attiva in base al tab selezionato
+    QListWidget *active = nullptr;
+    switch (tabs->currentIndex()) {
+    case 0: active = builtinList; break;
+    case 1: active = vstList;     break;
+    case 2: active = lv2List;     break;
+    }
+    QListWidgetItem *sel = active ? active->currentItem() : nullptr;
     if (!sel) { delete dlg; return nullptr; }
     const QString type = sel->data(Qt::UserRole + 1).toString();
     const QString key  = sel->data(Qt::UserRole).toString();
     delete dlg;
 
     std::unique_ptr<AudioPlugin> plug;
-    if (type == "vst2") {
+    if (type == "builtin") {
+        if      (key == GainPlugin::BUILTIN_ID)   plug = std::make_unique<GainPlugin>();
+        else if (key == DelayPlugin::BUILTIN_ID)  plug = std::make_unique<DelayPlugin>();
+        else if (key == ReverbPlugin::BUILTIN_ID) plug = std::make_unique<ReverbPlugin>();
+    } else if (type == "vst2") {
         plug = std::make_unique<VstPlugin>(key.toStdString());
     } else {
         plug = std::make_unique<Lv2Plugin>(key.toStdString());
     }
-    if (!plug->isValid()) {
+    if (!plug || !plug->isValid()) {
         QMessageBox::warning(parent, "Errore",
                              QString("Impossibile caricare il plugin:\n%1").arg(key));
         return nullptr;
@@ -382,7 +413,8 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     m_list = new QListWidget;
     listStack->addWidget(m_list);                          // index 0: normal list
     m_listPlaceholder = new QLabel(
-        "Nessun effetto.\nPremi \"+ Aggiungi effetto\" per inserire\nun plugin VST2 o LV2.");
+        "Nessun effetto.\nPremi \"+ Aggiungi effetto\" per inserire\n"
+        "un effetto Built-in, VST2 o LV2.");
     m_listPlaceholder->setAlignment(Qt::AlignCenter);
     m_listPlaceholder->setStyleSheet("color: #888; font-style: italic;");
     m_listPlaceholder->setWordWrap(true);

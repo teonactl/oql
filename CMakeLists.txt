@@ -27,6 +27,7 @@ qt_add_executable(oql
     src/engine/Cue.h
     src/engine/Cue.cpp
     src/engine/AudioPlugin.h
+    src/engine/BuiltinPlugins.h
     src/engine/VstPlugin.h
     src/engine/VstPlugin.cpp
     src/engine/Lv2Plugin.h
