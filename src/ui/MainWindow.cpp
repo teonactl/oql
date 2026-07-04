@@ -66,7 +66,6 @@ public:
     explicit PillToggle(const QIcon &icon, const QColor &onColor, QWidget *parent = nullptr)
         : QWidget(parent), m_icon(icon), m_onColor(onColor)
     {
-        setFixedSize(50, 66);
         setCursor(Qt::PointingHandCursor);
         setAttribute(Qt::WA_Hover);
     }
@@ -77,30 +76,34 @@ public:
         update();
         emit toggled(on);
     }
+    QSize sizeHint() const override {
+        const int em = fontMetrics().height();
+        return QSize(em * 3, em * 4 + 2);
+    }
+    QSize minimumSizeHint() const override { return sizeHint(); }
 signals:
     void toggled(bool);
 protected:
     void mousePressEvent(QMouseEvent *) override { setChecked(!m_checked); }
     void paintEvent(QPaintEvent *) override {
-        constexpr int IH = 24;  // icon height
-        constexpr int PW = 40, PH = 20;
-        const int px   = (width() - PW) / 2;
-        const int iconX = (width() - IH) / 2;
-        const int pillY = IH + 7;
+        // Tutte le dimensioni derivate dalla geometry effettiva — nessun pixel fisso
+        const int IH    = height() * 11 / 18;          // icona ~61% altezza
+        const int PW    = width()  * 4  / 5;           // pill ~80% larghezza
+        const int PH    = height() * 5  / 18;          // pill ~28% altezza
+        const int px    = (width()  - PW) / 2;
+        const int iconX = (width()  - IH) / 2;
+        const int pillY = height() - PH - 2;
 
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
-        // Icon
         if (!m_icon.isNull())
             p.drawPixmap(iconX, 2, m_icon.pixmap(IH, IH));
 
-        // Pill track
         p.setPen(Qt::NoPen);
         p.setBrush(m_checked ? m_onColor : QColor(0x3a,0x3e,0x4a));
         p.drawRoundedRect(px, pillY, PW, PH, PH/2, PH/2);
 
-        // Knob
         const int kd = PH - 4;
         const int kx = m_checked ? px + PW - kd - 2 : px + 2;
         p.setBrush(Qt::white);
@@ -631,14 +634,18 @@ void MainWindow::buildToolBar() {
     m_toolBar = addToolBar("Principale");
     auto *tb = m_toolBar;
     tb->setMovable(false);
-    tb->setIconSize({28, 28});
-    tb->setFixedHeight(86);
-    tb->setStyleSheet(
+    // em = altezza del font corrente — unità base per tutti gli elementi
+    const int em     = fontMetrics().height();   // ~16px a DPI standard, scala con font/DPI
+    const int iconSz = em + 8;                   // ~24px — icone nei pulsanti cue
+    tb->setIconSize({iconSz, iconSz});
+    tb->setStyleSheet(QString(
         "QToolBar { spacing: 1px; padding: 2px; }"
-        "QToolBar::separator { width: 1px; background: rgba(255,255,255,22); margin: 22px 4px; }"
-        "QToolButton { min-width: 34px; min-height: 34px; border-radius: 5px; }"
+        "QToolBar::separator { width: 1px; background: rgba(255,255,255,22);"
+        " margin: %1px 4px; }"
+        "QToolButton { min-width: %2px; min-height: %2px; border-radius: 5px; }"
         "QToolButton:hover   { background: rgba(255,255,255,18); }"
-        "QToolButton:pressed { background: rgba(0,0,0,30); }");
+        "QToolButton:pressed { background: rgba(0,0,0,30); }")
+        .arg(em).arg(iconSz + 4));
 
     // ── GO button — fully custom painted, no Qt decoration ───────────────────
     m_goBtn = new GoButton;
@@ -647,7 +654,8 @@ void MainWindow::buildToolBar() {
     goFont.setPointSize(18);
     goFont.setBold(true);
     m_goBtn->setFont(goFont);
-    m_goBtn->setFixedSize(80, 80);
+    const int goBtnSz = em * 4 + 16;   // ~80px a 16em, scala con DPI/font
+    m_goBtn->setFixedSize(goBtnSz, goBtnSz);
     m_goBtn->setToolTip(tr("Vai"));
     connect(m_goBtn, &QPushButton::clicked, this, &MainWindow::go);
     tb->addWidget(m_goBtn);
@@ -714,7 +722,7 @@ void MainWindow::buildToolBar() {
         auto *btn = new QToolButton;
         btn->setIcon(icon);
         btn->setIconSize({32, 32});
-        btn->setFixedSize(36, 36);
+        btn->setFixedSize(iconSz + 4, iconSz + 4);
         btn->setToolTip(tooltip);
         connect(btn, &QToolButton::clicked, this, slot);
         tb->addWidget(btn);

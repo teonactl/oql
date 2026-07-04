@@ -288,9 +288,9 @@ void InspectorPanel::buildUi() {
     m_fileEdit->setReadOnly(true);
     m_fileEdit->setPlaceholderText(tr("Nessun file..."));
     m_browseBtn = new QPushButton("...");
-    m_browseBtn->setFixedWidth(40);
+    m_browseBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     m_browseBtn->setStyleSheet(
-        "QPushButton { padding: 0px 4px; border: 1px solid transparent; border-radius: 4px; }"
+        "QPushButton { padding: 0px 8px; border: 1px solid transparent; border-radius: 4px; }"
         "QPushButton:hover { background: rgba(255,255,255,18); }");
     fileRLay->addWidget(m_fileEdit);
     fileRLay->addWidget(m_browseBtn);
