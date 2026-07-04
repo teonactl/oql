@@ -18,10 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-intel  # Intel x86_64 (macos-13 ritirato da GitHub a dic 2025)
+          - runner: macos-15-intel  # Intel x86_64
             arch: x86_64
-          - runner: macos-latest    # Apple Silicon ARM64
-            arch: arm64
+          - runner: macos-15        # Apple Silicon ARM64 — macos-latest è ora macOS 26 (Tahoe)
+            arch: arm64             # e firma con CodeDirectory v=20400 incompatibile con macOS 15.x
 
     runs-on: ${{ matrix.runner }}
     name: macOS ${{ matrix.arch }}
