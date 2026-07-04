@@ -149,8 +149,9 @@ void ActiveCuesPanel::rebuildCards() {
         auto *stopBtn = new QPushButton("✕");
         stopBtn->setFixedSize(18, 18);
         stopBtn->setStyleSheet(
-            "QPushButton { background:#553333; color:#ff6666; border:none;"
-            " border-radius:3px; font-size:10px; font-weight:bold; }"
+            "QPushButton { background:#553333; color:#ff6666;"
+            " border: 1px solid transparent;"
+            " border-radius:3px; font-size:10px; font-weight:bold; padding:0px; }"
             "QPushButton:hover { background:#884444; }");
         connect(stopBtn, &QPushButton::clicked, cue, &Cue::stop);
         topLay->addWidget(stopBtn);

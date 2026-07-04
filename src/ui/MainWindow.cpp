@@ -66,7 +66,7 @@ public:
     explicit PillToggle(const QIcon &icon, const QColor &onColor, QWidget *parent = nullptr)
         : QWidget(parent), m_icon(icon), m_onColor(onColor)
     {
-        setFixedSize(56, 70);
+        setFixedSize(50, 66);
         setCursor(Qt::PointingHandCursor);
         setAttribute(Qt::WA_Hover);
     }
@@ -82,11 +82,11 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent *) override { setChecked(!m_checked); }
     void paintEvent(QPaintEvent *) override {
-        constexpr int IH = 28;  // icon height
-        constexpr int PW = 46, PH = 22;
+        constexpr int IH = 24;  // icon height
+        constexpr int PW = 40, PH = 20;
         const int px   = (width() - PW) / 2;
         const int iconX = (width() - IH) / 2;
-        const int pillY = IH + 8;
+        const int pillY = IH + 7;
 
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -631,12 +631,12 @@ void MainWindow::buildToolBar() {
     m_toolBar = addToolBar("Principale");
     auto *tb = m_toolBar;
     tb->setMovable(false);
-    tb->setIconSize({32, 32});
-    tb->setFixedHeight(90);
+    tb->setIconSize({28, 28});
+    tb->setFixedHeight(86);
     tb->setStyleSheet(
-        "QToolBar { spacing: 2px; padding: 3px; }"
-        "QToolBar::separator { width: 1px; background: rgba(255,255,255,22); margin: 25px 5px; }"
-        "QToolButton { min-width: 38px; min-height: 38px; border-radius: 5px; }"
+        "QToolBar { spacing: 1px; padding: 2px; }"
+        "QToolBar::separator { width: 1px; background: rgba(255,255,255,22); margin: 22px 4px; }"
+        "QToolButton { min-width: 34px; min-height: 34px; border-radius: 5px; }"
         "QToolButton:hover   { background: rgba(255,255,255,18); }"
         "QToolButton:pressed { background: rgba(0,0,0,30); }");
 
@@ -647,7 +647,7 @@ void MainWindow::buildToolBar() {
     goFont.setPointSize(18);
     goFont.setBold(true);
     m_goBtn->setFont(goFont);
-    m_goBtn->setFixedSize(84, 84);
+    m_goBtn->setFixedSize(80, 80);
     m_goBtn->setToolTip(tr("Vai"));
     connect(m_goBtn, &QPushButton::clicked, this, &MainWindow::go);
     tb->addWidget(m_goBtn);
@@ -714,7 +714,7 @@ void MainWindow::buildToolBar() {
         auto *btn = new QToolButton;
         btn->setIcon(icon);
         btn->setIconSize({32, 32});
-        btn->setFixedSize(40, 40);
+        btn->setFixedSize(36, 36);
         btn->setToolTip(tooltip);
         connect(btn, &QToolButton::clicked, this, slot);
         tb->addWidget(btn);
