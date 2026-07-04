@@ -25,7 +25,7 @@ jobs:
             artifact: oql-beta-macos-x64
             ext: dmg
 
-          - os: macos-latest
+          - os: macos-15        # arm64 — macos-latest è ora macOS 26 (Tahoe)
             artifact: oql-beta-macos-arm64
             ext: dmg
 
@@ -153,11 +153,24 @@ jobs:
         run: |
           APP=$(find build -name "oql.app" -maxdepth 4 | head -1)
           echo "Found app bundle: $APP"
-          "${Qt6_DIR}/bin/macdeployqt" "$APP" -codesign=-
+          "${Qt6_DIR}/bin/macdeployqt" "$APP"
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.dylib" \
+            -exec codesign --sign - --force {} \;
+          find "$APP/Contents/PlugIns" -name "*.dylib" \
+            -exec codesign --sign - --force {} \;
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" | while read fw; do
+            bin=$(basename "$fw" .framework)
+            find "$fw" -type f -name "$bin" -exec codesign --sign - --force {} \;
+            codesign --sign - --force "$fw"
+          done
+          codesign --sign - --force "$APP"
+          mkdir -p _dmg_staging
+          ditto "$APP" "_dmg_staging/OQL.app"
           hdiutil create -volname "OQL" \
-            -srcfolder "$APP" \
+            -srcfolder _dmg_staging \
             -ov -format UDZO \
             ${{ matrix.artifact }}.dmg
+          rm -rf _dmg_staging
 
       # ── Package Windows ───────────────────────────────────────────
       - name: Package (Windows)
