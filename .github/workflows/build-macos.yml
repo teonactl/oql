@@ -95,20 +95,28 @@ jobs:
           echo "=== CFBundleIconFile ==="
           /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" \
             build/oql.app/Contents/Info.plist 2>/dev/null || echo "(non trovato)"
+          echo "=== _CodeSignature ==="
+          ls -la build/oql.app/Contents/_CodeSignature/ || echo "MANCANTE!"
           echo "=== Verifica firma ==="
           codesign --verify --deep --strict --verbose=4 build/oql.app 2>&1 || true
           echo "=== Firma app ==="
           codesign -dvvv build/oql.app 2>&1 | grep -E "Identifier|TeamID|Signature|flags|CDHash" || true
 
-      # macdeployqt -dmg genera un alias HFS interno che Finder non riesce ad
-      # aprire su Intel (errore "(null)"). hdiutil crea un DMG semplice e
-      # affidabile senza alias.
+      # hdiutil -srcfolder copia il CONTENUTO della cartella sorgente (non la
+      # cartella stessa) nella root del DMG. Passando build/oql.app il DMG
+      # conterrebbe solo Contents/, non oql.app/: l'utente non vedrebbe un
+      # bundle .app trascinabile e _CodeSignature/ finirebbe nel posto sbagliato.
+      # Staging dir → hdiutil riceve una dir che CONTIENE oql.app → DMG root = oql.app.
+      # ditto preserva tutti i file inclusi quelli con prefisso _ come _CodeSignature/.
       - name: Create DMG
         run: |
+          mkdir -p _dmg_staging
+          ditto build/oql.app "_dmg_staging/OQL.app"
           hdiutil create -volname "OQL" \
-            -srcfolder build/oql.app \
+            -srcfolder _dmg_staging \
             -ov -format UDZO \
             build/OQL-macOS-${{ matrix.arch }}.dmg
+          rm -rf _dmg_staging
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
