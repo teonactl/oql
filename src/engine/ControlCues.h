@@ -50,6 +50,7 @@ public:
     void    go()             override;
     void    stop()           override;
     double  duration() const override { return m_fadeDuration; }
+    double  position() const override { return m_elapsed; }
 
     double targetVolume()  const { return m_targetVolume; }
     double fadeDuration()  const { return m_fadeDuration; }

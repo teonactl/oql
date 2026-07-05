@@ -394,10 +394,17 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     toolLay->setContentsMargins(0, 0, 0, 0);
     toolLay->setSpacing(4);
     m_addBtn    = new QPushButton("+ Aggiungi effetto");
-    m_removeBtn = new QPushButton("−"); m_removeBtn->setFixedWidth(28);
-    m_upBtn     = new QPushButton("▲"); m_upBtn->setFixedWidth(28);
-    m_downBtn   = new QPushButton("▼"); m_downBtn->setFixedWidth(28);
-    m_addBtn->setToolTip("Aggiungi un plugin VST2 o LV2 alla catena");
+    m_removeBtn = new QPushButton("−");
+    m_upBtn     = new QPushButton("▲");
+    m_downBtn   = new QPushButton("▼");
+    const QString iconBtnStyle =
+        "QPushButton { border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; }"
+        "QPushButton:hover   { background: rgba(255,255,255,18); }"
+        "QPushButton:pressed { background: rgba(0,0,0,30); }";
+    m_removeBtn->setStyleSheet(iconBtnStyle);
+    m_upBtn->setStyleSheet(iconBtnStyle);
+    m_downBtn->setStyleSheet(iconBtnStyle);
+    m_addBtn->setToolTip("Aggiungi un plugin Built-in, VST2 o LV2 alla catena");
     m_removeBtn->setToolTip("Rimuovi l'effetto selezionato");
     m_upBtn->setToolTip("Sposta su");
     m_downBtn->setToolTip("Sposta giù");
