@@ -1480,11 +1480,29 @@ void InspectorPanel::updateMediaSection() {
         rebuildSliceTable(a);
         m_pluginChainWidget->setChain(a->pluginChain());
         m_effectPluginChainWidget->setChain(nullptr);
-        // Refresh the chain widget when EffectCue/ResetEffectCue modifies chain contents
-        // (same pointer, different contents — setChain skips refresh in that case).
+        // When applyPluginChain/restorePluginSnapshot swaps the chain, the raw ptr held by
+        // the widget becomes dangling as soon as the old shared_ptr is released.
+        // Fix: detachChain() nullifies the ptr immediately (safe, no UI work), then defer
+        // the full rebuild so heavy Qt-widget creation doesn't run during the audio-critical
+        // chain-swap window (on macOS, CoreAnimation layer ops during that window can jitter
+        // Core Audio scheduling and cause a one-buffer silence).
         // Cleaned up by disconnect(m_cue, nullptr, this, nullptr) on cue change.
-        connect(a, &Cue::displayChanged, this, [this]{
-            if (m_pluginChainWidget) m_pluginChainWidget->refresh();
+        connect(a, &Cue::displayChanged, this, [this, a]{
+            if (!m_pluginChainWidget) return;
+            const PluginChain *currentPtr = a->pluginChain();
+            if (m_pluginChainWidget->chainPtr() == currentPtr) {
+                // Same pointer: content changed via UI (addPlugin/removePlugin).
+                m_pluginChainWidget->refresh();
+            } else {
+                // Pointer changed: EffectCue/ResetEffectCue swapped the chain.
+                // Detach immediately to prevent dangling access, rebuild next event loop.
+                m_pluginChainWidget->detachChain();
+                QPointer<AudioCue> guard(a);
+                QTimer::singleShot(0, this, [this, guard]{
+                    if (m_pluginChainWidget && guard)
+                        m_pluginChainWidget->setChain(guard->pluginChain());
+                });
+            }
         });
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);

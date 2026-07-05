@@ -4,6 +4,7 @@
 #include "engine/VstPlugin.h"
 #include "engine/Lv2Plugin.h"
 #include "engine/BuiltinPlugins.h"
+#include "engine/AppSettings.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
@@ -299,16 +300,40 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     vstSearch->setPlaceholderText("Cerca plugin...");
     vstSearch->setClearButtonEnabled(true);
     auto *vstList = new QListWidget;
-    vstLay->addWidget(new QLabel("Plugin VST2 in /usr/lib/vst/"));
+    vstLay->addWidget(new QLabel("Plugin VST2 disponibili:"));
     vstLay->addWidget(vstSearch);
     vstLay->addWidget(vstList, 1);
     tabs->addTab(vstTab, "VST2");
 
-    // Scan /usr/lib/vst/
-    const QStringList vstDirs = { "/usr/lib/vst", "/usr/lib/lxvst",
-                                   QDir::homePath() + "/.vst" };
+    // Platform-specific VST2 scan paths and file extensions
+#ifdef Q_OS_WIN
+    QStringList vstDirs = {
+        "C:/Program Files/VSTPlugins",
+        "C:/Program Files/Common Files/VST2",
+        "C:/Program Files/Steinberg/VSTPlugins",
+        "C:/Program Files (x86)/VSTPlugins",
+        QDir::homePath() + "/VST",
+    };
+    const QStringList vstFilter = {"*.dll"};
+#elif defined(Q_OS_MACOS)
+    QStringList vstDirs = {
+        "/Library/Audio/Plug-Ins/VST",
+        QDir::homePath() + "/Library/Audio/Plug-Ins/VST",
+    };
+    const QStringList vstFilter = {"*.so"};
+#else  // Linux
+    QStringList vstDirs = {
+        "/usr/lib/vst", "/usr/lib/lxvst", "/usr/local/lib/vst",
+        QDir::homePath() + "/.vst",
+    };
+    const QStringList vstFilter = {"*.so"};
+#endif
+    // Append user-configured extra paths from Settings
+    for (const QString &ep : AppSettings::instance().vstExtraPaths())
+        if (!vstDirs.contains(ep)) vstDirs.append(ep);
+
     for (const QString &dir : vstDirs) {
-        for (const QFileInfo &fi : QDir(dir).entryInfoList({"*.so"}, QDir::Files)) {
+        for (const QFileInfo &fi : QDir(dir).entryInfoList(vstFilter, QDir::Files)) {
             auto *item = new QListWidgetItem(fi.fileName());
             item->setData(Qt::UserRole, fi.absoluteFilePath());
             item->setData(Qt::UserRole + 1, "vst2");
@@ -479,6 +504,12 @@ PluginChainWidget::PluginChainWidget(QWidget *parent) : QWidget(parent) {
     });
 
     setChain(nullptr);
+}
+
+void PluginChainWidget::detachChain() {
+    m_chain = nullptr;
+    // Don't rebuild UI — caller is responsible for deferred setChain().
+    // Nullifying prevents any pending user interaction from touching a freed pointer.
 }
 
 void PluginChainWidget::setChain(PluginChain *chain) {

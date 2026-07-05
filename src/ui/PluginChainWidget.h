@@ -19,6 +19,8 @@ public:
 
     void setChain(PluginChain *chain);   // null = hide all
     void refresh();                       // reload from chain
+    void detachChain();                   // nullify ptr without rebuild (prevents dangling access)
+    PluginChain *chainPtr() const { return m_chain; }
 
 signals:
     void chainModified();
