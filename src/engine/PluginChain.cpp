@@ -61,9 +61,16 @@ void PluginChain::fromJson(const QJsonArray &arr) {
             plug = std::make_unique<Lv2Plugin>(obj["uri"].toString().toStdString());
         } else if (type == "builtin") {
             const QString id = obj["builtin_id"].toString();
-            if      (id == GainPlugin::BUILTIN_ID)   plug = std::make_unique<GainPlugin>();
-            else if (id == DelayPlugin::BUILTIN_ID)  plug = std::make_unique<DelayPlugin>();
-            else if (id == ReverbPlugin::BUILTIN_ID) plug = std::make_unique<ReverbPlugin>();
+            if      (id == GainPlugin::BUILTIN_ID)          plug = std::make_unique<GainPlugin>();
+            else if (id == DelayPlugin::BUILTIN_ID)         plug = std::make_unique<DelayPlugin>();
+            else if (id == ReverbPlugin::BUILTIN_ID)        plug = std::make_unique<ReverbPlugin>();
+            else if (id == EqPlugin::BUILTIN_ID)            plug = std::make_unique<EqPlugin>();
+            else if (id == CompressorPlugin::BUILTIN_ID)    plug = std::make_unique<CompressorPlugin>();
+            else if (id == LimiterPlugin::BUILTIN_ID)       plug = std::make_unique<LimiterPlugin>();
+            else if (id == ChorusPlugin::BUILTIN_ID)        plug = std::make_unique<ChorusPlugin>();
+            else if (id == TremoloPlugin::BUILTIN_ID)       plug = std::make_unique<TremoloPlugin>();
+            else if (id == PhaserPlugin::BUILTIN_ID)        plug = std::make_unique<PhaserPlugin>();
+            else if (id == StereoWidenerPlugin::BUILTIN_ID) plug = std::make_unique<StereoWidenerPlugin>();
         }
         if (plug && plug->isValid()) {
             plug->fromJson(obj);

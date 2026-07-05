@@ -274,9 +274,16 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
 
     struct BuiltinInfo { QString id; QString name; QString desc; };
     const QList<BuiltinInfo> builtins = {
-        { GainPlugin::BUILTIN_ID,   "Gain",   "Regola il volume (+/- dB)" },
-        { DelayPlugin::BUILTIN_ID,  "Delay",  "Eco con ritardo e feedback regolabili" },
-        { ReverbPlugin::BUILTIN_ID, "Reverb", "Riverbero algoritmico (Freeverb)" },
+        { GainPlugin::BUILTIN_ID,            "Gain",           "Regola il volume (+/- dB)" },
+        { DelayPlugin::BUILTIN_ID,           "Delay",          "Eco con ritardo e feedback regolabili" },
+        { ReverbPlugin::BUILTIN_ID,          "Reverb",         "Riverbero algoritmico (Freeverb)" },
+        { EqPlugin::BUILTIN_ID,              "EQ 3-band",      "Equalizzatore: bass 200Hz, mid 1kHz, treble 6kHz" },
+        { CompressorPlugin::BUILTIN_ID,      "Compressor",     "Compressore dinamico con soglia, ratio, attack/release" },
+        { LimiterPlugin::BUILTIN_ID,         "Limiter",        "Limitatore di picco a soglia regolabile" },
+        { ChorusPlugin::BUILTIN_ID,          "Chorus",         "Chorus stereofonioco con ritardo LFO-modulato" },
+        { TremoloPlugin::BUILTIN_ID,         "Tremolo",        "Modulazione d'ampiezza con LFO" },
+        { PhaserPlugin::BUILTIN_ID,          "Phaser",         "Phaser a 4 stadi all-pass con sweep LFO" },
+        { StereoWidenerPlugin::BUILTIN_ID,   "Stereo Widener", "Amplia o restringe il campo stereo (mid-side)" },
     };
     for (const auto &bi : builtins) {
         auto *item = new QListWidgetItem(bi.name + " — " + bi.desc);
@@ -365,9 +372,16 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
 
     std::unique_ptr<AudioPlugin> plug;
     if (type == "builtin") {
-        if      (key == GainPlugin::BUILTIN_ID)   plug = std::make_unique<GainPlugin>();
-        else if (key == DelayPlugin::BUILTIN_ID)  plug = std::make_unique<DelayPlugin>();
-        else if (key == ReverbPlugin::BUILTIN_ID) plug = std::make_unique<ReverbPlugin>();
+        if      (key == GainPlugin::BUILTIN_ID)          plug = std::make_unique<GainPlugin>();
+        else if (key == DelayPlugin::BUILTIN_ID)         plug = std::make_unique<DelayPlugin>();
+        else if (key == ReverbPlugin::BUILTIN_ID)        plug = std::make_unique<ReverbPlugin>();
+        else if (key == EqPlugin::BUILTIN_ID)            plug = std::make_unique<EqPlugin>();
+        else if (key == CompressorPlugin::BUILTIN_ID)    plug = std::make_unique<CompressorPlugin>();
+        else if (key == LimiterPlugin::BUILTIN_ID)       plug = std::make_unique<LimiterPlugin>();
+        else if (key == ChorusPlugin::BUILTIN_ID)        plug = std::make_unique<ChorusPlugin>();
+        else if (key == TremoloPlugin::BUILTIN_ID)       plug = std::make_unique<TremoloPlugin>();
+        else if (key == PhaserPlugin::BUILTIN_ID)        plug = std::make_unique<PhaserPlugin>();
+        else if (key == StereoWidenerPlugin::BUILTIN_ID) plug = std::make_unique<StereoWidenerPlugin>();
     } else if (type == "vst2") {
         plug = std::make_unique<VstPlugin>(key.toStdString());
     } else {
