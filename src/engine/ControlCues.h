@@ -151,6 +151,9 @@ public:
 
 private slots:
     void onTimeout();
+    // Called when AudioCue::pluginSnapshotRestored() fires (e.g. from ResetEffectCue).
+    // Transitions the EffectCue to Idle without calling restorePluginSnapshot() again.
+    void handleExternalReset();
 
 private:
     PluginChain    m_chain;

@@ -68,9 +68,13 @@ bool AudioCue::restorePluginSnapshot() {
     newChain.fromJson(m_chainSnapshot);
     if (m_playing.load() && sr > 0)
         newChain.prepare(sr, block);
-    // Atomic swap: only the pointer swap holds the mutex (microseconds)
-    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain = std::move(newChain); }
+    // O(1) swap under mutex: std::vector::swap() exchanges internal pointers WITHOUT
+    // calling element destructors (unlike operator=(&&) in Apple libc++ which calls
+    // clear() first, destroying old plugins inside the lock and blocking the audio thread).
+    // Old plugins stay in newChain and are freed after the lock is released.
+    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain.swap(newChain); }
     emit displayChanged();
+    emit pluginSnapshotRestored();
     return true;
 }
 
@@ -82,7 +86,7 @@ void AudioCue::applyPluginChain(const QJsonArray &json) {
     newChain.fromJson(json);
     if (m_playing.load() && sr > 0)
         newChain.prepare(sr, block);
-    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain = std::move(newChain); }
+    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain.swap(newChain); }
     emit displayChanged();
 }
 

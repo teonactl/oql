@@ -23,6 +23,17 @@ public:
     AudioPlugin *plugin(int i)     { return m_plugins[i].get(); }
     const AudioPlugin *plugin(int i) const { return m_plugins[i].get(); }
 
+    // O(1) swap — safe to call while holding m_chainMtx because std::vector::swap()
+    // exchanges internal pointers without calling any element destructors (unlike
+    // operator=(vector&&) in libc++ which calls clear() internally).
+    void swap(PluginChain &other) noexcept {
+        m_plugins.swap(other.m_plugins);
+        m_bufA[0].swap(other.m_bufA[0]);
+        m_bufA[1].swap(other.m_bufA[1]);
+        m_bufB[0].swap(other.m_bufB[0]);
+        m_bufB[1].swap(other.m_bufB[1]);
+    }
+
     void prepare(int sampleRate, int blockSize);
 
     // Process stereo audio in-place (interleaved → deinterleaved internally).

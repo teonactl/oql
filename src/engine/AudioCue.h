@@ -45,6 +45,10 @@ public:
     bool     pitchPreserve() const { return m_pitchPreserve; }
     QVector<AudioSlice> slices() const { return m_slices; }
 
+    // Emitted (main thread) when restorePluginSnapshot() completes, so EffectCue
+    // can detect that the chain was externally reset and transition to Idle.
+    Q_SIGNAL void pluginSnapshotRestored();
+
     void setFilePath(const QString &path);
     void setVolume(double v);
     void setPlaybackVolume(double v) override;

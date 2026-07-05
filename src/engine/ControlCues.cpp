@@ -153,6 +153,11 @@ void EffectCue::go() {
     m_startTimer.start();
     setState(State::Playing);
 
+    // Connect so that an external reset (e.g. ResetEffectCue) moves us to Idle.
+    // Qt::UniqueConnection prevents duplicate connections on repeated go() calls.
+    connect(ac, &AudioCue::pluginSnapshotRestored,
+            this, &EffectCue::handleExternalReset, Qt::UniqueConnection);
+
     if (m_duration > 0.001) {
         m_timer->start(int(m_duration * 1000));
     } else {
@@ -166,8 +171,13 @@ void EffectCue::stop() {
     m_timer->stop();
     m_startTimer.invalidate();
     if (m_state == State::Playing && m_activeTarget) {
-        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget)) {
+            // Disconnect BEFORE calling restorePluginSnapshot() to prevent
+            // handleExternalReset() from being triggered by our own restore call.
+            disconnect(ac, &AudioCue::pluginSnapshotRestored,
+                       this, &EffectCue::handleExternalReset);
             ac->restorePluginSnapshot();
+        }
         m_activeTarget = nullptr;
     }
     setState(State::Idle);
@@ -175,8 +185,21 @@ void EffectCue::stop() {
 
 void EffectCue::onTimeout() {
     m_startTimer.invalidate();
-    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget))
+    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget)) {
+        disconnect(ac, &AudioCue::pluginSnapshotRestored,
+                   this, &EffectCue::handleExternalReset);
         ac->restorePluginSnapshot();
+    }
+    m_activeTarget = nullptr;
+    setState(State::Idle);
+    emit finished();
+}
+
+void EffectCue::handleExternalReset() {
+    // ResetEffectCue (or similar) already restored the plugin chain on the AudioCue.
+    // We just need to transition ourselves to Idle.
+    m_timer->stop();
+    m_startTimer.invalidate();
     m_activeTarget = nullptr;
     setState(State::Idle);
     emit finished();
