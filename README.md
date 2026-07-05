@@ -15,6 +15,8 @@
 - **Recording cues** — capture microphone input to a WAV file; first GO starts recording, second GO stops and links the result to a new Audio cue automatically
 - **Microphone cues** — live audio passthrough from any input device to output; VU meter, input level and RecordCue source selector
 - **Fade cues** — smooth volume interpolation on any audio/video cue; optional auto-stop at end of fade
+- **Built-in audio effects** — 10 cross-platform effects with no external dependencies: Gain, Delay, Reverb (Freeverb), EQ 3-band, Compressor, Limiter, Chorus, Tremolo, Phaser, Stereo Widener; configurable per-cue in a floating chain editor
+- **Plugin effects (VST2 / LV2)** — third-party plugin support; VST2 native GUI editor on Linux/Windows; custom search paths configurable in Settings
 - **Stop / Pause / Play / Speed / Effect / Reset Effect cues** — full transport and DSP control over any running cue
 - **Script cues** — JavaScript automation via QJSEngine; inline editor with syntax highlighting
 - **Group cues** — collapsible organisational containers; collapse to a single row
@@ -125,7 +127,9 @@ Workspaces are saved as `.oql` files (JSON). The format is intentionally simple 
 - [ ] MIDI / OSC trigger support
 - [ ] Multi-output audio routing
 - [ ] Network sync between multiple instances
-- [ ] macOS / Windows packaging
+- [x] macOS / Windows packaging (beta builds available)
+- [x] Built-in cross-platform audio effects (Gain, Delay, Reverb, EQ, Compressor, Limiter, Chorus, Tremolo, Phaser, Stereo Widener)
+- [ ] Video effects (planned — requires QVideoSink frame-interception refactor)
 - [ ] Dark theme polish and HiDPI improvements
 - [ ] Inspector combo for assigning cues to groups
 - [ ] Inline editing in the cue list
