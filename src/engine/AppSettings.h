@@ -62,6 +62,12 @@ public:
     QKeySequence keyAddCue(const QString &typeKey) const;
     void         setKeyAddCue(const QString &typeKey, const QKeySequence &k);
 
+    // Plugin search paths (extra, appended to system defaults)
+    QStringList lv2ExtraPaths() const;
+    void        setLv2ExtraPaths(const QStringList &paths);
+    QStringList vstExtraPaths() const;
+    void        setVstExtraPaths(const QStringList &paths);
+
 private:
     AppSettings();
     QSettings m_s;

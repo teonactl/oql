@@ -166,3 +166,17 @@ void AppSettings::applyLanguage() {
         QCoreApplication::installTranslator(s_tr);
     }
 }
+
+QStringList AppSettings::lv2ExtraPaths() const {
+    return m_s.value("lv2ExtraPaths", QStringList{}).toStringList();
+}
+void AppSettings::setLv2ExtraPaths(const QStringList &paths) {
+    m_s.setValue("lv2ExtraPaths", paths);
+}
+
+QStringList AppSettings::vstExtraPaths() const {
+    return m_s.value("vstExtraPaths", QStringList{}).toStringList();
+}
+void AppSettings::setVstExtraPaths(const QStringList &paths) {
+    m_s.setValue("vstExtraPaths", paths);
+}

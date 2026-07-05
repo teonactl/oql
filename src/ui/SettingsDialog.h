@@ -11,6 +11,7 @@ class QKeySequenceEdit;
 class QSpinBox;
 class QFontComboBox;
 class QComboBox;
+class QListWidget;
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -52,4 +53,8 @@ private:
     // Remote
     QCheckBox *m_webEnabledCheck;
     QSpinBox  *m_webPortSpin;
+
+    // Plugin
+    QListWidget *m_lv2PathsList;
+    QListWidget *m_vstPathsList;
 };

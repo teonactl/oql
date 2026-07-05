@@ -1,4 +1,5 @@
 #include "Lv2Plugin.h"
+#include "AppSettings.h"
 #include <lilv/lilv.h>
 #ifdef Q_OS_LINUX
 #include <suil/suil.h>
@@ -98,11 +99,23 @@ LilvWorld* Lv2Plugin::world() {
         Q_UNUSED(addPath)
         // Imposta LV2_PATH per lilv_world_load_all
         const QByteArray home = qgetenv("HOME");
-        const QByteArray lv2Path = home + "/Library/Audio/Plug-Ins/LV2"
-                                   ":/Library/Audio/Plug-Ins/LV2"
-                                   ":/usr/local/lib/lv2"
-                                   ":/opt/homebrew/lib/lv2";
+        QByteArray lv2Path = home + "/Library/Audio/Plug-Ins/LV2"
+                                    ":/Library/Audio/Plug-Ins/LV2"
+                                    ":/usr/local/lib/lv2"
+                                    ":/opt/homebrew/lib/lv2";
+        for (const QString &extra : AppSettings::instance().lv2ExtraPaths())
+            lv2Path += ":" + extra.toLocal8Bit();
         qputenv("LV2_PATH", lv2Path);
+#else
+        // Linux/Windows: aggiunge i path extra dell'utente a LV2_PATH
+        {
+            QByteArray cur = qgetenv("LV2_PATH");
+            for (const QString &extra : AppSettings::instance().lv2ExtraPaths()) {
+                if (!cur.isEmpty()) cur += ":";
+                cur += extra.toLocal8Bit();
+            }
+            if (!cur.isEmpty()) qputenv("LV2_PATH", cur);
+        }
 #endif
 
         LilvGuard g;

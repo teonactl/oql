@@ -3,11 +3,15 @@
 #include "engine/Workspace.h"
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QListWidget>
+#include <QFileDialog>
+#include <QPushButton>
 #include <QLineEdit>
 #include <QGroupBox>
 #include <QLabel>
@@ -226,6 +230,53 @@ SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
 
     tabs->addTab(webWidget, "Remote");
 
+    // ── Tab 5: Plugin ──────────────────────────────────────────────────────────
+    auto *plugWidget = new QWidget;
+    auto *plugLay    = new QVBoxLayout(plugWidget);
+    plugLay->setContentsMargins(12, 12, 12, 12);
+    plugLay->setSpacing(8);
+
+    auto makePathSection = [&](const QString &label, QListWidget *&list,
+                                const QStringList &current) {
+        plugLay->addWidget(new QLabel(label));
+        list = new QListWidget;
+        list->setMaximumHeight(110);
+        for (const QString &p : current) list->addItem(p);
+        plugLay->addWidget(list);
+
+        auto *row    = new QWidget;
+        auto *rowLay = new QHBoxLayout(row);
+        rowLay->setContentsMargins(0, 0, 0, 0);
+        rowLay->setSpacing(4);
+        auto *addBtn = new QPushButton(tr("+ Sfoglia..."));
+        auto *remBtn = new QPushButton(tr("−  Rimuovi"));
+        rowLay->addWidget(addBtn);
+        rowLay->addWidget(remBtn);
+        rowLay->addStretch();
+        plugLay->addWidget(row);
+
+        QObject::connect(addBtn, &QPushButton::clicked, plugWidget, [list, plugWidget]() {
+            const QString dir = QFileDialog::getExistingDirectory(
+                plugWidget, tr("Seleziona cartella plugin"), QDir::homePath());
+            if (!dir.isEmpty() && list->findItems(dir, Qt::MatchExactly).isEmpty())
+                list->addItem(dir);
+        });
+        QObject::connect(remBtn, &QPushButton::clicked, plugWidget, [list]() {
+            delete list->currentItem();
+        });
+    };
+
+    makePathSection(tr("Cartelle aggiuntive LV2:"), m_lv2PathsList,
+                    AppSettings::instance().lv2ExtraPaths());
+    makePathSection(tr("Cartelle aggiuntive VST2:"), m_vstPathsList,
+                    AppSettings::instance().vstExtraPaths());
+
+    plugLay->addWidget(new QLabel(tr(
+        "<small>I path vengono aggiunti ai percorsi di sistema standard.<br>"
+        "Le modifiche hanno effetto al prossimo avvio dell'applicazione.</small>")));
+    plugLay->addStretch();
+    tabs->addTab(plugWidget, tr("Plugin"));
+
     // ── Buttons ───────────────────────────────────────────────────────────────
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     mainLay->addWidget(btns);
@@ -260,6 +311,14 @@ void SettingsDialog::apply() {
 
     AppSettings::instance().setWebEnabled(m_webEnabledCheck->isChecked());
     AppSettings::instance().setWebPort(quint16(m_webPortSpin->value()));
+
+    QStringList lv2Paths, vstPaths;
+    for (int i = 0; i < m_lv2PathsList->count(); ++i)
+        lv2Paths << m_lv2PathsList->item(i)->text();
+    for (int i = 0; i < m_vstPathsList->count(); ++i)
+        vstPaths << m_vstPathsList->item(i)->text();
+    AppSettings::instance().setLv2ExtraPaths(lv2Paths);
+    AppSettings::instance().setVstExtraPaths(vstPaths);
 
     accept();
 }
