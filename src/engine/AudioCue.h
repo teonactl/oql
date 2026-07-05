@@ -65,8 +65,8 @@ public:
     void setPlaybackRate(double r) override;
 
     // ── Plugin chain (main thread access only) ────────────────────────────────
-    PluginChain       *pluginChain()       { return &m_chain; }
-    const PluginChain *pluginChain() const { return &m_chain; }
+    PluginChain       *pluginChain()       { return m_chain.get(); }
+    const PluginChain *pluginChain() const { return m_chain.get(); }
 
     // Snapshot API for EffectCue / ResetEffectCue (main thread only)
     void savePluginSnapshot();
@@ -148,10 +148,10 @@ private:
     bool                   m_stFlushDone = false;
 #endif
 
-    PluginChain      m_chain;
-    mutable std::mutex m_chainMtx;     // guards m_chain between main and audio thread
-    int              m_chainSR    = 0; // sample rate used in last prepare()
-    int              m_chainBlock = 0; // block size used in last prepare()
+    std::shared_ptr<PluginChain> m_chain;
+    mutable std::mutex m_chainMtx;     // guards m_chain shared_ptr (brief holds only)
+    std::atomic<int>   m_chainSR  {0}; // sample rate used in last prepare()
+    std::atomic<int>   m_chainBlock{0};// block size used in last prepare()
     QJsonArray       m_chainSnapshot;
     bool             m_hasPluginSnapshot = false;
 
