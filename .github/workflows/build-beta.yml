@@ -164,13 +164,13 @@ jobs:
             codesign --sign - --force "$fw"
           done
           codesign --sign - --force "$APP"
-          mkdir -p _dmg_staging
-          ditto "$APP" "_dmg_staging/OQL.app"
+          STAGING=$(mktemp -d)
+          ditto "$APP" "$STAGING/OQL.app"
           hdiutil create -volname "OQL" \
-            -srcfolder _dmg_staging \
+            -srcfolder "$STAGING" \
             -ov -format UDZO \
             ${{ matrix.artifact }}.dmg
-          rm -rf _dmg_staging
+          rm -rf "$STAGING"
 
       # ── Package Windows ───────────────────────────────────────────
       - name: Package (Windows)

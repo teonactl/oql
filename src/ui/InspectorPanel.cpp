@@ -1480,6 +1480,12 @@ void InspectorPanel::updateMediaSection() {
         rebuildSliceTable(a);
         m_pluginChainWidget->setChain(a->pluginChain());
         m_effectPluginChainWidget->setChain(nullptr);
+        // Refresh the chain widget when EffectCue/ResetEffectCue modifies chain contents
+        // (same pointer, different contents — setChain skips refresh in that case).
+        // Cleaned up by disconnect(m_cue, nullptr, this, nullptr) on cue change.
+        connect(a, &Cue::displayChanged, this, [this]{
+            if (m_pluginChainWidget) m_pluginChainWidget->refresh();
+        });
     } else if (isVideo) {
         auto *v = static_cast<VideoCue*>(m_cue);
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());

@@ -59,18 +59,31 @@ void AudioCue::savePluginSnapshot() {
 
 bool AudioCue::restorePluginSnapshot() {
     if (!m_hasPluginSnapshot) return false;
-    std::lock_guard<std::mutex> lk(m_chainMtx);
-    m_chain.fromJson(m_chainSnapshot);
-    if (m_playing.load() && m_chainSR > 0)
-        m_chain.prepare(m_chainSR, m_chainBlock);
+    // Read SR/block outside the audio mutex (brief, safe)
+    int sr, block;
+    { std::lock_guard<std::mutex> lk(m_chainMtx); sr = m_chainSR; block = m_chainBlock; }
+    // Build and prepare the restored chain WITHOUT holding the audio mutex —
+    // avoids blocking the audio thread (which would cause a glitch/silence).
+    PluginChain newChain;
+    newChain.fromJson(m_chainSnapshot);
+    if (m_playing.load() && sr > 0)
+        newChain.prepare(sr, block);
+    // Atomic swap: only the pointer swap holds the mutex (microseconds)
+    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain = std::move(newChain); }
+    emit displayChanged();
     return true;
 }
 
 void AudioCue::applyPluginChain(const QJsonArray &json) {
-    std::lock_guard<std::mutex> lk(m_chainMtx);
-    m_chain.fromJson(json);
-    if (m_playing.load() && m_chainSR > 0)
-        m_chain.prepare(m_chainSR, m_chainBlock);
+    // Same pattern: build outside mutex to avoid audio glitches during EffectCue apply
+    int sr, block;
+    { std::lock_guard<std::mutex> lk(m_chainMtx); sr = m_chainSR; block = m_chainBlock; }
+    PluginChain newChain;
+    newChain.fromJson(json);
+    if (m_playing.load() && sr > 0)
+        newChain.prepare(sr, block);
+    { std::lock_guard<std::mutex> lk(m_chainMtx); m_chain = std::move(newChain); }
+    emit displayChanged();
 }
 
 // ── Volume helpers ────────────────────────────────────────────────────────────

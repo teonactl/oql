@@ -110,13 +110,13 @@ jobs:
       # ditto preserva tutti i file inclusi quelli con prefisso _ come _CodeSignature/.
       - name: Create DMG
         run: |
-          mkdir -p _dmg_staging
-          ditto build/oql.app "_dmg_staging/OQL.app"
+          STAGING=$(mktemp -d)
+          ditto build/oql.app "$STAGING/OQL.app"
           hdiutil create -volname "OQL" \
-            -srcfolder _dmg_staging \
+            -srcfolder "$STAGING" \
             -ov -format UDZO \
             build/OQL-macOS-${{ matrix.arch }}.dmg
-          rm -rf _dmg_staging
+          rm -rf "$STAGING"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
