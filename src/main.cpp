@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    AudioEngine::instance().init();
+    AudioEngine::instance().init(AppSettings::instance().audioOutputDevice().toStdString());
 
     int ret;
     {

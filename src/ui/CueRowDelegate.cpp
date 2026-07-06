@@ -89,7 +89,7 @@ QString CueRowDelegate::badgeLabel(Cue::Type t)
     case T::Label:       return QStringLiteral("LABEL");
     case T::Text:        return QStringLiteral("TEXT");
     case T::Effect:      return QStringLiteral("FX");
-    case T::ResetEffect: return QStringLiteral("RESET");
+    case T::ResetEffect: return QStringLiteral("FX");
     case T::Script:      return QStringLiteral("SCRIPT");
     }
     return {};
@@ -150,6 +150,13 @@ void CueRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const Q
                 p->setFont(f);
                 p->setPen(Qt::white);
                 p->drawText(badge, Qt::AlignCenter, label);
+
+                // Draw strikethrough bar for ResetEffect
+                if (type == Cue::Type::ResetEffect) {
+                    p->setPen(QPen(Qt::white, 2.0));
+                    const int cy = badge.center().y();
+                    p->drawLine(badge.left() + 4, cy, badge.right() - 4, cy);
+                }
             }
         }
         p->restore();

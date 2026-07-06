@@ -68,6 +68,14 @@ public:
     QStringList vstExtraPaths() const;
     void        setVstExtraPaths(const QStringList &paths);
 
+    // Hardware: audio output device (empty = system default)
+    QString audioOutputDevice() const;
+    void    setAudioOutputDevice(const QString &name);
+
+    // Hardware: video/image/text output screen (empty = current screen)
+    QString outputScreenName() const;
+    void    setOutputScreenName(const QString &name);
+
 private:
     AppSettings();
     QSettings m_s;

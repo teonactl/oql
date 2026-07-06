@@ -57,4 +57,8 @@ private:
     // Plugin
     QListWidget *m_lv2PathsList;
     QListWidget *m_vstPathsList;
+
+    // Hardware
+    QComboBox *m_audioDeviceCombo;
+    QComboBox *m_outputScreenCombo;
 };

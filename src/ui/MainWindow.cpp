@@ -23,6 +23,7 @@
 #include "ImageOutputWindow.h"
 #include "engine/AppSettings.h"
 #include <QApplication>
+#include <QScreen>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -619,7 +620,9 @@ void MainWindow::buildMenus() {
 
     // Finestra
     auto *win = menuBar()->addMenu(tr("&Finestra"));
-    menuAction(win, tr("Mostra/nascondi output video"), QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
+    menuAction(win, tr("Output &video"),  QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
+    menuAction(win, tr("Output &testo"),  QKeySequence("Ctrl+T"), this, &MainWindow::toggleTextOutput);
+    menuAction(win, tr("Output &immagine"), QKeySequence("Ctrl+I"), this, &MainWindow::toggleImageOutput);
 
     // Strumenti
     auto *tools = menuBar()->addMenu(tr("&Strumenti"));
@@ -842,17 +845,18 @@ void MainWindow::buildToolBar() {
 
     // ── Effetti / Script ──────────────────────────────────────────────────────
     auto effectIcon = makeTbIcon(QColor(0x7b, 0x35, 0x9e), [](QPainter &p) {
-        QPolygon bolt;
-        bolt << QPoint(16,2) << QPoint(7,16) << QPoint(13,16)
-             << QPoint(10,26) << QPoint(21,12) << QPoint(15,12);
-        p.drawPolygon(bolt);
+        QFont f; f.setBold(true); f.setPointSize(11);
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(QRect(0, 0, 28, 28), Qt::AlignCenter, "FX");
     });
     auto resetEffectIcon = makeTbIcon(QColor(0x35, 0x7b, 0x9e), [](QPainter &p) {
-        p.setPen(QPen(Qt::white, 2.5)); p.setBrush(Qt::NoBrush);
-        p.drawArc(3, 3, 22, 22, 50*16, 250*16);
-        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
-        QPolygon arr; arr << QPoint(3,8) << QPoint(12,2) << QPoint(12,14);
-        p.drawPolygon(arr);
+        QFont f; f.setBold(true); f.setPointSize(11);
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(QRect(0, 0, 28, 28), Qt::AlignCenter, "FX");
+        p.setPen(QPen(Qt::white, 2.5));
+        p.drawLine(5, 14, 23, 14);
     });
     auto scriptIcon = makeTbIcon(QColor(0x5a, 0x8a, 0x3a), [](QPainter &p) {
         p.setPen(QPen(Qt::white, 2.5)); p.setBrush(Qt::NoBrush);
@@ -1264,8 +1268,26 @@ void MainWindow::openSettings() {
     applyProjectSettings();
     applyShortcuts();
     applyWebServer();
+    applyOutputScreen();
     m_cueView->applyRowHeight();
     m_cueView->applyFont();
+}
+
+void MainWindow::applyOutputScreen() {
+    const QString screenName = AppSettings::instance().outputScreenName();
+    if (screenName.isEmpty()) return;
+    QScreen *target = nullptr;
+    for (QScreen *s : QApplication::screens()) {
+        if (s->name() == screenName) { target = s; break; }
+    }
+    if (!target) return;
+    const QRect geom = target->geometry();
+    for (QWidget *w : {static_cast<QWidget*>(m_videoOut),
+                       static_cast<QWidget*>(m_textOut),
+                       static_cast<QWidget*>(m_imageOut)}) {
+        if (w->isVisible())
+            w->move(geom.topLeft());
+    }
 }
 
 void MainWindow::applyWebServer() {
@@ -1679,6 +1701,24 @@ void MainWindow::toggleVideoOutput() {
         m_videoAction->setChecked(nowVisible);
     }
     m_videoOut->setVisible(nowVisible);
+}
+
+void MainWindow::toggleTextOutput() {
+    const bool nowVisible = !m_textOut->isVisible();
+    if (m_textAction) {
+        const QSignalBlocker b(m_textAction);
+        m_textAction->setChecked(nowVisible);
+    }
+    m_textOut->setVisible(nowVisible);
+}
+
+void MainWindow::toggleImageOutput() {
+    const bool nowVisible = !m_imageOut->isVisible();
+    if (m_imageAction) {
+        const QSignalBlocker b(m_imageAction);
+        m_imageAction->setChecked(nowVisible);
+    }
+    m_imageOut->setVisible(nowVisible);
 }
 
 // ── Event filter: sync toggle-action checked state with window visibility ─────

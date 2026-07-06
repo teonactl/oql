@@ -1,6 +1,9 @@
 #include "SettingsDialog.h"
 #include "engine/AppSettings.h"
+#include "engine/AudioEngine.h"
 #include "engine/Workspace.h"
+#include <QApplication>
+#include <QScreen>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -277,6 +280,53 @@ SettingsDialog::SettingsDialog(Workspace *workspace, QWidget *parent)
     plugLay->addStretch();
     tabs->addTab(plugWidget, tr("Plugin"));
 
+    // ── Tab 6: Hardware ───────────────────────────────────────────────────────
+    auto *hwWidget = new QWidget;
+    auto *hwForm   = new QFormLayout(hwWidget);
+    hwForm->setSpacing(10);
+    hwForm->setContentsMargins(12, 12, 12, 12);
+
+    // Audio output device
+    m_audioDeviceCombo = new QComboBox;
+    m_audioDeviceCombo->addItem(tr("Dispositivo predefinito"), QString{});
+    {
+        const auto devices    = AudioEngine::instance().enumerateDevices();
+        const QString current = AppSettings::instance().audioOutputDevice();
+        for (const auto &dev : devices) {
+            const QString name = QString::fromStdString(dev.name);
+            m_audioDeviceCombo->addItem(name, name);
+        }
+        const int idx = m_audioDeviceCombo->findData(current);
+        if (idx >= 0) m_audioDeviceCombo->setCurrentIndex(idx);
+    }
+    hwForm->addRow(tr("Uscita audio:"), m_audioDeviceCombo);
+
+    // Video output screen
+    m_outputScreenCombo = new QComboBox;
+    m_outputScreenCombo->addItem(tr("Schermo corrente"), QString{});
+    {
+        const QString current = AppSettings::instance().outputScreenName();
+        for (QScreen *scr : QApplication::screens()) {
+            const QString name = scr->name();
+            const QString label = QString("%1  (%2×%3)")
+                .arg(name)
+                .arg(scr->geometry().width())
+                .arg(scr->geometry().height());
+            m_outputScreenCombo->addItem(label, name);
+        }
+        const int idx = m_outputScreenCombo->findData(current);
+        if (idx >= 0) m_outputScreenCombo->setCurrentIndex(idx);
+    }
+    hwForm->addRow(tr("Schermo output video/testo:"), m_outputScreenCombo);
+
+    hwForm->addRow(new QLabel(
+        "<small style='color:#888'>" +
+        tr("Il cambio di dispositivo audio interrompe momentaneamente la riproduzione.") +
+        "</small>"));
+
+    hwWidget->setLayout(hwForm);
+    tabs->addTab(hwWidget, tr("Hardware"));
+
     // ── Buttons ───────────────────────────────────────────────────────────────
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     mainLay->addWidget(btns);
@@ -319,6 +369,14 @@ void SettingsDialog::apply() {
         vstPaths << m_vstPathsList->item(i)->text();
     AppSettings::instance().setLv2ExtraPaths(lv2Paths);
     AppSettings::instance().setVstExtraPaths(vstPaths);
+
+    // Hardware
+    const QString newAudioDevice = m_audioDeviceCombo->currentData().toString();
+    if (newAudioDevice != AppSettings::instance().audioOutputDevice()) {
+        AppSettings::instance().setAudioOutputDevice(newAudioDevice);
+        AudioEngine::instance().reinitWithDevice(newAudioDevice.toStdString());
+    }
+    AppSettings::instance().setOutputScreenName(m_outputScreenCombo->currentData().toString());
 
     accept();
 }

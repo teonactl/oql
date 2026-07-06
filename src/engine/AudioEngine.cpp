@@ -77,22 +77,41 @@ void AudioEngine::maDeviceCallback(void* pUserData, void* pOutput,
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-bool AudioEngine::init() {
+bool AudioEngine::init(const std::string &deviceName) {
     if (m_initialized) return true;
     m_impl = std::make_unique<Impl>();
 
     if (ma_context_init(nullptr, 0, nullptr, &m_impl->context) != MA_SUCCESS)
         return false;
 
+    // Resolve device id by name (if requested)
+    ma_device_id selectedId{};
+    bool hasSelectedId = false;
+    if (!deviceName.empty()) {
+        ma_device_info *pInfos = nullptr;
+        ma_uint32 count = 0;
+        if (ma_context_get_devices(&m_impl->context, &pInfos, &count, nullptr, nullptr) == MA_SUCCESS) {
+            for (ma_uint32 i = 0; i < count; ++i) {
+                if (std::string(pInfos[i].name) == deviceName) {
+                    selectedId    = pInfos[i].id;
+                    hasSelectedId = true;
+                    break;
+                }
+            }
+        }
+    }
+
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-    cfg.playback.format   = ma_format_f32;
-    cfg.playback.channels = 2;
-    cfg.sampleRate        = 0;    // let device pick best rate
-    cfg.periodSizeInFrames = 512; // fixed so VST2 effSetBlockSize matches actual frames
-    cfg.dataCallback     = [](ma_device* d, void* out, const void* in, ma_uint32 frames) {
+    cfg.playback.format    = ma_format_f32;
+    cfg.playback.channels  = 2;
+    cfg.sampleRate         = 0;    // let device pick best rate
+    cfg.periodSizeInFrames = 512;  // fixed so VST2 effSetBlockSize matches actual frames
+    cfg.dataCallback       = [](ma_device* d, void* out, const void* in, ma_uint32 frames) {
         maDeviceCallback(d->pUserData, out, in, frames);
     };
-    cfg.pUserData        = this;
+    cfg.pUserData          = this;
+    if (hasSelectedId)
+        cfg.playback.pDeviceID = &selectedId;
 
     if (ma_device_init(&m_impl->context, &cfg, &m_impl->device) != MA_SUCCESS) {
         ma_context_uninit(&m_impl->context);
@@ -104,10 +123,80 @@ bool AudioEngine::init() {
         return false;
     }
 
-    m_sampleRate = int(m_impl->device.sampleRate);
-    m_blockSize  = int(m_impl->device.playback.internalPeriodSizeInFrames);
+    m_sampleRate        = int(m_impl->device.sampleRate);
+    m_blockSize         = int(m_impl->device.playback.internalPeriodSizeInFrames);
     if (m_blockSize <= 0) m_blockSize = 512;
-    m_initialized = true;
+    m_currentDeviceName = deviceName;
+    m_initialized       = true;
+    return true;
+}
+
+std::vector<AudioDeviceInfo> AudioEngine::enumerateDevices() const {
+    std::vector<AudioDeviceInfo> result;
+    if (!m_impl) return result;
+    ma_device_info *pInfos = nullptr;
+    ma_uint32 count = 0;
+    if (ma_context_get_devices(&m_impl->context, &pInfos, &count, nullptr, nullptr) != MA_SUCCESS)
+        return result;
+    result.reserve(count);
+    for (ma_uint32 i = 0; i < count; ++i) {
+        AudioDeviceInfo di;
+        di.name      = pInfos[i].name;
+        di.isDefault = bool(pInfos[i].isDefault);
+        result.push_back(std::move(di));
+    }
+    return result;
+}
+
+bool AudioEngine::reinitWithDevice(const std::string &deviceName) {
+    if (!m_initialized) return false;
+
+    std::lock_guard<std::mutex> lk(m_mutex);
+    // ma_device_stop blocks until the audio callback thread exits.
+    // The callback uses try_to_lock, so it bails immediately while we hold m_mutex.
+    ma_device_stop(&m_impl->device);
+    ma_device_uninit(&m_impl->device);
+
+    // Find device by name
+    ma_device_id selectedId{};
+    bool hasSelectedId = false;
+    if (!deviceName.empty()) {
+        ma_device_info *pInfos = nullptr;
+        ma_uint32 count = 0;
+        if (ma_context_get_devices(&m_impl->context, &pInfos, &count, nullptr, nullptr) == MA_SUCCESS) {
+            for (ma_uint32 i = 0; i < count; ++i) {
+                if (std::string(pInfos[i].name) == deviceName) {
+                    selectedId    = pInfos[i].id;
+                    hasSelectedId = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+    cfg.playback.format    = ma_format_f32;
+    cfg.playback.channels  = 2;
+    cfg.sampleRate         = 0;
+    cfg.periodSizeInFrames = 512;
+    cfg.dataCallback       = [](ma_device* d, void* out, const void* in, ma_uint32 frames) {
+        maDeviceCallback(d->pUserData, out, in, frames);
+    };
+    cfg.pUserData          = this;
+    if (hasSelectedId)
+        cfg.playback.pDeviceID = &selectedId;
+
+    if (ma_device_init(&m_impl->context, &cfg, &m_impl->device) != MA_SUCCESS)
+        return false;
+    if (ma_device_start(&m_impl->device) != MA_SUCCESS) {
+        ma_device_uninit(&m_impl->device);
+        return false;
+    }
+
+    m_sampleRate        = int(m_impl->device.sampleRate);
+    m_blockSize         = int(m_impl->device.playback.internalPeriodSizeInFrames);
+    if (m_blockSize <= 0) m_blockSize = 512;
+    m_currentDeviceName = deviceName;
     return true;
 }
 

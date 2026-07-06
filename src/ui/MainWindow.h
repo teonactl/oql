@@ -73,6 +73,8 @@ private slots:
     void goToFirstCue();
     void applyShortcuts();
     void toggleVideoOutput();
+    void toggleTextOutput();
+    void toggleImageOutput();
     void openSettings();
     void showAbout();
     void onSelectionChanged();
@@ -144,4 +146,5 @@ private:
     void applyWebServer();
     void applyPanelLayout();
     void applyUltraDark(bool on);
+    void applyOutputScreen();
 };

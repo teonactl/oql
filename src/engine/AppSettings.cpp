@@ -180,3 +180,17 @@ QStringList AppSettings::vstExtraPaths() const {
 void AppSettings::setVstExtraPaths(const QStringList &paths) {
     m_s.setValue("vstExtraPaths", paths);
 }
+
+QString AppSettings::audioOutputDevice() const {
+    return m_s.value("hardware/audioOutputDevice", QString{}).toString();
+}
+void AppSettings::setAudioOutputDevice(const QString &name) {
+    m_s.setValue("hardware/audioOutputDevice", name);
+}
+
+QString AppSettings::outputScreenName() const {
+    return m_s.value("hardware/outputScreenName", QString{}).toString();
+}
+void AppSettings::setOutputScreenName(const QString &name) {
+    m_s.setValue("hardware/outputScreenName", name);
+}
