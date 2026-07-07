@@ -73,17 +73,10 @@ bool AudioCue::restorePluginSnapshot() {
 
     auto oldChain = m_chain;
     m_chain = newChain;
-    m_pendingChain.store(newChain.get(), std::memory_order_release);
-    // Old chain freed after 500ms — well past any audio callback (runs every ~10ms)
+    // Atomic swap at next callback boundary — old chain kept alive for 500ms
+    // (callbacks run every ~10ms, so this is well past any in-flight process())
+    m_activeChain.store(newChain.get(), std::memory_order_release);
     QTimer::singleShot(500, [kept = std::move(oldChain)](){});
-
-    if (m_playing.load()) {
-        // Audio thread will: fade out → swap m_activeChain ← m_pendingChain → fade in
-        m_fadeDir.store(-1, std::memory_order_release);
-    } else {
-        m_pendingChain.store(nullptr, std::memory_order_release);
-        m_activeChain.store(newChain.get(), std::memory_order_release);
-    }
 
     emit displayChanged();
     emit pluginSnapshotRestored();
@@ -106,15 +99,8 @@ void AudioCue::applyPluginChain(const QJsonArray &json) {
 
     auto oldChain = m_chain;
     m_chain = newChain;
-    m_pendingChain.store(newChain.get(), std::memory_order_release);
+    m_activeChain.store(newChain.get(), std::memory_order_release);
     QTimer::singleShot(500, [kept = std::move(oldChain)](){});
-
-    if (m_playing.load()) {
-        m_fadeDir.store(-1, std::memory_order_release);
-    } else {
-        m_pendingChain.store(nullptr, std::memory_order_release);
-        m_activeChain.store(newChain.get(), std::memory_order_release);
-    }
 
     emit displayChanged();
 }
@@ -422,9 +408,6 @@ void AudioCue::go() {
     m_chainBlock.store(block);
     m_chain->prepare(m_chainSR.load(), m_chainBlock.load());
     m_activeChain.store(m_chain.get(), std::memory_order_release);
-    m_pendingChain.store(nullptr, std::memory_order_release);
-    m_fadeGain.store(1.0f, std::memory_order_relaxed);
-    m_fadeDir.store(0, std::memory_order_release);
 
     // Save snapshot BEFORE audio starts — prevents main thread from calling
     // effGetChunk / toJson() on plugins while the audio thread is in process().
@@ -647,28 +630,6 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
         float *ch[2] = { m_plugL.data(), m_plugR.data() };
         m_activeChain.load(std::memory_order_acquire)->process(ch, n);
 
-        // Crossfade: apply per-sample gain ramp; at silence swap to pending chain.
-        {
-            int dir = m_fadeDir.load(std::memory_order_acquire);
-            if (dir != 0) {
-                float gain = m_fadeGain.load(std::memory_order_relaxed);
-                for (int i = 0; i < n; ++i) {
-                    gain += float(dir) * kChainFadeRate;
-                    gain  = (gain < 0.0f) ? 0.0f : (gain > 1.0f) ? 1.0f : gain;
-                    m_plugL[i] *= gain;
-                    m_plugR[i] *= gain;
-                }
-                m_fadeGain.store(gain, std::memory_order_relaxed);
-                if (dir < 0 && gain <= 0.0f) {
-                    auto *p = m_pendingChain.exchange(nullptr, std::memory_order_acq_rel);
-                    if (p) m_activeChain.store(p, std::memory_order_release);
-                    m_fadeDir.store(1, std::memory_order_release);
-                } else if (dir > 0 && gain >= 1.0f) {
-                    m_fadeDir.store(0, std::memory_order_release);
-                }
-            }
-        }
-
         for (int i = 0; i < n; ++i) {
             out[i * 2]     += m_plugL[i];
             out[i * 2 + 1] += m_plugR[i];
@@ -797,28 +758,6 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
     // Plugin chain — lock-free atomic load.
     float *ch[2] = { m_plugL.data(), m_plugR.data() };
     m_activeChain.load(std::memory_order_acquire)->process(ch, n);
-
-    // Crossfade: per-sample gain ramp; at silence, audio thread swaps to pending chain.
-    {
-        int dir = m_fadeDir.load(std::memory_order_acquire);
-        if (dir != 0) {
-            float gain = m_fadeGain.load(std::memory_order_relaxed);
-            for (int i = 0; i < n; ++i) {
-                gain += float(dir) * kChainFadeRate;
-                gain  = (gain < 0.0f) ? 0.0f : (gain > 1.0f) ? 1.0f : gain;
-                m_plugL[i] *= gain;
-                m_plugR[i] *= gain;
-            }
-            m_fadeGain.store(gain, std::memory_order_relaxed);
-            if (dir < 0 && gain <= 0.0f) {
-                auto *p = m_pendingChain.exchange(nullptr, std::memory_order_acq_rel);
-                if (p) m_activeChain.store(p, std::memory_order_release);
-                m_fadeDir.store(1, std::memory_order_release);
-            } else if (dir > 0 && gain >= 1.0f) {
-                m_fadeDir.store(0, std::memory_order_release);
-            }
-        }
-    }
 
     // Mix into output (stereo interleaved)
     for (int i = 0; i < n; ++i) {

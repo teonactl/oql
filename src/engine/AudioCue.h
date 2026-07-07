@@ -156,10 +156,6 @@ private:
     //   m_fadeDir/Gain  — drive the crossfade entirely inside renderAudio()
     std::shared_ptr<PluginChain> m_chain;
     std::atomic<PluginChain*>    m_activeChain {nullptr};
-    std::atomic<PluginChain*>    m_pendingChain{nullptr};
-    std::atomic<float>           m_fadeGain    {1.0f};
-    std::atomic<int>             m_fadeDir     {0};   // -1=fade-out, 0=stable, +1=fade-in
-    static constexpr float       kChainFadeRate = 1.0f / 512.0f; // ~10ms at 48 kHz
     std::atomic<int>   m_chainSR  {0};
     std::atomic<int>   m_chainBlock{0};
     QJsonArray       m_chainSnapshot;
