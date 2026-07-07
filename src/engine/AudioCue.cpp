@@ -3,6 +3,8 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QMetaObject>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <algorithm>
 #include <cmath>
 #include <thread>
@@ -60,24 +62,57 @@ void AudioCue::savePluginSnapshot() {
     m_hasPluginSnapshot = true;
 }
 
+// Pre-fill a plugin chain with real audio from the file at the current playback
+// position. Covers lookahead limiters (empty delay lines → seconds of silence)
+// and slow-attack gates/compressors that need signal history before opening.
+// Called from a background thread; output of process() is intentionally discarded.
+static void preFillChain(PluginChain *chain, const QString &filePath,
+                         int decSR, int block, uint64_t startFrame, int fillSeconds)
+{
+    if (filePath.isEmpty() || decSR <= 0 || fillSeconds <= 0) return;
+    ma_decoder dec{};
+    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, uint32_t(decSR));
+    if (ma_decoder_init_file(filePath.toUtf8().constData(), &cfg, &dec) != MA_SUCCESS) return;
+    ma_decoder_seek_to_pcm_frame(&dec, startFrame);
+
+    const int totalFrames = decSR * fillSeconds;
+    std::vector<float> buf(block * 2), wL(block), wR(block);
+    for (int done = 0; done < totalFrames; done += block) {
+        ma_uint64 got = 0;
+        ma_decoder_read_pcm_frames(&dec, buf.data(), ma_uint64(block), &got);
+        if (got == 0) break;
+        const int n = int(got);
+        for (int i = 0; i < n; ++i) { wL[i] = buf[i*2]; wR[i] = buf[i*2+1]; }
+        float *ch[2] = { wL.data(), wR.data() };
+        chain->process(ch, n);
+    }
+    ma_decoder_uninit(&dec);
+}
+
 bool AudioCue::restorePluginSnapshot() {
     if (!m_hasPluginSnapshot) return false;
-    const int sr = m_chainSR.load(), block = m_chainBlock.load();
-    const QJsonArray snap = m_chainSnapshot; // copy before background thread reads it
+    const int sr      = m_chainSR.load();
+    const int block   = m_chainBlock.load();
+    const QJsonArray snap = m_chainSnapshot;
+    const QString path    = m_filePath;
+    const int decSR       = m_currentDecoderSR;
     auto newChain = std::make_shared<PluginChain>();
 
-    // Build the restored chain on a background thread so the old chain keeps
-    // playing uninterrupted. fromJson()/prepare() can take seconds on first VST2 load.
-    std::thread([this, newChain, snap, sr, block]() mutable {
+    std::thread([this, newChain, snap, sr, block, path, decSR]() mutable {
         newChain->fromJson(snap);
-        if (sr > 0)
+        if (sr > 0) {
             newChain->prepare(sr, block);
-        // Back to main thread for the atomic swap
+            // Read position AFTER prepare() to minimise drift between fill and playback
+            if (m_playing.load()) {
+                const uint64_t frame = m_framePos.load(std::memory_order_relaxed);
+                preFillChain(newChain.get(), path, decSR, block, frame, 5);
+            }
+        }
         QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
-            auto oldChain = m_chain;
-            m_chain       = std::move(nc);
+            auto old = m_chain;
+            m_chain  = std::move(nc);
             m_activeChain.store(m_chain.get(), std::memory_order_release);
-            QTimer::singleShot(500, [kept = std::move(oldChain)](){});
+            QTimer::singleShot(500, [kept = std::move(old)](){});
             emit displayChanged();
             emit pluginSnapshotRestored();
         }, Qt::QueuedConnection);
@@ -87,19 +122,40 @@ bool AudioCue::restorePluginSnapshot() {
 }
 
 void AudioCue::applyPluginChain(const QJsonArray &json) {
-    const int sr = m_chainSR.load(), block = m_chainBlock.load();
+    const int sr    = m_chainSR.load();
+    const int block = m_chainBlock.load();
+    const QString path = m_filePath;
+    const int decSR    = m_currentDecoderSR;
     auto newChain = std::make_shared<PluginChain>();
 
-    // Build and prepare on a background thread — old chain keeps playing.
-    std::thread([this, newChain, json, sr, block]() mutable {
+    qDebug() << "[EffectCue] applyPluginChain() called on main thread";
+    QElapsedTimer wallClock;
+    wallClock.start();
+
+    std::thread([this, newChain, json, sr, block, path, decSR, wallClock]() mutable {
+        qDebug() << "[EffectCue] bg thread started, T+" << wallClock.elapsed() << "ms";
+
+        QElapsedTimer t; t.start();
         newChain->fromJson(json);
-        if (sr > 0)
+        qDebug() << "[EffectCue] fromJson() done in" << t.restart() << "ms, T+" << wallClock.elapsed() << "ms";
+
+        if (sr > 0) {
             newChain->prepare(sr, block);
-        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
-            auto oldChain = m_chain;
-            m_chain       = std::move(nc);
+            qDebug() << "[EffectCue] prepare() done in" << t.restart() << "ms, T+" << wallClock.elapsed() << "ms";
+
+            if (m_playing.load()) {
+                const uint64_t frame = m_framePos.load(std::memory_order_relaxed);
+                preFillChain(newChain.get(), path, decSR, block, frame, 5);
+                qDebug() << "[EffectCue] preFill(5s) done in" << t.restart() << "ms, T+" << wallClock.elapsed() << "ms";
+            }
+        }
+
+        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain), wallClock]() mutable {
+            qDebug() << "[EffectCue] SWAP on main thread, T+" << wallClock.elapsed() << "ms";
+            auto old = m_chain;
+            m_chain  = std::move(nc);
             m_activeChain.store(m_chain.get(), std::memory_order_release);
-            QTimer::singleShot(500, [kept = std::move(oldChain)](){});
+            QTimer::singleShot(500, [kept = std::move(old)](){});
             emit displayChanged();
         }, Qt::QueuedConnection);
     }).detach();
@@ -758,6 +814,27 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
     // Plugin chain — lock-free atomic load.
     float *ch[2] = { m_plugL.data(), m_plugR.data() };
     m_activeChain.load(std::memory_order_acquire)->process(ch, n);
+
+    // Silence diagnostic: count consecutive near-silent plugin outputs.
+    // Log on transitions so we can see exactly when silence starts/ends.
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i) {
+            const float s = std::abs(m_plugL[i]) + std::abs(m_plugR[i]);
+            if (s > peak) peak = s;
+        }
+        if (peak < 1e-5f) {
+            const int prev = m_silentBufCount.fetch_add(1, std::memory_order_relaxed);
+            if (prev == 0)
+                qDebug() << "[AudioCue] SILENCE START at frame" << m_framePos.load();
+        } else {
+            const int prev = m_silentBufCount.exchange(0, std::memory_order_relaxed);
+            if (prev > 0)
+                qDebug() << "[AudioCue] SILENCE END after" << prev << "buffers ("
+                         << (prev * n * 1000 / (m_chainSR.load() > 0 ? m_chainSR.load() : 48000))
+                         << "ms)";
+        }
+    }
 
     // Mix into output (stereo interleaved)
     for (int i = 0; i < n; ++i) {

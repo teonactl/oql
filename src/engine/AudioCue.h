@@ -161,6 +161,10 @@ private:
     QJsonArray       m_chainSnapshot;
     bool             m_hasPluginSnapshot = false;
 
+    // Silence diagnostics: counts consecutive renderAudio() calls where the
+    // plugin chain output is near-zero. Reset when non-zero output detected.
+    std::atomic<int>  m_silentBufCount{0};
+
     // Temp PCM buffers used inside renderAudio (preallocated in go())
     std::vector<float> m_decodeBuf;  // interleaved stereo from decoder
     std::vector<float> m_plugL, m_plugR; // deinterleaved for plugin chain
