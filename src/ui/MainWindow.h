@@ -117,6 +117,7 @@ private:
     QAction           *m_imageAction      = nullptr;
     QLabel            *m_webUrlLabel      = nullptr;
     QToolButton       *m_webCopyBtn       = nullptr;
+    QLabel            *m_dropoutLabel     = nullptr;
     QString            m_currentWebUrl;
     bool               m_showMode         = false;
     QWidget           *m_showModeBtn      = nullptr;  // PillToggle*

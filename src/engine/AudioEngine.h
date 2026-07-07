@@ -44,6 +44,10 @@ public:
     float peakL() const { return m_peakL.load(std::memory_order_relaxed); }
     float peakR() const { return m_peakR.load(std::memory_order_relaxed); }
 
+    // Counts how many audio callbacks returned early (try_to_lock failed = dropout)
+    int  dropoutCount() const { return m_dropoutCount.load(std::memory_order_relaxed); }
+    void resetDropoutCount()  { m_dropoutCount.store(0, std::memory_order_relaxed); }
+
     AudioEngine(const AudioEngine &) = delete;
     AudioEngine &operator=(const AudioEngine &) = delete;
 
@@ -65,6 +69,7 @@ private:
 
     std::atomic<float> m_peakL{0.0f};
     std::atomic<float> m_peakR{0.0f};
+    std::atomic<int>   m_dropoutCount{0};
 
     static void maDeviceCallback(void* device, void* pOut,
                                  const void*, unsigned int frames);

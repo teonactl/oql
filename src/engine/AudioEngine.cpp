@@ -34,7 +34,10 @@ void AudioEngine::maDeviceCallback(void* pUserData, void* pOutput,
     // Try to acquire mutex without blocking the audio thread.
     // If the main thread holds it (e.g. during add/remove), skip this block.
     std::unique_lock<std::mutex> lock(engine->m_mutex, std::try_to_lock);
-    if (!lock.owns_lock()) return;
+    if (!lock.owns_lock()) {
+        engine->m_dropoutCount.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
 
     // Ensure mix buffer is large enough
     auto &mb = engine->m_impl->mixBuf;

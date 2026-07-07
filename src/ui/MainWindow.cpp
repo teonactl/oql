@@ -949,6 +949,24 @@ void MainWindow::buildToolBar() {
     tbSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(tbSpacer);
 
+    // ── Dropout counter label (audio debugging) ────────────────────────────────
+    m_dropoutLabel = new QLabel("Dropout: 0");
+    m_dropoutLabel->setStyleSheet("color: #8892a4; font-size: 9pt; padding: 0 6px;");
+    m_dropoutLabel->setToolTip(tr("Callback audio persi (missed RT deadline)"));
+    tb->addWidget(m_dropoutLabel);
+
+    // Update every second
+    auto *dropoutTimer = new QTimer(this);
+    dropoutTimer->setInterval(1000);
+    connect(dropoutTimer, &QTimer::timeout, this, [this] {
+        const int n = AudioEngine::instance().dropoutCount();
+        m_dropoutLabel->setText(QString("Dropout: %1").arg(n));
+        m_dropoutLabel->setStyleSheet(n > 0
+            ? "color: #ff6060; font-size: 9pt; padding: 0 6px; font-weight: bold;"
+            : "color: #8892a4; font-size: 9pt; padding: 0 6px;");
+    });
+    dropoutTimer->start();
+
     // Dark Mode — luna
     auto darkIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(Qt::NoPen); p.setBrush(Qt::white);

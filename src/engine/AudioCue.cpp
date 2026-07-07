@@ -64,10 +64,14 @@ bool AudioCue::restorePluginSnapshot() {
     int sr = m_chainSR.load(), block = m_chainBlock.load();
     auto newChain = std::make_shared<PluginChain>();
     newChain->fromJson(m_chainSnapshot);
-    if (m_playing.load() && sr > 0)
+    if (m_playing.load() && sr > 0) {
         newChain->prepare(sr, block);
+        std::vector<float> silL(block, 0.0f), silR(block, 0.0f);
+        float *silCh[2] = { silL.data(), silR.data() };
+        newChain->process(silCh, block);
+    }
 
-    auto oldChain = m_chain;     // keep old chain alive
+    auto oldChain = m_chain;
     m_chain = newChain;
     m_pendingChain.store(newChain.get(), std::memory_order_release);
     // Old chain freed after 500ms — well past any audio callback (runs every ~10ms)
@@ -90,10 +94,17 @@ void AudioCue::applyPluginChain(const QJsonArray &json) {
     int sr = m_chainSR.load(), block = m_chainBlock.load();
     auto newChain = std::make_shared<PluginChain>();
     newChain->fromJson(json);
-    if (m_playing.load() && sr > 0)
+    if (m_playing.load() && sr > 0) {
         newChain->prepare(sr, block);
+        // Pre-warm: run one silent buffer through the new chain on the main thread.
+        // This triggers any internal allocations and stabilises plugin state
+        // before the audio thread ever sees this chain — no malloc in RT path.
+        std::vector<float> silL(block, 0.0f), silR(block, 0.0f);
+        float *silCh[2] = { silL.data(), silR.data() };
+        newChain->process(silCh, block);
+    }
 
-    auto oldChain = m_chain;     // keep old chain alive
+    auto oldChain = m_chain;
     m_chain = newChain;
     m_pendingChain.store(newChain.get(), std::memory_order_release);
     QTimer::singleShot(500, [kept = std::move(oldChain)](){});
@@ -414,6 +425,11 @@ void AudioCue::go() {
     m_pendingChain.store(nullptr, std::memory_order_release);
     m_fadeGain.store(1.0f, std::memory_order_relaxed);
     m_fadeDir.store(0, std::memory_order_release);
+
+    // Save snapshot BEFORE audio starts — prevents main thread from calling
+    // effGetChunk / toJson() on plugins while the audio thread is in process().
+    if (!m_hasPluginSnapshot)
+        savePluginSnapshot();
 
     m_playing.store(true);
     AudioEngine::instance().addRenderer(this);
