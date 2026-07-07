@@ -148,10 +148,14 @@ private:
     bool                   m_stFlushDone = false;
 #endif
 
+    // m_chain: owned on main thread only (no locking needed for reads/writes from main).
+    // m_activeChain: atomic raw pointer read by the audio thread — guaranteed lock-free
+    //   on all architectures (ARM64/x86). Old chains are kept alive via QTimer for
+    //   200ms after a swap so the audio thread can never access freed memory.
     std::shared_ptr<PluginChain> m_chain;
-    mutable std::mutex m_chainMtx;     // guards m_chain shared_ptr (brief holds only)
-    std::atomic<int>   m_chainSR  {0}; // sample rate used in last prepare()
-    std::atomic<int>   m_chainBlock{0};// block size used in last prepare()
+    std::atomic<PluginChain*>    m_activeChain{nullptr};
+    std::atomic<int>   m_chainSR  {0};
+    std::atomic<int>   m_chainBlock{0};
     QJsonArray       m_chainSnapshot;
     bool             m_hasPluginSnapshot = false;
 

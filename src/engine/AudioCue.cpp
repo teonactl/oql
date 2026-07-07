@@ -11,6 +11,7 @@
 AudioCue::AudioCue(QObject *parent) : Cue(parent) {
     m_decoder = new ma_decoder();
     m_chain   = std::make_shared<PluginChain>();
+    m_activeChain.store(m_chain.get(), std::memory_order_release);
 }
 
 AudioCue::~AudioCue() {
@@ -65,16 +66,13 @@ bool AudioCue::restorePluginSnapshot() {
     newChain->fromJson(m_chainSnapshot);
     if (m_playing.load() && sr > 0)
         newChain->prepare(sr, block);
-    // Swap under the briefest possible lock: only the shared_ptr assignment itself.
-    // The audio thread holds m_chainMtx only to copy the shared_ptr (nanoseconds),
-    // then processes with NO lock held — so it is never blocked by this swap.
-    // oldChain is released AFTER the lock: old plugins freed on main thread, not inside lock.
-    std::shared_ptr<PluginChain> oldChain;
-    {
-        std::lock_guard<std::mutex> lk(m_chainMtx);
-        oldChain = std::move(m_chain);
-        m_chain  = newChain;
-    }
+    auto oldChain = std::move(m_chain);
+    m_chain = newChain;
+    // Publish new pointer to audio thread — lock-free, no priority inversion possible.
+    m_activeChain.store(m_chain.get(), std::memory_order_release);
+    // Keep the old chain alive for 200ms: audio callbacks run every ~10ms, so this
+    // is 20 callback periods of margin before the old chain's memory is freed.
+    QTimer::singleShot(200, [kept = std::move(oldChain)](){});
     emit displayChanged();
     emit pluginSnapshotRestored();
     return true;
@@ -86,12 +84,10 @@ void AudioCue::applyPluginChain(const QJsonArray &json) {
     newChain->fromJson(json);
     if (m_playing.load() && sr > 0)
         newChain->prepare(sr, block);
-    std::shared_ptr<PluginChain> oldChain;
-    {
-        std::lock_guard<std::mutex> lk(m_chainMtx);
-        oldChain = std::move(m_chain);
-        m_chain  = newChain;
-    }
+    auto oldChain = std::move(m_chain);
+    m_chain = newChain;
+    m_activeChain.store(m_chain.get(), std::memory_order_release);
+    QTimer::singleShot(200, [kept = std::move(oldChain)](){});
     emit displayChanged();
 }
 
@@ -397,6 +393,8 @@ void AudioCue::go() {
     m_chainSR.store(AudioEngine::instance().sampleRate());
     m_chainBlock.store(block);
     m_chain->prepare(m_chainSR.load(), m_chainBlock.load());
+    // Publish chain pointer before starting the audio thread.
+    m_activeChain.store(m_chain.get(), std::memory_order_release);
 
     m_playing.store(true);
     AudioEngine::instance().addRenderer(this);
@@ -612,12 +610,8 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
             std::fill(m_plugL.begin(), m_plugL.begin() + n, 0.0f);
 
         float *ch[2] = { m_plugL.data(), m_plugR.data() };
-        {
-            // Hold lock only to copy the shared_ptr (nanoseconds), then process with NO lock.
-            std::shared_ptr<PluginChain> chain;
-            { std::lock_guard<std::mutex> lk(m_chainMtx); chain = m_chain; }
-            chain->process(ch, n);
-        }
+        // Lock-free: atomic load, no mutex, no priority inversion possible on RT thread.
+        m_activeChain.load(std::memory_order_acquire)->process(ch, n);
 
         for (int i = 0; i < n; ++i) {
             out[i * 2]     += m_plugL[i];
@@ -744,13 +738,9 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
         std::fill(m_plugL.begin(), m_plugL.begin() + n, 0.0f);
     }
 
-    // Plugin chain (processes m_plugL/m_plugR in-place)
+    // Plugin chain (processes m_plugL/m_plugR in-place) — lock-free atomic load.
     float *ch[2] = { m_plugL.data(), m_plugR.data() };
-    {
-        std::shared_ptr<PluginChain> chain;
-        { std::lock_guard<std::mutex> lk(m_chainMtx); chain = m_chain; }
-        chain->process(ch, n);
-    }
+    m_activeChain.load(std::memory_order_acquire)->process(ch, n);
 
     // Mix into output (stereo interleaved)
     for (int i = 0; i < n; ++i) {
