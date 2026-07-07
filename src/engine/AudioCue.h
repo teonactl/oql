@@ -148,12 +148,18 @@ private:
     bool                   m_stFlushDone = false;
 #endif
 
-    // m_chain: owned on main thread only (no locking needed for reads/writes from main).
-    // m_activeChain: atomic raw pointer read by the audio thread — guaranteed lock-free
-    //   on all architectures (ARM64/x86). Old chains are kept alive via QTimer for
-    //   200ms after a swap so the audio thread can never access freed memory.
+    // Lock-free chain management:
+    //   m_chain         — main-thread owner (shared_ptr keeps chain alive)
+    //   m_activeChain   — atomic ptr read by audio thread (current, no lock)
+    //   m_pendingChain  — atomic ptr to next chain; audio thread swaps it in at
+    //                     the silence point of a controlled fade-out/in transition
+    //   m_fadeDir/Gain  — drive the crossfade entirely inside renderAudio()
     std::shared_ptr<PluginChain> m_chain;
-    std::atomic<PluginChain*>    m_activeChain{nullptr};
+    std::atomic<PluginChain*>    m_activeChain {nullptr};
+    std::atomic<PluginChain*>    m_pendingChain{nullptr};
+    std::atomic<float>           m_fadeGain    {1.0f};
+    std::atomic<int>             m_fadeDir     {0};   // -1=fade-out, 0=stable, +1=fade-in
+    static constexpr float       kChainFadeRate = 1.0f / 512.0f; // ~10ms at 48 kHz
     std::atomic<int>   m_chainSR  {0};
     std::atomic<int>   m_chainBlock{0};
     QJsonArray       m_chainSnapshot;
