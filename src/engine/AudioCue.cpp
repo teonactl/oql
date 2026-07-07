@@ -5,6 +5,7 @@
 #include <QMetaObject>
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 // ── Constructor / Destructor ──────────────────────────────────────────────────
 
@@ -61,48 +62,47 @@ void AudioCue::savePluginSnapshot() {
 
 bool AudioCue::restorePluginSnapshot() {
     if (!m_hasPluginSnapshot) return false;
-    int sr = m_chainSR.load(), block = m_chainBlock.load();
+    const int sr = m_chainSR.load(), block = m_chainBlock.load();
+    const QJsonArray snap = m_chainSnapshot; // copy before background thread reads it
     auto newChain = std::make_shared<PluginChain>();
-    newChain->fromJson(m_chainSnapshot);
-    if (m_playing.load() && sr > 0) {
-        newChain->prepare(sr, block);
-        std::vector<float> silL(block, 0.0f), silR(block, 0.0f);
-        float *silCh[2] = { silL.data(), silR.data() };
-        newChain->process(silCh, block);
-    }
 
-    auto oldChain = m_chain;
-    m_chain = newChain;
-    // Atomic swap at next callback boundary — old chain kept alive for 500ms
-    // (callbacks run every ~10ms, so this is well past any in-flight process())
-    m_activeChain.store(newChain.get(), std::memory_order_release);
-    QTimer::singleShot(500, [kept = std::move(oldChain)](){});
+    // Build the restored chain on a background thread so the old chain keeps
+    // playing uninterrupted. fromJson()/prepare() can take seconds on first VST2 load.
+    std::thread([this, newChain, snap, sr, block]() mutable {
+        newChain->fromJson(snap);
+        if (sr > 0)
+            newChain->prepare(sr, block);
+        // Back to main thread for the atomic swap
+        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
+            auto oldChain = m_chain;
+            m_chain       = std::move(nc);
+            m_activeChain.store(m_chain.get(), std::memory_order_release);
+            QTimer::singleShot(500, [kept = std::move(oldChain)](){});
+            emit displayChanged();
+            emit pluginSnapshotRestored();
+        }, Qt::QueuedConnection);
+    }).detach();
 
-    emit displayChanged();
-    emit pluginSnapshotRestored();
     return true;
 }
 
 void AudioCue::applyPluginChain(const QJsonArray &json) {
-    int sr = m_chainSR.load(), block = m_chainBlock.load();
+    const int sr = m_chainSR.load(), block = m_chainBlock.load();
     auto newChain = std::make_shared<PluginChain>();
-    newChain->fromJson(json);
-    if (m_playing.load() && sr > 0) {
-        newChain->prepare(sr, block);
-        // Pre-warm: run one silent buffer through the new chain on the main thread.
-        // This triggers any internal allocations and stabilises plugin state
-        // before the audio thread ever sees this chain — no malloc in RT path.
-        std::vector<float> silL(block, 0.0f), silR(block, 0.0f);
-        float *silCh[2] = { silL.data(), silR.data() };
-        newChain->process(silCh, block);
-    }
 
-    auto oldChain = m_chain;
-    m_chain = newChain;
-    m_activeChain.store(newChain.get(), std::memory_order_release);
-    QTimer::singleShot(500, [kept = std::move(oldChain)](){});
-
-    emit displayChanged();
+    // Build and prepare on a background thread — old chain keeps playing.
+    std::thread([this, newChain, json, sr, block]() mutable {
+        newChain->fromJson(json);
+        if (sr > 0)
+            newChain->prepare(sr, block);
+        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
+            auto oldChain = m_chain;
+            m_chain       = std::move(nc);
+            m_activeChain.store(m_chain.get(), std::memory_order_release);
+            QTimer::singleShot(500, [kept = std::move(oldChain)](){});
+            emit displayChanged();
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 // ── Volume helpers ────────────────────────────────────────────────────────────
