@@ -6,7 +6,9 @@
 #include <QVector>
 #include <QPointF>
 #include <atomic>
+#include <climits>
 #include <mutex>
+#include <thread>
 #include <vector>
 #ifdef HAVE_SOUNDTOUCH
 #include <SoundTouch.h>
@@ -44,6 +46,9 @@ public:
     double   userRate()  const { return m_userRate; }
     bool     pitchPreserve() const { return m_pitchPreserve; }
     QVector<AudioSlice> slices() const { return m_slices; }
+    // "" = uscita principale (quella di Impostazioni → Hardware); altrimenti
+    // nome del dispositivo audio a cui instradare questa cue (vedi AudioEngine).
+    QString  outputDevice()    const { return m_outputDevice; }
 
     // Emitted (main thread) when restorePluginSnapshot() completes, so EffectCue
     // can detect that the chain was externally reset and transition to Idle.
@@ -58,11 +63,22 @@ public:
     void setVolumePoints(const QVector<QPointF> &pts){ m_volumePoints = pts; emit propertyChanged(); }
     void setTrimStart(double s)         { m_trimStart = qMax(0.0,s); emit propertyChanged(); }
     void setTrimEnd(double s)           { m_trimEnd   = qMax(0.0,s); emit propertyChanged(); }
-    void setLoopCount(int n)            { m_loopCount = qMax(0,n);   emit propertyChanged(); }
+    // Il nuovo valore deve avere effetto SUBITO se la cue è già in
+    // riproduzione (riscrive anche m_loopsRemaining), non solo al prossimo
+    // go(): altrimenti cambiarlo da Inspector mentre la cue suona non ha
+    // alcun effetto fino al riavvio — bug segnalato dall'utente testando A8.
+    void setLoopCount(int n) {
+        m_loopCount = qMax(0, n);
+        if (m_playing.load())
+            m_loopsRemaining.store(m_loopCount > 0 ? m_loopCount : INT_MAX);
+        emit propertyChanged();
+    }
     void setUserRate(double r);
     void setPitchPreserve(bool p);
     void setSlices(const QVector<AudioSlice> &s) { m_slices = s; emit propertyChanged(); }
     void setPlaybackRate(double r) override;
+    // Effetto dal prossimo go(): non sposta live una riproduzione già in corso.
+    void setOutputDevice(const QString &name) { m_outputDevice = name; emit propertyChanged(); }
 
     // ── Plugin chain (main thread access only) ────────────────────────────────
     PluginChain       *pluginChain()       { return m_chain.get(); }
@@ -84,6 +100,23 @@ public:
     QJsonObject toJson()                 const override;
     void        fromJson(const QJsonObject &o)  override;
 
+    // Fade in/out relativi al range effettivamente in riproduzione
+    // (trimStart..trimEnd), non all'intero file — usata da renderAudio()
+    // (entrambi i rami, con/senza SoundTouch). Pubblica e statica (pura,
+    // nessun accesso a membri dell'istanza) solo per essere testabile
+    // direttamente da tests/fase3_tests.cpp senza dover passare dal thread
+    // audio reale.
+    static double fadeEnvelope(double posS, double fadeIn, double fadeOut,
+                               double trimStart, double trimEnd, double fileDuration);
+
+    // Esposto pubblico solo per poter testare renderAudio() end-to-end senza
+    // passare da AudioEngine/un device audio reale (stesso spirito di
+    // fadeEnvelope() sopra). renderAudio() resta privata (override di
+    // AudioRenderer, chiamata normalmente solo dal thread audio reale).
+    bool renderAudioForTest(float *out, int frames, int sampleRate) {
+        return renderAudio(out, frames, sampleRate);
+    }
+
 private:
     // AudioRenderer — called from audio thread
     bool renderAudio(float* out, int frames, int sampleRate) override;
@@ -93,6 +126,40 @@ private:
     Q_INVOKABLE void handleStreamFinished();
 
     double interpolateVolume(double t) const;
+
+    // applyPluginChain()/restorePluginSnapshot() preparano la nuova chain su
+    // un thread in background (fromJson + prepare + pre-fill dal file), poi
+    // postano il risultato sul main thread via QMetaObject::invokeMethod —
+    // quella parte è già sicura (Qt non invoca il functor se `this` è stato
+    // distrutto nel frattempo). Ma PRIMA di quel post, il thread legge
+    // m_playing/m_framePos direttamente su `this`: se la cue viene distrutta
+    // mentre il thread è ancora lì, è un use-after-free. Si tracciano quindi
+    // i thread (non detach) e si joinano nel distruttore, che blocca solo nel
+    // raro caso in cui uno sia ancora davvero in corso.
+    struct BgThread { std::thread t; std::shared_ptr<std::atomic<bool>> done; };
+    std::mutex            m_bgThreadsMtx;
+    std::vector<BgThread> m_bgThreads;
+    void trackBgThread(std::thread t, std::shared_ptr<std::atomic<bool>> done);
+
+    // R1: go()/setUserRate()/setPitchPreserve()/setPlaybackRate() ripetevano
+    // lo stesso blocco "uninit + reinit decoder a una nuova sample rate +
+    // seek + (talvolta) aggiorna il totale frame" — estratto qui.
+    // `effectiveRate` è già clampata dal chiamante (qBound(0.1, ..., 4.0)),
+    // `updateTotalFrames` riproduce esattamente le differenze pre-esistenti
+    // fra i chiamanti (setPitchPreserve() non aggiornava m_totalFrames: non
+    // corretto qui, un comportamento diverso non è nello scope di questo
+    // refactor di deduplicazione).
+    bool reinitDecoderAt(double posSeconds, double effectiveRate, bool updateTotalFrames);
+
+    // R2: corpo comune di restorePluginSnapshot()/applyPluginChain() (le due
+    // differivano solo per la fonte del JSON e per pluginSnapshotRestored()).
+    void swapPluginChainAsync(const QJsonArray &json, bool isSnapshotRestore);
+#ifdef HAVE_SOUNDTOUCH
+    // Stesso blocco di reset di SoundTouch ripetuto in go()/setUserRate()/
+    // setPitchPreserve() (non in setPlaybackRate(), che pre-esistente non lo
+    // faceva — preservato tale e quale).
+    void resetSoundTouchIfNeeded(double effectiveRate);
+#endif
 
     // ── Decoder (accessed only inside renderAudio with m_decoderMtx) ─────────
     std::mutex        m_decoderMtx;
@@ -138,6 +205,7 @@ private:
     ChannelRoute     m_channel = ChannelRoute::Both;
     QVector<QPointF> m_volumePoints;
     QString          m_filePath;
+    QString          m_outputDevice;  // "" = uscita principale
 
     bool             m_pitchPreserve = false;
 

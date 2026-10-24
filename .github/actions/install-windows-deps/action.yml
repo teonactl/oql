@@ -1,0 +1,12 @@
+name: Install Windows build dependencies
+description: >
+  pkg-config + lilv/soundtouch via vcpkg. Prima era lo stesso identico
+  blocco ripetuto in build-windows.yml, build-beta.yml e release.yml (R9).
+
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        choco install pkgconfiglite -y
+        vcpkg install lilv:x64-windows soundtouch:x64-windows

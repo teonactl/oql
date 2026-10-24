@@ -140,7 +140,7 @@ EffectCue::EffectCue(QObject *parent) : ControlCue(parent) {
 }
 
 void EffectCue::go() {
-    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    auto *ac = dynamic_cast<AudioCue*>(m_target.data());
     if (!ac) { setState(State::Idle); emit finished(); return; }
 
     m_timer->stop();  // cancel any pending auto-reset from a previous go()
@@ -171,7 +171,7 @@ void EffectCue::stop() {
     m_timer->stop();
     m_startTimer.invalidate();
     if (m_state == State::Playing && m_activeTarget) {
-        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget)) {
+        if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget.data())) {
             // Disconnect BEFORE calling restorePluginSnapshot() to prevent
             // handleExternalReset() from being triggered by our own restore call.
             disconnect(ac, &AudioCue::pluginSnapshotRestored,
@@ -185,7 +185,7 @@ void EffectCue::stop() {
 
 void EffectCue::onTimeout() {
     m_startTimer.invalidate();
-    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget)) {
+    if (auto *ac = dynamic_cast<AudioCue*>(m_activeTarget.data())) {
         disconnect(ac, &AudioCue::pluginSnapshotRestored,
                    this, &EffectCue::handleExternalReset);
         ac->restorePluginSnapshot();
@@ -227,7 +227,7 @@ void EffectCue::fromJson(const QJsonObject &o) {
 // ── ResetEffectCue ────────────────────────────────────────────────────────────
 
 void ResetEffectCue::go() {
-    auto *ac = dynamic_cast<AudioCue*>(m_target);
+    auto *ac = dynamic_cast<AudioCue*>(m_target.data());
     if (!ac) { setState(State::Idle); emit finished(); return; }
     ac->restorePluginSnapshot();
     setState(State::Idle);

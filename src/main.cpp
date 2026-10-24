@@ -4,6 +4,8 @@
 #include <QByteArray>
 #include <QDate>
 #include <QMessageBox>
+#include <QFileInfo>
+#include <QStringList>
 #include "ui/MainWindow.h"
 #include "engine/AudioEngine.h"
 #include "engine/AppSettings.h"
@@ -174,11 +176,37 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    AudioEngine::instance().init(AppSettings::instance().audioOutputDevice().toStdString());
+    if (!AudioEngine::instance().init(AppSettings::instance().audioOutputDevice().toStdString())) {
+        // Nessun device audio disponibile (occupato da un'altra app, sessione
+        // senza audio, ecc.): senza questo controllo le cue audio/mic/record
+        // avrebbero fatto crashare l'app al primo GO (AudioEngine::addRenderer
+        // su un engine mai inizializzato). Si avvisa e si continua: l'utente
+        // può comunque creare, modificare e salvare il workspace.
+        QMessageBox::warning(nullptr, QObject::tr("OQL — Audio"),
+            QObject::tr("Impossibile inizializzare il dispositivo audio.\n\n"
+                        "OQL continuerà senza audio: puoi comunque creare, "
+                        "modificare e salvare il workspace. Verifica il "
+                        "dispositivo in Impostazioni → Hardware."));
+    }
 
     int ret;
     {
         MainWindow w;
+        // Apertura da "Apri con" / doppio clic su un .oql (Linux/Windows: il
+        // path arriva come argomento; macOS può arrivare così solo se l'app
+        // non era già in esecuzione — il caso "app già apert" richiederebbe
+        // gestire QFileOpenEvent, non implementato).
+        // QCoreApplication::arguments(), non argv[] grezzo: su Windows è
+        // Qt stesso a recuperare la riga di comando reale in UTF-16
+        // (GetCommandLineW) e a riconvertirla qui in modo corretto — un
+        // percorso con caratteri accentati passato via argv[] rischierebbe
+        // lo stesso problema di codifica risolto per i plugin VST2.
+        const QStringList cliArgs = QCoreApplication::arguments();
+        if (cliArgs.size() > 1) {
+            const QString path = cliArgs.at(1);
+            if (QFileInfo(path).exists())
+                w.openFileAtStartup(path);
+        }
         w.show();
         ret = app.exec();
         // MainWindow (and all cues) destruct here, before engine teardown

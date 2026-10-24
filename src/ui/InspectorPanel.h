@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QDialog>
 #include <QVector>
+#include <QPointer>
 #include "engine/Cue.h"
 
 class CueList;
@@ -50,6 +51,7 @@ private slots:
     void onAutoFollowChanged(bool v);
     void onFilePathChanged();
     void onVolumeChanged(double v);
+    void onOutputDeviceChanged(int index);
     void onFadeInChanged(double v);
     void onFadeOutChanged(double v);
     void onFadeInCheckChanged(bool checked);
@@ -96,7 +98,10 @@ private:
     void buildUi();
     void retranslateUi();
     void loadFromCue();
-    void blockSignals(bool block);
+    // R10 (nota a parte): nascondeva QObject::blockSignals(bool) con
+    // semantica diversa (blocca i segnali DEI CAMPI dell'inspector, non i
+    // propri) — rinominata per evitare l'ambiguità.
+    void blockFieldSignals(bool block);
     void updateMediaSection();
     void refreshImageList();
     void syncPlayButton(Cue::State state);
@@ -104,7 +109,9 @@ private:
     void             rebuildSliceTable(AudioCue *a);
 
     CueList *m_cueList       = nullptr;
-    Cue     *m_cue           = nullptr;
+    // QPointer, non Cue*: si azzera da solo se la cue puntata viene distrutta
+    // altrove (undo/redo, eliminazione) senza passare da setCue(nullptr).
+    QPointer<Cue> m_cue;
     bool     m_loadingFromCue = false;
     bool     m_showMode       = false;
 
@@ -125,6 +132,7 @@ private:
     QLineEdit      *m_fileEdit;
     QPushButton    *m_browseBtn;
     QDoubleSpinBox *m_volumeSpin;
+    QComboBox      *m_outputDeviceCombo = nullptr;  // uscita fisica (solo AudioCue)
     QSpinBox       *m_loopSpin  = nullptr;
     QComboBox      *m_videoBgCombo    = nullptr;
     QPushButton    *m_videoBgImageBtn = nullptr;

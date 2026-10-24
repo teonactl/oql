@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QTimer>
 #include <functional>
+#include <memory>
 #include "engine/Workspace.h"
 #include "engine/Cue.h"
 #include "ui/VideoOutputWindow.h"
@@ -34,6 +35,11 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+
+    // Apre un workspace passato da riga di comando (doppio clic / "Apri con"
+    // su un .oql). Chiamato da main() subito dopo la costruzione, prima di
+    // show(): niente conferma di modifiche non salvate, non ce ne sono ancora.
+    void openFileAtStartup(const QString &path);
 
 protected:
     void closeEvent(QCloseEvent *event)         override;
@@ -67,6 +73,8 @@ private slots:
     void addRecordCue();
 #endif
     void deleteSelectedCue();
+    void moveSelectedCueUp();
+    void moveSelectedCueDown();
     void groupSelectedCues(const QVector<int> &visRows);
     void go();
     void stopAll();
@@ -90,6 +98,10 @@ private:
     void setupNewVideoCue(int index);
     void wireVideoCueOpacity(VideoCue *cue);
     void addToRecentFiles(const QString &path);
+    // Sequenza comune dopo un load() riuscito (assegna i video sink, pulisce
+    // l'inspector/undo stack, aggiorna i recenti) — condivisa da
+    // openWorkspace(), openRecentFile() e openFileAtStartup().
+    void refreshAfterLoad(const QString &path);
     void rebuildRecentMenu();
     QString nextCueNumber();
 
@@ -137,6 +149,19 @@ private:
     void doUndoable(const QString &desc, std::function<void()> fn);
     void flushUndoPropChange();
     void addControlCueImpl(Cue::Type type, double extra = 0.0);
+
+    // R3: le add*Cue() per le cue "semplici" (non di controllo, già servite
+    // da addControlCueImpl) ripetevano la stessa logica di inserimento
+    // (indice dalla selezione, doUndoable, numero, selezione della nuova
+    // riga) differendo solo per il tipo concreto, il nome di default e
+    // un'eventuale configurazione aggiuntiva.
+    void addSimpleCue(const QString &undoLabel, const QString &defaultName,
+                       const std::function<std::unique_ptr<Cue>()> &factory,
+                       const std::function<void(Cue*)> &extraSetup = nullptr);
+
+    // R6: toggleVideo/Text/ImageOutput() erano identiche a meno della
+    // finestra e dell'azione di menu coinvolte.
+    void toggleOutputWindow(QWidget *win, QAction *action);
     void showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra = 0.0);
 
     bool        m_programmaticSelect    = false;

@@ -71,6 +71,7 @@ void ImageCue::onTick() {
     const int n = m_imagePaths.size();
     if (n <= 0) { finishNaturally(); return; }
 
+    const bool wasTransitioning = (m_phase == Phase::Transitioning);
     m_phaseElapsed += dt;
 
     if (m_phase == Phase::Holding) {
@@ -100,7 +101,17 @@ void ImageCue::onTick() {
         }
     }
 
-    emit displayChanged();
+    // E4: durante Holding non cambia nulla di visibile tick dopo tick
+    // (l'immagine resta la stessa finché non scatta la transizione), ma
+    // prima si emetteva displayChanged() comunque — 30 volte al secondo,
+    // per l'intera durata della slideshow. Quell'emissione passa da
+    // Cue::displayChanged() a CueList::cueLayoutChanged() a
+    // CueListModel::onCuePropertyChanged(), innescando un ricalcolo delle
+    // righe visibili (E3) ad ogni tick senza motivo. Si emette solo mentre
+    // si è davvero in transizione (la dissolvenza/slide avanza ad ogni
+    // tick) o nel tick in cui è appena finita (per mostrare lo stato finale).
+    if (m_phase == Phase::Transitioning || wasTransitioning)
+        emit displayChanged();
 }
 
 QJsonObject ImageCue::toJson() const {

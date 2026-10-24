@@ -5,14 +5,91 @@
 #include <algorithm>
 #include <QJsonObject>
 
+// R7: type()/isValid() erano identiche, parola per parola, nelle 11 classi
+// sotto; le prime due righe di ogni toJson() (AudioPlugin::toJson() +
+// builtin_id) pure. Una base intermedia condivisa copre entrambe.
+class BuiltinAudioPlugin : public AudioPlugin {
+public:
+    std::string type()    const override { return "builtin"; }
+    bool        isValid() const override { return true; }
+
+protected:
+    QJsonObject baseJson(const char *builtinId) const {
+        auto o = AudioPlugin::toJson();
+        o["builtin_id"] = builtinId;
+        return o;
+    }
+};
+
+// R7: Biquad condiviso fra EqPlugin (lowShelf/highShelf/peaking) e
+// MufflePlugin (lowPass) — prima duplicata identica (stato + tick()) nelle
+// due classi, ciascuna con solo il sottoinsieme di metodi di progettazione
+// del filtro che le serviva. Qui tutti i metodi sono disponibili sempre:
+// non hanno costo (non virtuali, nessuna vtable) e chi non li chiama non
+// se ne accorge.
+struct Biquad {
+    float b0=1,b1=0,b2=0,a1=0,a2=0, x1=0,x2=0,y1=0,y2=0;
+    float tick(float x) {
+        const float y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+        x2=x1; x1=x; y2=y1; y1=y;
+        return y;
+    }
+    void reset() { x1=x2=y1=y2=0.f; }
+    // lowShelf/highShelf/peaking/lowPass NON chiamano reset(): azzerare la
+    // memoria del filtro (x1,x2,y1,y2) ad ogni ricalcolo dei coefficienti
+    // produceva un click udibile a ogni movimento di uno slider EQ durante
+    // la riproduzione. Aggiornare i coefficienti lasciando intatta la
+    // storia recente dei campioni è il modo standard — ed esente da click —
+    // di far variare un filtro in tempo reale; reset() resta disponibile
+    // per un vero cold-start (qui non serve: i membri partono già a 0 per
+    // inizializzazione di default).
+    void lowShelf(float dB, float f, int sr) {
+        const float A  = std::pow(10.f, dB/40.f);
+        const float w0 = 6.283185307f * f / float(sr);
+        const float cw = std::cos(w0), sw = std::sin(w0);
+        const float al = sw * 0.5f * std::sqrt(2.f);   // S=1
+        const float s2 = 2.f * std::sqrt(A) * al;
+        const float a0 = (A+1.f)+(A-1.f)*cw+s2;
+        b0= A*((A+1.f)-(A-1.f)*cw+s2)/a0;  b1=2.f*A*((A-1.f)-(A+1.f)*cw)/a0;
+        b2= A*((A+1.f)-(A-1.f)*cw-s2)/a0;  a1=-2.f*((A-1.f)+(A+1.f)*cw)/a0;
+        a2=((A+1.f)+(A-1.f)*cw-s2)/a0;
+    }
+    void highShelf(float dB, float f, int sr) {
+        const float A  = std::pow(10.f, dB/40.f);
+        const float w0 = 6.283185307f * f / float(sr);
+        const float cw = std::cos(w0), sw = std::sin(w0);
+        const float al = sw * 0.5f * std::sqrt(2.f);   // S=1
+        const float s2 = 2.f * std::sqrt(A) * al;
+        const float a0 = (A+1.f)-(A-1.f)*cw+s2;
+        b0= A*((A+1.f)+(A-1.f)*cw+s2)/a0;  b1=-2.f*A*((A-1.f)+(A+1.f)*cw)/a0;
+        b2= A*((A+1.f)+(A-1.f)*cw-s2)/a0;  a1=2.f*((A-1.f)-(A+1.f)*cw)/a0;
+        a2=((A+1.f)-(A-1.f)*cw-s2)/a0;
+    }
+    void peaking(float dB, float f, float Q, int sr) {
+        const float A  = std::pow(10.f, dB/40.f);
+        const float w0 = 6.283185307f * f / float(sr);
+        const float cw = std::cos(w0), al = std::sin(w0)/(2.f*Q);
+        const float a0 = 1.f + al/A;
+        b0=(1.f+al*A)/a0;  b1=-2.f*cw/a0;  b2=(1.f-al*A)/a0;
+        a1=-2.f*cw/a0;     a2=(1.f-al/A)/a0;
+    }
+    // RBJ audio cookbook, low-pass.
+    void lowPass(float f, float q, int sr) {
+        const float w0 = 6.283185307f * f / float(sr);
+        const float cw = std::cos(w0), sw = std::sin(w0);
+        const float al = sw / (2.f * q);
+        const float a0 = 1.f + al;
+        b0=((1.f-cw)*0.5f)/a0;  b1=(1.f-cw)/a0;  b2=b0;
+        a1=(-2.f*cw)/a0;        a2=(1.f-al)/a0;
+    }
+};
+
 // ── GainPlugin ────────────────────────────────────────────────────────────────
-class GainPlugin : public AudioPlugin {
+class GainPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "gain";
 
     std::string name()    const override { return "Gain"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int, int) override {}
 
@@ -35,8 +112,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o = AudioPlugin::toJson();
-        o["builtin_id"] = BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["gain_db"] = double(m_gain > 0.f ? 20.f * std::log10(m_gain) : -60.f);
         return o;
     }
@@ -50,13 +126,11 @@ private:
 };
 
 // ── DelayPlugin ───────────────────────────────────────────────────────────────
-class DelayPlugin : public AudioPlugin {
+class DelayPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "delay";
 
     std::string name()    const override { return "Delay"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sampleRate, int) override {
         m_sampleRate = sampleRate;
@@ -103,8 +177,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o = AudioPlugin::toJson();
-        o["builtin_id"] = BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["delay_ms"]   = double(m_delayMs);
         o["feedback"]   = double(m_feedback);
         o["mix"]        = double(m_mix);
@@ -127,13 +200,11 @@ private:
 };
 
 // ── ReverbPlugin — algoritmo Freeverb (Jezar at Dreampoint, public domain) ───
-class ReverbPlugin : public AudioPlugin {
+class ReverbPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "reverb";
 
     std::string name()    const override { return "Reverb"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sampleRate, int) override {
         const float sc = float(sampleRate) / 44100.f;
@@ -184,8 +255,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o = AudioPlugin::toJson();
-        o["builtin_id"] = BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["room_size"]  = double(m_roomSize);
         o["damping"]    = double(m_damping);
         o["wet"]        = double(m_wet);
@@ -250,52 +320,13 @@ private:
 
 // ── EqPlugin (3-band biquad: low shelf + peaking mid + high shelf) ────────────
 // Coefficients: Audio EQ Cookbook — Robert Bristow-Johnson (public domain)
-class EqPlugin : public AudioPlugin {
-    struct Biquad {
-        float b0=1,b1=0,b2=0,a1=0,a2=0, x1=0,x2=0,y1=0,y2=0;
-        float tick(float x) {
-            const float y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2;
-            x2=x1; x1=x; y2=y1; y1=y;
-            return y;
-        }
-        void reset() { x1=x2=y1=y2=0.f; }
-        void lowShelf(float dB, float f, int sr) {
-            const float A  = std::pow(10.f, dB/40.f);
-            const float w0 = 6.283185307f * f / float(sr);
-            const float cw = std::cos(w0), sw = std::sin(w0);
-            const float al = sw * 0.5f * std::sqrt(2.f);   // S=1
-            const float s2 = 2.f * std::sqrt(A) * al;
-            const float a0 = (A+1.f)+(A-1.f)*cw+s2;
-            b0= A*((A+1.f)-(A-1.f)*cw+s2)/a0;  b1=2.f*A*((A-1.f)-(A+1.f)*cw)/a0;
-            b2= A*((A+1.f)-(A-1.f)*cw-s2)/a0;  a1=-2.f*((A-1.f)+(A+1.f)*cw)/a0;
-            a2=((A+1.f)+(A-1.f)*cw-s2)/a0;     reset();
-        }
-        void highShelf(float dB, float f, int sr) {
-            const float A  = std::pow(10.f, dB/40.f);
-            const float w0 = 6.283185307f * f / float(sr);
-            const float cw = std::cos(w0), sw = std::sin(w0);
-            const float al = sw * 0.5f * std::sqrt(2.f);   // S=1
-            const float s2 = 2.f * std::sqrt(A) * al;
-            const float a0 = (A+1.f)-(A-1.f)*cw+s2;
-            b0= A*((A+1.f)+(A-1.f)*cw+s2)/a0;  b1=-2.f*A*((A-1.f)+(A+1.f)*cw)/a0;
-            b2= A*((A+1.f)+(A-1.f)*cw-s2)/a0;  a1=2.f*((A-1.f)-(A+1.f)*cw)/a0;
-            a2=((A+1.f)-(A-1.f)*cw-s2)/a0;     reset();
-        }
-        void peaking(float dB, float f, float Q, int sr) {
-            const float A  = std::pow(10.f, dB/40.f);
-            const float w0 = 6.283185307f * f / float(sr);
-            const float cw = std::cos(w0), al = std::sin(w0)/(2.f*Q);
-            const float a0 = 1.f + al/A;
-            b0=(1.f+al*A)/a0;  b1=-2.f*cw/a0;  b2=(1.f-al*A)/a0;
-            a1=-2.f*cw/a0;     a2=(1.f-al/A)/a0;  reset();
-        }
-    };
-
+// R7: struct Biquad era duplicata identica (stato + tick()) in EqPlugin e
+// MufflePlugin, differendo solo per QUALI metodi di progettazione del
+// filtro usavano — definita una sola volta più sotto, a livello di file.
+class EqPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "eq3";
     std::string name()    const override { return "EQ 3-band"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override { m_sr = sr; updateAll(); }
 
@@ -322,7 +353,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o = AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["bass"]=double(m_bass);  o["mid"]=double(m_midDb);  o["treble"]=double(m_treble);
         return o;
     }
@@ -347,12 +378,10 @@ private:
 };
 
 // ── CompressorPlugin (feed-forward RMS con attack/release) ────────────────────
-class CompressorPlugin : public AudioPlugin {
+class CompressorPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "compressor";
     std::string name()    const override { return "Compressor"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override { m_sr=sr; updateCoeffs(); }
 
@@ -391,7 +420,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["thresh"]=double(m_thresh);  o["ratio"]=double(m_ratio);
         o["attack_ms"]=double(m_attackMs);  o["release_ms"]=double(m_releaseMs);
         return o;
@@ -417,12 +446,10 @@ private:
 };
 
 // ── LimiterPlugin (instant attack, smooth release, brickwall) ─────────────────
-class LimiterPlugin : public AudioPlugin {
+class LimiterPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "limiter";
     std::string name()    const override { return "Limiter"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override {
         // 100ms release hardcoded — keeps it simple for protection use
@@ -452,7 +479,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["thresh_db"]=double(m_threshDb);  return o;
     }
     void fromJson(const QJsonObject &o) override {
@@ -465,12 +492,10 @@ private:
 };
 
 // ── ChorusPlugin (LFO-modulated delay, stereo spread via 90° phase offset) ───
-class ChorusPlugin : public AudioPlugin {
+class ChorusPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "chorus";
     std::string name()    const override { return "Chorus"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override {
         m_sr = sr;
@@ -535,7 +560,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["rate"]=double(m_rate);  o["depth"]=double(m_depth);  o["mix"]=double(m_mix);
         return o;
     }
@@ -553,12 +578,10 @@ private:
 };
 
 // ── TremoloPlugin (LFO amplitude modulation) ─────────────────────────────────
-class TremoloPlugin : public AudioPlugin {
+class TremoloPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "tremolo";
     std::string name()    const override { return "Tremolo"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override { m_sr=sr; }
 
@@ -587,7 +610,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["rate"]=double(m_rate);  o["depth"]=double(m_depth);  return o;
     }
     void fromJson(const QJsonObject &o) override {
@@ -602,7 +625,7 @@ private:
 };
 
 // ── PhaserPlugin (4-stage first-order all-pass, feedback, LFO sweep) ─────────
-class PhaserPlugin : public AudioPlugin {
+class PhaserPlugin : public BuiltinAudioPlugin {
     // Lattice all-pass: H(z) = (a + z^{-1}) / (1 + a*z^{-1})
     struct AP1 {
         float a=0.f, z=0.f;
@@ -616,8 +639,6 @@ class PhaserPlugin : public AudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "phaser";
     std::string name()    const override { return "Phaser"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int sr, int) override { m_sr=sr; m_phase=m_fbL=m_fbR=0.f; }
 
@@ -662,7 +683,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["rate"]=double(m_rate);  o["feedback"]=double(m_feedback);  o["mix"]=double(m_mix);
         return o;
     }
@@ -682,12 +703,10 @@ private:
 
 // ── StereoWidenerPlugin (mid-side processing) ─────────────────────────────────
 // Width=100%: unity; <100%: narrower (toward mono); >100%: wider
-class StereoWidenerPlugin : public AudioPlugin {
+class StereoWidenerPlugin : public BuiltinAudioPlugin {
 public:
     static constexpr const char *BUILTIN_ID = "widener";
     std::string name()    const override { return "Stereo Widener"; }
-    std::string type()    const override { return "builtin"; }
-    bool        isValid() const override { return true; }
 
     void prepare(int, int) override {}
 
@@ -710,7 +729,7 @@ public:
     }
 
     QJsonObject toJson() const override {
-        auto o=AudioPlugin::toJson();  o["builtin_id"]=BUILTIN_ID;
+        auto o = baseJson(BUILTIN_ID);
         o["width"]=double(m_width);  return o;
     }
     void fromJson(const QJsonObject &o) override {
@@ -720,4 +739,56 @@ public:
 
 private:
     float m_width = 1.f;
+};
+
+// ── MufflePlugin — low-pass 24dB/ott (suono da ambiente chiuso/dietro una parete) ──
+class MufflePlugin : public BuiltinAudioPlugin {
+public:
+    static constexpr const char *BUILTIN_ID = "muffle";
+    std::string name()    const override { return "Muffle"; }
+
+    void prepare(int sr, int) override { m_sr = sr; updateCoeffs(); }
+
+    // Due biquad in cascata per canale → pendenza 24dB/ottava (un singolo
+    // biquad, 12dB/ott, è troppo dolce per un "ambiente chiuso" convincente).
+    void process(float* const* in, float** out, int frames) override {
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < frames; ++i)
+                out[ch][i] = m_stage2[ch].tick(m_stage1[ch].tick(in[ch][i]));
+    }
+
+    int numParams() const override { return 2; }
+    PluginParam param(int idx) const override {
+        switch (idx) {
+        case 0: return {"Cutoff",     "Hz", m_cutoff, 150.f, 6000.f, 1200.f};
+        case 1: return {"Resonance",  "Q",  m_q,      0.5f,     4.f,    0.9f};
+        default: return {};
+        }
+    }
+    void setParam(int idx, float v) override {
+        if (idx==0) m_cutoff = std::max(150.f, std::min(6000.f, v));
+        if (idx==1) m_q      = std::max(0.5f,  std::min(4.f,    v));
+        updateCoeffs();
+    }
+
+    QJsonObject toJson() const override {
+        auto o = baseJson(BUILTIN_ID);
+        o["cutoff"]=double(m_cutoff);  o["q"]=double(m_q);  return o;
+    }
+    void fromJson(const QJsonObject &o) override {
+        AudioPlugin::fromJson(o);
+        m_cutoff = float(o["cutoff"].toDouble(1200.0));
+        m_q      = float(o["q"].toDouble(0.9));
+        updateCoeffs();
+    }
+
+private:
+    Biquad m_stage1[2], m_stage2[2];
+    float  m_cutoff=1200.f, m_q=0.9f;
+    int    m_sr=44100;
+
+    void updateCoeffs() {
+        for (auto &f : m_stage1) f.lowPass(m_cutoff, m_q, m_sr);
+        for (auto &f : m_stage2) f.lowPass(m_cutoff, m_q, m_sr);
+    }
 };

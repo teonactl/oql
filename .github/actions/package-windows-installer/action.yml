@@ -1,0 +1,42 @@
+name: Package Windows installer
+description: >
+  windeployqt + DLL vcpkg + redistributable VC++ + Inno Setup. Prima era lo
+  stesso identico blocco ripetuto in build-windows.yml, build-beta.yml e
+  release.yml (R9) a meno del nome del file risultante, parametrizzato qui.
+
+inputs:
+  artifact-name:
+    description: Nome del file risultante, senza estensione .exe (es. "oql-windows-ci")
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Path dist -Force | Out-Null
+        Copy-Item build\Release\oql.exe dist\
+        windeployqt --release --compiler-runtime dist\oql.exe
+        Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
+        $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+        foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","sratom-0.dll","zix-0.dll","soundtouch.dll")) {
+          $src = "$vcpkgBin\$dll"
+          if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
+          Copy-Item $src dist\
+        }
+        # Il runtime MSVC (msvcp140/vcruntime140) lo installa il redistributable
+        # ufficiale firmato Microsoft via [Run] in installer.iss, non copiando
+        # le DLL a mano: alcuni antivirus le quarantinano se depositate da un
+        # installer non firmato (pattern simile al DLL side-loading).
+        # msvcp140_1.dll a parte: il vc_redist non garantisce sempre questo
+        # file sulla macchina di destinazione (versioni preesistenti del
+        # redistributable), quindi lo affianchiamo direttamente all'exe.
+        $sys32Msvcp140_1 = "C:\Windows\System32\msvcp140_1.dll"
+        if (Test-Path $sys32Msvcp140_1) { Copy-Item $sys32Msvcp140_1 dist\ -Force }
+        Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
+        $version = git describe --tags --always 2>$null
+        if (-not $version) { $version = "0.1.0" }
+        & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
+          /DMyAppVersion="$version" `
+          /DOutputFile="${{ inputs.artifact-name }}" `
+          installer.iss

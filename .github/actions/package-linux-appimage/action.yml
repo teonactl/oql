@@ -1,0 +1,41 @@
+name: Package Linux AppImage
+description: >
+  Pacchettizza build/oql in un AppImage (linuxdeploy + plugin Qt), con
+  icona e associazione MIME per i file .oql. Prima era lo stesso identico
+  blocco ripetuto in build-linux.yml, build-beta.yml e release.yml (R9) a
+  meno del nome del file risultante, parametrizzato qui.
+
+inputs:
+  artifact-name:
+    description: Nome del file risultante, senza estensione (es. "oql-linux")
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        wget -q -O linuxdeploy \
+          https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+        wget -q -O linuxdeploy-plugin-qt \
+          https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+        chmod +x linuxdeploy linuxdeploy-plugin-qt
+
+        install -Dm755 build/oql AppDir/usr/bin/oql
+        install -Dm644 resources/oql.svg \
+          AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
+        install -Dm644 resources/oql-mime.xml \
+          AppDir/usr/share/mime/packages/oql-workspace.xml
+        mkdir -p AppDir/usr/share/applications
+        sed 's|^Exec=.*|Exec=oql %f|; s|^Icon=.*|Icon=oql|' \
+          resources/oql.desktop \
+          > AppDir/usr/share/applications/oql.desktop
+
+        QMAKE=$(which qmake) \
+        APPIMAGE_EXTRACT_AND_RUN=1 \
+        ./linuxdeploy --appdir AppDir --plugin qt --output appimage
+
+        # linuxdeploy names output oql-x86_64.AppImage
+        find . -maxdepth 1 -name '*.AppImage' \
+          ! -name 'linuxdeploy' ! -name 'linuxdeploy-plugin-qt' \
+          -exec mv {} "${{ inputs.artifact-name }}.AppImage" \;

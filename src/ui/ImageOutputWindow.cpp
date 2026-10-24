@@ -45,9 +45,19 @@ ImageOutputWindow::ImageOutputWindow(QWidget *parent)
 
 QPixmap ImageOutputWindow::pixmapFor(const QString &path) {
     auto it = m_pixmapCache.find(path);
-    if (it != m_pixmapCache.end()) return it.value();
+    if (it != m_pixmapCache.end()) {
+        // Voce riusata: spostala in fondo alla coda di accesso (LRU).
+        m_pixmapOrder.removeOne(path);
+        m_pixmapOrder.append(path);
+        return it.value();
+    }
     QPixmap px(path);
     m_pixmapCache.insert(path, px);
+    m_pixmapOrder.append(path);
+    if (m_pixmapOrder.size() > kMaxCachedPixmaps) {
+        const QString evict = m_pixmapOrder.takeFirst();
+        m_pixmapCache.remove(evict);
+    }
     return px;
 }
 

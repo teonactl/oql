@@ -51,6 +51,15 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[Registry]
+; Associa i file .oql a OQL (doppio clic / "Apri con" in Esplora file).
+; HKA = HKCU o HKLM a seconda che l'installer giri senza/con privilegi admin
+; (costante predefinita di Inno Setup 6 pensata proprio per questo caso).
+Root: HKA; Subkey: "Software\Classes\.oql"; ValueType: string; ValueName: ""; ValueData: "OQL.Workspace"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\OQL.Workspace"; ValueType: string; ValueName: ""; ValueData: "OQL Workspace"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\OQL.Workspace\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKA; Subkey: "Software\Classes\OQL.Workspace\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+
 [Run]
 ; Redistributable firmato Microsoft, eseguito al posto di copiare a mano
 ; msvcp140.dll/vcruntime140.dll: alcuni antivirus quarantinano quelle DLL se

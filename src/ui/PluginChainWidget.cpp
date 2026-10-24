@@ -25,6 +25,9 @@
 #include <QLineEdit>
 #include <QProxyStyle>
 #include <QGuiApplication>
+#include <QProgressDialog>
+#include <QEventLoop>
+#include <QCoreApplication>
 #ifdef Q_OS_LINUX
 #include <suil/suil.h>
 #include <X11/Xlib.h>
@@ -100,6 +103,17 @@ public:
     ~VstEditorDialog() override {
         if (m_idleTimer) m_idleTimer->stop();
         if (m_plugin && m_editorOpened) m_plugin->closeEditor();
+#ifdef Q_OS_LINUX
+        // Ripristina il valore precedente di LIBGL_ALWAYS_SOFTWARE invece di
+        // lasciarlo forzato per il resto della sessione: è una env var,
+        // quindi è comunque process-wide (non si può "scoparla" a questa sola
+        // finestra), e Mesa in genere la legge una sola volta alla creazione
+        // del contesto GL — un contesto già creato mentre era forzata non
+        // torna indietro — ma almeno un contesto creato DOPO che l'editor si
+        // è chiuso (es. l'output video) non eredita il forzamento.
+        if (m_libglEnvWasSet) setenv("LIBGL_ALWAYS_SOFTWARE", m_prevLibglEnv.constData(), 1);
+        else                  unsetenv("LIBGL_ALWAYS_SOFTWARE");
+#endif
     }
 
 protected:
@@ -118,6 +132,8 @@ private:
     void tryOpenEditor() {
 #ifdef Q_OS_LINUX
         // Force Mesa software GL so NVIDIA's broken XWayland GLX is bypassed.
+        m_libglEnvWasSet = qEnvironmentVariableIsSet("LIBGL_ALWAYS_SOFTWARE");
+        if (m_libglEnvWasSet) m_prevLibglEnv = qgetenv("LIBGL_ALWAYS_SOFTWARE");
         setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0);
         if (auto *x11 = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
             XSync(x11->display(), False);
@@ -176,6 +192,10 @@ private:
     QTimer    *m_idleTimer     = nullptr;
     bool       m_editorOpened  = false;
     bool       m_openAttempted = false;
+#ifdef Q_OS_LINUX
+    bool       m_libglEnvWasSet = false;
+    QByteArray m_prevLibglEnv;
+#endif
 };
 
 // ── LV2 native editor dialog (Linux/X11 only) ─────────────────────────────────
@@ -257,6 +277,28 @@ private:
 // ── Plugin browser dialog ─────────────────────────────────────────────────────
 
 static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
+    // Rotella visibile subito al click, finché l'elenco effetti non è pronto.
+    // Il costo vero è lo scan LV2 (vedi Lv2Plugin::prewarmAsync in
+    // MainWindow: di solito è già pronto, ma se non lo è ancora la rotella
+    // resta visibile — con animazione, grazie al QEventLoop qui sotto —
+    // finché non lo è.
+    QProgressDialog busy(QObject::tr("Caricamento elenco effetti…"), QString(), 0, 0, parent);
+    busy.setWindowModality(Qt::WindowModal);
+    busy.setCancelButton(nullptr);
+    busy.setMinimumDuration(0);
+    busy.show();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
+    if (!Lv2Plugin::isWorldReady()) {
+        QEventLoop loop;
+        QTimer poll;
+        QObject::connect(&poll, &QTimer::timeout, &loop, [&]() {
+            if (Lv2Plugin::isWorldReady()) loop.quit();
+        });
+        poll.start(50);
+        loop.exec();
+    }
+
     auto *dlg = new QDialog(parent);
     dlg->setWindowTitle("Aggiungi effetto");
     dlg->resize(480, 420);
@@ -285,6 +327,7 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
         { TremoloPlugin::BUILTIN_ID,         "Tremolo",        "Modulazione d'ampiezza con LFO" },
         { PhaserPlugin::BUILTIN_ID,          "Phaser",         "Phaser a 4 stadi all-pass con sweep LFO" },
         { StereoWidenerPlugin::BUILTIN_ID,   "Stereo Widener", "Amplia o restringe il campo stereo (mid-side)" },
+        { MufflePlugin::BUILTIN_ID,          "Muffle",         "Suono ovattato, come da ambiente chiuso/dietro una parete (low-pass 24dB/ott)" },
     };
     for (const auto &bi : builtins) {
         auto *item = new QListWidgetItem(bi.name + " — " + bi.desc);
@@ -305,7 +348,8 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     vstLay->addWidget(vstList, 1);
     tabs->addTab(vstTab, "VST2");
 
-    // Platform-specific VST2 scan paths and file extensions
+    // Platform-specific VST2 scan paths, estensioni e tipo di entry (i bundle
+    // .vst di macOS sono CARTELLE, non file: QDir::Files li escluderebbe).
 #ifdef Q_OS_WIN
     QStringList vstDirs = {
         "C:/Program Files/VSTPlugins",
@@ -314,26 +358,29 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
         "C:/Program Files (x86)/VSTPlugins",
         QDir::homePath() + "/VST",
     };
-    const QStringList vstFilter = {"*.dll"};
+    const QStringList vstFilter   = {"*.dll"};
+    const QDir::Filters vstKind   = QDir::Files;
 #elif defined(Q_OS_MACOS)
     QStringList vstDirs = {
         "/Library/Audio/Plug-Ins/VST",
         QDir::homePath() + "/Library/Audio/Plug-Ins/VST",
     };
-    const QStringList vstFilter = {"*.so"};
+    const QStringList vstFilter   = {"*.vst"};
+    const QDir::Filters vstKind   = QDir::Dirs | QDir::NoDotAndDotDot;
 #else  // Linux
     QStringList vstDirs = {
         "/usr/lib/vst", "/usr/lib/lxvst", "/usr/local/lib/vst",
         QDir::homePath() + "/.vst",
     };
-    const QStringList vstFilter = {"*.so"};
+    const QStringList vstFilter   = {"*.so"};
+    const QDir::Filters vstKind   = QDir::Files;
 #endif
     // Append user-configured extra paths from Settings
     for (const QString &ep : AppSettings::instance().vstExtraPaths())
         if (!vstDirs.contains(ep)) vstDirs.append(ep);
 
     for (const QString &dir : vstDirs) {
-        for (const QFileInfo &fi : QDir(dir).entryInfoList(vstFilter, QDir::Files)) {
+        for (const QFileInfo &fi : QDir(dir).entryInfoList(vstFilter, vstKind)) {
             auto *item = new QListWidgetItem(fi.fileName());
             item->setData(Qt::UserRole, fi.absoluteFilePath());
             item->setData(Qt::UserRole + 1, "vst2");
@@ -353,7 +400,7 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     lv2Lay->addWidget(lv2List, 1);
     tabs->addTab(lv2Tab, "LV2");
 
-    // Enumerate via lilv (crash-safe wrapper)
+    // Enumerate via lilv (crash-safe wrapper) — world già pronto: atteso sopra.
     for (const auto &info : Lv2Plugin::enumerate()) {
         const QString uri  = QString::fromStdString(info.uri);
         const QString name = QString::fromStdString(info.name);
@@ -380,6 +427,7 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
     QObject::connect(btns, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
     QObject::connect(btns, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
 
+    busy.close();
     if (dlg->exec() != QDialog::Accepted) { delete dlg; return nullptr; }
 
     // Determina quale lista è attiva in base al tab selezionato
@@ -407,6 +455,7 @@ static std::unique_ptr<AudioPlugin> runBrowseDialog(QWidget *parent) {
         else if (key == TremoloPlugin::BUILTIN_ID)       plug = std::make_unique<TremoloPlugin>();
         else if (key == PhaserPlugin::BUILTIN_ID)        plug = std::make_unique<PhaserPlugin>();
         else if (key == StereoWidenerPlugin::BUILTIN_ID) plug = std::make_unique<StereoWidenerPlugin>();
+        else if (key == MufflePlugin::BUILTIN_ID)        plug = std::make_unique<MufflePlugin>();
     } else if (type == "vst2") {
         plug = std::make_unique<VstPlugin>(key.toStdString());
     } else {

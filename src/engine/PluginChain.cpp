@@ -30,7 +30,18 @@ void PluginChain::process(float** inOut, int frames) {
     bool useA = true;
     for (auto &plug : m_plugins) {
         float **dst = useA ? pA : pB;
-        plug->process(const_cast<float* const*>(src), dst, frames);
+        // Bypass centralizzato qui: VstPlugin/Lv2Plugin controllavano
+        // isActive() al loro interno, ma nessuno degli 11 plugin interni in
+        // BuiltinPlugins.h lo faceva — la casella di bypass nella UI non
+        // aveva alcun effetto su gain/delay/reverb/eq/compressor/limiter/
+        // chorus/tremolo/phaser/widener/muffle. Centralizzato qui vale per
+        // tutti i tipi di plugin, senza che ciascuno debba occuparsene.
+        if (plug->isActive())
+            plug->process(const_cast<float* const*>(src), dst, frames);
+        else {
+            std::copy(src[0], src[0] + frames, dst[0]);
+            std::copy(src[1], src[1] + frames, dst[1]);
+        }
         src  = dst;
         useA = !useA;
     }
@@ -71,6 +82,7 @@ void PluginChain::fromJson(const QJsonArray &arr) {
             else if (id == TremoloPlugin::BUILTIN_ID)       plug = std::make_unique<TremoloPlugin>();
             else if (id == PhaserPlugin::BUILTIN_ID)        plug = std::make_unique<PhaserPlugin>();
             else if (id == StereoWidenerPlugin::BUILTIN_ID) plug = std::make_unique<StereoWidenerPlugin>();
+            else if (id == MufflePlugin::BUILTIN_ID)        plug = std::make_unique<MufflePlugin>();
         }
         if (plug && plug->isValid()) {
             plug->fromJson(obj);

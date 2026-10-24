@@ -36,11 +36,9 @@ jobs:
           key: vcpkg-windows-lilv-soundtouch-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: vcpkg-windows-lilv-soundtouch-
 
+      # R9: deps identiche a build-beta.yml/release.yml, centralizzate qui.
       - name: Install dependencies (Windows)
-        shell: pwsh
-        run: |
-          choco install pkgconfiglite -y
-          vcpkg install lilv:x64-windows soundtouch:x64-windows
+        uses: ./.github/actions/install-windows-deps
 
       - name: Configure
         shell: pwsh
@@ -56,35 +54,12 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      # R9: stesso blocco di build-beta.yml/release.yml a meno del nome del
+      # file risultante, ora centralizzato e parametrizzato.
       - name: Package
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item build\Release\oql.exe dist\
-          windeployqt --release --compiler-runtime dist\oql.exe
-          Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
-          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
-          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","sratom-0.dll","zix-0.dll","soundtouch.dll")) {
-            $src = "$vcpkgBin\$dll"
-            if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
-            Copy-Item $src dist\
-          }
-          # Il runtime MSVC (msvcp140/vcruntime140) lo installa il redistributable
-          # ufficiale firmato Microsoft via [Run] in installer.iss, non copiando
-          # le DLL a mano: alcuni antivirus le quarantinano se depositate da un
-          # installer non firmato (pattern simile al DLL side-loading).
-          # msvcp140_1.dll a parte: il vc_redist non garantisce sempre questo
-          # file sulla macchina di destinazione (versioni preesistenti del
-          # redistributable), quindi lo affianchiamo direttamente all'exe.
-          $sys32Msvcp140_1 = "C:\Windows\System32\msvcp140_1.dll"
-          if (Test-Path $sys32Msvcp140_1) { Copy-Item $sys32Msvcp140_1 dist\ -Force }
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
-          $version = git describe --tags --always 2>$null
-          if (-not $version) { $version = "0.1.0" }
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
-            /DMyAppVersion="$version" `
-            /DOutputFile="oql-windows-ci" `
-            installer.iss
+        uses: ./.github/actions/package-windows-installer
+        with:
+          artifact-name: oql-windows-ci
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

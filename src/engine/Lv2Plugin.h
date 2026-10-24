@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <QByteArray>
+#include <QStringList>
 
 struct SuilInstanceImpl;  // avoid including suil.h in the header
 
@@ -14,6 +16,22 @@ public:
     static LilvWorld            *world();
     static void                  freeWorld();
     static std::vector<Info>     enumerate(); // crash-safe plugin list
+
+    // Costruisce il valore da assegnare a LV2_PATH su Linux/Windows dato il
+    // valore attuale della env var e i path extra configurati dall'utente
+    // (P2+P3): separatore giusto per piattaforma (':' vs ';') e, se la env
+    // var era vuota, i default "well-known" di lilv invece di sparire del
+    // tutto. Pura e statica apposta per essere testabile direttamente da
+    // tests/fase4_tests.cpp senza dover passare da world()/qputenv().
+    static QByteArray buildLv2PathValue(const QByteArray &currentEnv, const QStringList &extras);
+
+    // Kicks off lilv_world_load_all() on a background thread (once), so the
+    // slow first-time scan is done before the user opens "Aggiungi effetto".
+    // Safe to call multiple times; safe to call world()/enumerate() from the
+    // main thread while the prewarm is still running (they'll block on the
+    // same mutex instead of racing the shared LilvWorld).
+    static void                  prewarmAsync();
+    static bool                  isWorldReady();
 
     explicit Lv2Plugin(const std::string &uri);
     ~Lv2Plugin() override;

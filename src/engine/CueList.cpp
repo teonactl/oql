@@ -12,7 +12,10 @@
 #include "ScriptEngine.h"
 #include <QJsonObject>
 #include <QTimer>
+#include <QDebug>
+#include <QHash>
 #include <algorithm>
+#include <functional>
 
 CueList::CueList(QObject *parent) : QObject(parent) {
     ScriptEngine::instance().init(this);
@@ -31,8 +34,19 @@ void CueList::removeCue(int index) {
     if (index < 0 || index >= int(m_cues.size())) return;
     m_cues[index]->stop();
     m_cues.erase(m_cues.begin() + index);
-    if (m_playhead > index) m_playhead--;
-    m_playhead = qBound(0, m_playhead, int(m_cues.size()));
+
+    // Aggiusta il playhead per la cue rimossa e notifica SEMPRE se cambia:
+    // prima si limitava a scrivere m_playhead senza emettere playheadChanged,
+    // lasciando la selezione in vista (MainWindow) disallineata da quale cue
+    // GO avrebbe effettivamente fatto partire.
+    int newPlayhead = m_playhead;
+    if (newPlayhead > index) --newPlayhead;
+    newPlayhead = qBound(0, newPlayhead, int(m_cues.size()));
+    if (newPlayhead != m_playhead) {
+        m_playhead = newPlayhead;
+        emit playheadChanged(m_playhead);
+    }
+
     emit cueRemoved(index);
 }
 
@@ -106,6 +120,28 @@ int CueList::nextInSequence(int from) const {
 }
 
 void CueList::go() {
+    goAdvance(0);
+}
+
+// Implementazione reale di go(). `depth` cresce solo lungo i passi fatti SENZA
+// nessuna attesa reale (redirect su gruppo, auto-continue con post-wait nullo):
+// quelli sono gli unici punti che potrebbero richiamarsi all'infinito se un
+// gruppo si riferisce a se stesso (o due gruppi si parentano a vicenda) o se
+// un'intera lista auto-continue wrappa a inizio lista. I passi con un'attesa
+// reale (pre/post-wait > 0) resettano `depth` a 0, perché sono già limitati
+// dal tempo reale e non sono a rischio di loop stretto.
+//
+// Ogni auto-richiamo passa dall'event loop (QTimer::singleShot) invece di
+// chiamare go()/goAdvance() direttamente: così lo stack non cresce mai con la
+// lunghezza della catena, a prescindere dal contatore di profondità.
+void CueList::goAdvance(int depth) {
+    if (depth > kMaxAutoAdvanceDepth) {
+        qWarning("CueList: catena auto-continue/gruppo interrotta dopo %d passi "
+                 "senza attese reali (possibile riferimento ciclico tra cue/gruppi)",
+                 kMaxAutoAdvanceDepth);
+        return;
+    }
+
     if (m_cues.empty()) return;
     if (m_playhead >= int(m_cues.size()))
         setPlayhead(0);
@@ -132,7 +168,7 @@ void CueList::go() {
         for (int i = 0; i < int(m_cues.size()); ++i) {
             if (m_cues[i]->parentGroupId() == gid) {
                 setPlayhead(i);
-                go();
+                QTimer::singleShot(0, this, [this, depth]{ goAdvance(depth + 1); });
                 return;
             }
         }
@@ -148,13 +184,13 @@ void CueList::go() {
     if (auto *cc = dynamic_cast<ControlCue*>(cue))
         cc->setTarget(findCueById(cc->targetId()));
 
-    auto doStart = [this, cue, ac, post]() {
+    auto doStart = [this, cue, ac, post, depth]() {
         cue->go();
         if (ac) {
             if (post > 0.001)
-                QTimer::singleShot(int(post * 1000), this, [this]{ go(); });
+                QTimer::singleShot(int(post * 1000), this, [this]{ goAdvance(0); });
             else
-                go();
+                QTimer::singleShot(0, this, [this, depth]{ goAdvance(depth + 1); });
         }
     };
 
@@ -180,12 +216,18 @@ void CueList::pauseAll() {
         if (c->state() == Cue::State::Playing) c->pause();
 }
 
+// R5: vedi commento nell'header.
+int CueList::indexOfCue(const Cue *cue) const {
+    auto it = std::find_if(m_cues.begin(), m_cues.end(),
+                           [cue](const auto &c){ return c.get() == cue; });
+    if (it == m_cues.end()) return -1;
+    return int(std::distance(m_cues.begin(), it));
+}
+
 void CueList::connectCue(Cue *cue) {
     connect(cue, &Cue::stateChanged, this, [this, cue](Cue::State s) {
-        auto it = std::find_if(m_cues.begin(), m_cues.end(),
-                               [cue](const auto &c){ return c.get() == cue; });
-        if (it == m_cues.end()) return;
-        const int idx = int(std::distance(m_cues.begin(), it));
+        const int idx = indexOfCue(cue);
+        if (idx < 0) return;
         emit cueStateChanged(idx, s);
 
         // Auto-collapse group when its last active child goes Idle
@@ -225,36 +267,31 @@ void CueList::connectCue(Cue *cue) {
     });
 
     connect(cue, &Cue::propertyChanged, this, [this, cue]() {
-        auto it = std::find_if(m_cues.begin(), m_cues.end(),
-                               [cue](const auto &c){ return c.get() == cue; });
-        if (it == m_cues.end()) return;
-        emit cuePropertyChanged(int(std::distance(m_cues.begin(), it)));
+        const int idx = indexOfCue(cue);
+        if (idx < 0) return;
+        emit cuePropertyChanged(idx);
     });
 
     // displayChanged: UI-only refresh (e.g. duration becoming available) — must NOT mark workspace modified
     connect(cue, &Cue::displayChanged, this, [this, cue]() {
-        auto it = std::find_if(m_cues.begin(), m_cues.end(),
-                               [cue](const auto &c){ return c.get() == cue; });
-        if (it == m_cues.end()) return;
-        emit cueLayoutChanged(int(std::distance(m_cues.begin(), it)));
+        const int idx = indexOfCue(cue);
+        if (idx < 0) return;
+        emit cueLayoutChanged(idx);
     });
 
     // Group collapse/expand: triggers view rebuild but must NOT mark workspace modified
     if (auto *gc = dynamic_cast<GroupCue*>(cue)) {
         connect(gc, &GroupCue::layoutChanged, this, [this, cue]() {
-            auto it = std::find_if(m_cues.begin(), m_cues.end(),
-                                   [cue](const auto &c){ return c.get() == cue; });
-            if (it == m_cues.end()) return;
-            emit cueLayoutChanged(int(std::distance(m_cues.begin(), it)));
+            const int idx = indexOfCue(cue);
+            if (idx < 0) return;
+            emit cueLayoutChanged(idx);
         });
     }
 
     connect(cue, &Cue::finished, this, [this, cue]() {
         if (!cue->autoFollow()) return;
-        auto it = std::find_if(m_cues.begin(), m_cues.end(),
-                               [cue](const auto &c){ return c.get() == cue; });
-        if (it == m_cues.end()) return;
-        const int actualIdx = int(std::distance(m_cues.begin(), it));
+        const int actualIdx = indexOfCue(cue);
+        if (actualIdx < 0) return;
 
         const double post = cue->postWait();
         auto fireNext = [this, actualIdx]() {
@@ -286,6 +323,37 @@ QJsonArray CueList::toJson() const {
     return arr;
 }
 
+// R4: tabella statica stringa→factory, sostituisce la precedente catena
+// if/else di 16 rami identici (make_unique<T>() + fromJson + move). Il
+// fromJson(obj) specifico per tipo resta a carico del chiamante, dopo la
+// factory: Cue::fromJson() è virtuale, quindi la dispatch sul tipo concreto
+// avviene comunque anche passando per il puntatore alla base.
+static const QHash<QString, std::function<std::unique_ptr<Cue>()>> &cueFactories() {
+    static const QHash<QString, std::function<std::unique_ptr<Cue>()>> table = {
+        {"audio", [] { return std::make_unique<AudioCue>(); }},
+        {"video", [] { return std::make_unique<VideoCue>(); }},
+        {"stop",  [] { return std::make_unique<StopCue>(); }},
+        {"fade",  [] { return std::make_unique<FadeCue>(); }},
+        {"pause", [] { return std::make_unique<PauseCue>(); }},
+#ifndef OQL_BASE
+        {"speed", [] { return std::make_unique<SpeedCue>(); }},
+#endif
+        {"play",  [] { return std::make_unique<PlayCue>(); }},
+        {"mic",   [] { return std::make_unique<MicCue>(); }},
+        {"group", [] { return std::make_unique<GroupCue>(); }},
+        {"label", [] { return std::make_unique<LabelCue>(); }},
+        {"text",  [] { return std::make_unique<TextCue>(); }},
+        {"image", [] { return std::make_unique<ImageCue>(); }},
+#ifndef OQL_BASE
+        {"effect",      [] { return std::make_unique<EffectCue>(); }},
+        {"reseteffect", [] { return std::make_unique<ResetEffectCue>(); }},
+        {"script",      [] { return std::make_unique<ScriptCue>(); }},
+        {"record",      [] { return std::make_unique<RecordCue>(); }},
+#endif
+    };
+    return table;
+}
+
 void CueList::fromJson(const QJsonArray &arr) {
     emit aboutToReset();
     for (auto &c : m_cues) c->stop();
@@ -294,83 +362,14 @@ void CueList::fromJson(const QJsonArray &arr) {
     for (const auto &val : arr) {
         const auto obj  = val.toObject();
         const QString t = obj["cueType"].toString();
-        std::unique_ptr<Cue> cue;
-        if (t == "audio") {
-            auto a = std::make_unique<AudioCue>();
-            a->fromJson(obj);
-            cue = std::move(a);
-        } else if (t == "video") {
-            auto v = std::make_unique<VideoCue>();
-            v->fromJson(obj);
-            cue = std::move(v);
-        } else if (t == "stop") {
-            auto c = std::make_unique<StopCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "fade") {
-            auto c = std::make_unique<FadeCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "pause") {
-            auto c = std::make_unique<PauseCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        }
-#ifndef OQL_BASE
-        else if (t == "speed") {
-            auto c = std::make_unique<SpeedCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        }
-#endif
-        else if (t == "play") {
-            auto c = std::make_unique<PlayCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "mic") {
-            auto c = std::make_unique<MicCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "group") {
-            auto c = std::make_unique<GroupCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "label") {
-            auto c = std::make_unique<LabelCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "text") {
-            auto c = std::make_unique<TextCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "image") {
-            auto c = std::make_unique<ImageCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        }
-#ifndef OQL_BASE
-        else if (t == "effect") {
-            auto c = std::make_unique<EffectCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "reseteffect") {
-            auto c = std::make_unique<ResetEffectCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "script") {
-            auto c = std::make_unique<ScriptCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        } else if (t == "record") {
-            auto c = std::make_unique<RecordCue>();
-            c->fromJson(obj);
-            cue = std::move(c);
-        }
-#endif
-        if (cue) {
-            connectCue(cue.get());
-            m_cues.push_back(std::move(cue));
-        }
+        const auto &factories = cueFactories();
+        const auto it = factories.find(t);
+        if (it == factories.end()) continue;
+
+        std::unique_ptr<Cue> cue = (*it)();
+        cue->fromJson(obj);
+        connectCue(cue.get());
+        m_cues.push_back(std::move(cue));
     }
     emit listReset();
 }

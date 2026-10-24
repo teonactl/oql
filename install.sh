@@ -30,6 +30,7 @@ echo "Binario trovato: $BINARY"
 BIN_DIR="${HOME}/.local/bin"
 ICONS_DIR="${HOME}/.local/share/icons/hicolor"
 DESKTOP_DIR="${HOME}/.local/share/applications"
+MIME_DIR="${HOME}/.local/share/mime"
 
 mkdir -p "$BIN_DIR" \
          "$ICONS_DIR/scalable/apps" \
@@ -37,7 +38,8 @@ mkdir -p "$BIN_DIR" \
          "$ICONS_DIR/128x128/apps" \
          "$ICONS_DIR/64x64/apps" \
          "$ICONS_DIR/48x48/apps" \
-         "$DESKTOP_DIR"
+         "$DESKTOP_DIR" \
+         "$MIME_DIR/packages"
 
 # ── Installa il binario ───────────────────────────────────────────────────────
 cp -f "$BINARY" "$BIN_DIR/oql"
@@ -80,6 +82,14 @@ sed "s|Exec=oql|Exec=$BIN_DIR/oql|" \
     > "$DESKTOP_DIR/oql.desktop"
 chmod 644 "$DESKTOP_DIR/oql.desktop"
 echo "  [✓] Launcher → $DESKTOP_DIR/oql.desktop"
+
+# ── Associa i file .oql (doppio clic / "Apri con" in Finder/Esplora) ──────────
+cp -f "$SCRIPT_DIR/resources/oql-mime.xml" "$MIME_DIR/packages/oql-workspace.xml"
+if command -v update-mime-database &>/dev/null; then
+    update-mime-database "$MIME_DIR" &>/dev/null && echo "  [✓] Associazione .oql registrata"
+else
+    echo "  [!] update-mime-database non trovato: i file .oql non si apriranno con doppio clic"
+fi
 
 # ── Aggiorna le cache (tutti i DE) ────────────────────────────────────────────
 echo ""

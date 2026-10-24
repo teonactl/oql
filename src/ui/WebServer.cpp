@@ -9,6 +9,13 @@
 #include <QJsonDocument>
 #include <QFile>
 #include <QTimer>
+#include <QUuid>
+
+// Dimensione massima accettata per i dati grezzi di una richiesta prima di
+// aver trovato la fine degli header (\r\n\r\n): una connessione che non manda
+// mai una richiesta completa (o ne manda una enorme) non deve poter far
+// crescere il buffer senza limite.
+static constexpr int kMaxRequestBytes = 64 * 1024;
 
 static QByteArray typeStr(Cue::Type t) {
     switch (t) {
@@ -51,6 +58,13 @@ bool WebServer::start(quint16 port) {
         connect(m_server, &QTcpServer::newConnection, this, &WebServer::onNewConnection);
     }
     if (m_server->isListening()) m_server->close();
+
+    // Token casuale rigenerato a ogni avvio: senza, chiunque sulla stessa
+    // rete (o una pagina web qualsiasi aperta nel browser dell'operatore,
+    // dato che le risposte hanno CORS aperto) poteva fare GO/Stop/Shutdown
+    // semplicemente indovinando l'URL/porta.
+    m_token = QUuid::createUuid().toString(QUuid::Id128);
+
     if (!m_server->listen(QHostAddress::Any, port)) {
         emit errorOccurred(m_server->errorString());
         return false;
@@ -73,25 +87,39 @@ bool WebServer::isRunning() const {
 QString WebServer::localUrl() const {
     if (!isRunning()) return {};
     const quint16 port = m_server->serverPort();
+    // Il token in query string è il modo in cui l'URL stesso fa da "chiave":
+    // chi non vede questo link (mostrato in Impostazioni/nella barra web di
+    // OQL) non può comandare le cue nemmeno conoscendo IP e porta.
     for (const auto &iface : QNetworkInterface::allInterfaces()) {
         if (iface.flags() & QNetworkInterface::IsLoopBack) continue;
         if (!(iface.flags() & QNetworkInterface::IsUp)) continue;
         for (const auto &entry : iface.addressEntries()) {
             if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol)
-                return QString("http://%1:%2").arg(entry.ip().toString()).arg(port);
+                return QString("http://%1:%2/?t=%3").arg(entry.ip().toString()).arg(port).arg(m_token);
         }
     }
-    return QString("http://127.0.0.1:%1").arg(port);
+    return QString("http://127.0.0.1:%1/?t=%2").arg(port).arg(m_token);
 }
 
 void WebServer::onNewConnection() {
     while (m_server->hasPendingConnections()) {
         auto *sock = m_server->nextPendingConnection();
         m_buffers[sock] = {};
+
+        // Timeout di sicurezza: una connessione che apre il socket ma non manda
+        // mai una richiesta completa non deve restare aperta indefinitamente.
+        // Parentato a sock: si distrugge da solo quando il socket viene cancellato.
+        auto *timeout = new QTimer(sock);
+        timeout->setSingleShot(true);
+        connect(timeout, &QTimer::timeout, sock, &QTcpSocket::disconnectFromHost);
+        timeout->start(10000);
+
         connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
-            m_buffers[sock] += sock->readAll();
-            if (m_buffers[sock].contains("\r\n\r\n")) {
-                handleRequest(sock, m_buffers[sock]);
+            QByteArray &buf = m_buffers[sock];
+            buf += sock->readAll();
+            if (buf.size() > kMaxRequestBytes) { sock->disconnectFromHost(); return; }
+            if (buf.contains("\r\n\r\n")) {
+                handleRequest(sock, buf);
                 m_buffers.remove(sock);
             }
         });
@@ -110,8 +138,28 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
     const QStringList p = line.split(' ');
     if (p.size() < 2) { sock->disconnectFromHost(); return; }
 
-    const QString method = p[0].toUpper();
-    const QString path   = p[1].split('?').first();
+    const QString method   = p[0].toUpper();
+    const QString fullPath = p[1];
+    const int     qIdx     = fullPath.indexOf('?');
+    const QString path     = qIdx >= 0 ? fullPath.left(qIdx) : fullPath;
+    const QString query    = qIdx >= 0 ? fullPath.mid(qIdx + 1) : QString();
+
+    // Il preflight CORS del browser non porta credenziali/query applicative:
+    // risponde sempre, senza controllo token (la vera richiesta arriva dopo).
+    if (method == "OPTIONS") {
+        sendResponse(sock, 200, "text/plain", "");
+        return;
+    }
+
+    QString token;
+    for (const QString &kv : query.split('&', Qt::SkipEmptyParts)) {
+        const int eq = kv.indexOf('=');
+        if (eq > 0 && kv.left(eq) == "t") { token = kv.mid(eq + 1); break; }
+    }
+    if (token != m_token) {
+        sendResponse(sock, 403, "application/json", "{\"error\":\"token mancante o non valido\"}");
+        return;
+    }
 
     if (method == "GET" && path == "/") {
         QFile f(":/webui.html");
@@ -165,9 +213,6 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
         sendResponse(sock, 200, "application/json", "{\"ok\":true}");
         QTimer::singleShot(200, this, &WebServer::stop);
 
-    } else if (method == "OPTIONS") {
-        sendResponse(sock, 200, "text/plain", "");
-
     } else {
         sendResponse(sock, 404, "text/plain", "Not found");
     }
@@ -176,7 +221,7 @@ void WebServer::handleRequest(QTcpSocket *sock, const QByteArray &raw) {
 void WebServer::sendResponse(QTcpSocket *sock, int status,
                               const QByteArray &contentType, const QByteArray &body) {
     static const QHash<int, QByteArray> phrases = {
-        {200, "OK"}, {404, "Not Found"}, {500, "Internal Server Error"}
+        {200, "OK"}, {403, "Forbidden"}, {404, "Not Found"}, {500, "Internal Server Error"}
     };
     QByteArray resp;
     resp += "HTTP/1.1 " + QByteArray::number(status) + " "

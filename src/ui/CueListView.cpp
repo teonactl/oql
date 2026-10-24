@@ -60,7 +60,8 @@ CueListView::CueListView(CueListModel *model, QWidget *parent)
         "QHeaderView::section:last { border-right: none; }"
     );
 
-    const QList<int> defaults = { 50, 60, 220, 200, 70, 70, 70, 30 };
+    // Number, Type, Name, Target, Output, PreWait, Duration, PostWait, Continue
+    const QList<int> defaults = { 50, 60, 220, 200, 110, 70, 70, 70, 30 };
     const QList<int> saved    = AppSettings::instance().cueListColumnWidths();
     const QList<int> &widths  = (saved.size() == CueListModel::ColCount) ? saved : defaults;
     for (int c = 0; c < CueListModel::ColCount; ++c)

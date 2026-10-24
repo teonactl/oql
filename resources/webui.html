@@ -199,6 +199,13 @@ header{
 <div id="list"></div>
 
 <script>
+// Il token arriva come ?t=... nell'URL che OQL mostra in Impostazioni/nella
+// barra web: va riattaccato a ogni chiamata, altrimenti il server risponde 403.
+const TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+function withToken(url) {
+  return url + (url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(TOKEN);
+}
+
 const BADGE = {
   audio:'AUDIO', video:'VIDEO', text:'TEXT', image:'IMAGE', mic:'MIC',
   stop:'STOP', pause:'PAUSE', play:'PLAY', fade:'FADE',
@@ -300,7 +307,7 @@ function render(cues) {
 
 async function refresh() {
   try {
-    const r = await fetch('/api/cues', { cache: 'no-store' });
+    const r = await fetch(withToken('/api/cues'), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     render(await r.json());
   } catch (e) {
@@ -313,7 +320,7 @@ async function refresh() {
 }
 
 async function post(url) {
-  try { await fetch(url, { method:'POST', cache:'no-store' }); } catch {}
+  try { await fetch(withToken(url), { method:'POST', cache:'no-store' }); } catch {}
   refresh();
 }
 const cueGo    = id => post('/api/cue/'+id+'/go');

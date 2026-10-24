@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QPixmap>
 #include <QMetaObject>
+#include <QStringList>
 
 class ImageCue;
 class QLabel;
@@ -43,7 +44,13 @@ private:
 
     ImageCue *m_cue = nullptr;
     QMetaObject::Connection m_connection;
+    // E11: niente limite di dimensione — ogni path mai mostrato restava in
+    // cache per sempre (una QPixmap intera a piena risoluzione per voce).
+    // Cache bounded in stile LRU: m_pixmapOrder tiene l'ordine di accesso,
+    // le voci più vecchie vengono espulse oltre kMaxCachedPixmaps.
+    static constexpr int kMaxCachedPixmaps = 48;
     QHash<QString, QPixmap> m_pixmapCache;
+    QStringList m_pixmapOrder;
     QString m_lastBottomKey;
     QString m_lastTopKey;
     QString m_lastBackgroundKey;

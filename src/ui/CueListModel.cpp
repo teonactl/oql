@@ -232,6 +232,37 @@ QVector<int> CueListModel::computeVisibleRows() const {
 
 void CueListModel::rebuildVisibleRows() {
     m_visibleRows = computeVisibleRows();
+
+    // Cambi strutturali (add/remove/move/reset): invalida le cache E1 e
+    // riallinea lo snapshot E3 del parentGroupId per ogni cue attuale.
+    m_cueByIdDirty = true;
+    m_recordSrcCacheDirty = true;
+    m_lastParentGroupId.resize(m_list->count());
+    for (int i = 0; i < m_list->count(); ++i)
+        m_lastParentGroupId[i] = m_list->cueAt(i)->parentGroupId();
+    m_lastPlayheadVisibleRow = -1; // il reset successivo ridisegna già tutto
+}
+
+void CueListModel::ensureCueByIdCache() const {
+    if (!m_cueByIdDirty) return;
+    m_cueById.clear();
+    for (int i = 0; i < m_list->count(); ++i) {
+        Cue *c = m_list->cueAt(i);
+        m_cueById.insert(c->id(), c);
+    }
+    m_cueByIdDirty = false;
+}
+
+void CueListModel::ensureRecordSrcCache() const {
+    if (!m_recordSrcCacheDirty) return;
+    m_recordSrcByAudioCueId.clear();
+    for (int i = 0; i < m_list->count(); ++i) {
+        if (auto *rc = qobject_cast<RecordCue*>(m_list->cueAt(i))) {
+            if (!rc->linkedAudioCueId().isEmpty())
+                m_recordSrcByAudioCueId.insert(rc->linkedAudioCueId(), rc);
+        }
+    }
+    m_recordSrcCacheDirty = false;
 }
 
 void CueListModel::toggleGroupAt(int visibleRow) {
@@ -376,12 +407,13 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
             return {};
         }
         if (const auto *ac = dynamic_cast<const AudioCue*>(cue)) {
-            // Check if this AudioCue is the target of a RecordCue
+            // E1: era una scansione O(n) dell'intera lista ad OGNI cella
+            // (DisplayRole + ForegroundRole), quindi O(n^2) per un repaint
+            // completo della tabella. Cache aggiornata solo quando serve
+            // (vedi ensureRecordSrcCache()).
+            ensureRecordSrcCache();
             auto findRecordSrc = [&]() -> RecordCue* {
-                for (int i = 0; i < m_list->count(); ++i)
-                    if (auto *rc = qobject_cast<RecordCue*>(m_list->cueAt(i)))
-                        if (rc->linkedAudioCueId() == ac->id()) return rc;
-                return nullptr;
+                return m_recordSrcByAudioCueId.value(ac->id(), nullptr);
             };
             if (role == Qt::DisplayRole) {
                 if (!ac->filePath().isEmpty())
@@ -427,10 +459,14 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         const auto *cc = dynamic_cast<const ControlCue*>(cue);
         if (!cc) return {};
 
+        // E1: m_list->findCueById() è una scansione O(n); con una
+        // ControlCue per riga questo era O(n^2) per repaint. Cache locale
+        // aggiornata solo sui cambi strutturali (gli id sono immutabili).
+        ensureCueByIdCache();
         if (role == Qt::DisplayRole) {
             if (cc->targetId().isEmpty())
                 return QString("✗");
-            Cue *t = m_list->findCueById(cc->targetId());
+            Cue *t = m_cueById.value(cc->targetId(), nullptr);
             if (!t) return tr("? non trovato");
             const QString num = t->number().isEmpty() ? "—" : t->number();
             const QString nm  = t->name().isEmpty()   ? "(senza nome)" : t->name();
@@ -439,12 +475,22 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
         if (role == Qt::ForegroundRole) {
             if (cc->targetId().isEmpty())
                 return QColor(200, 50, 50);
-            if (!m_list->findCueById(cc->targetId()))
+            if (!m_cueById.value(cc->targetId(), nullptr))
                 return QColor(220, 120, 30);
             return QColor(160, 210, 160);
         }
         if (role == Qt::TextAlignmentRole)
             return int(Qt::AlignVCenter | Qt::AlignLeft);
+        return {};
+    }
+
+    if (idx.column() == ColOutput) {
+        const auto *ac = dynamic_cast<const AudioCue*>(cue);
+        if (!ac) return {};
+        if (role == Qt::DisplayRole)
+            return ac->outputDevice().isEmpty() ? tr("Predefinita") : ac->outputDevice();
+        if (role == Qt::ForegroundRole)
+            return ac->outputDevice().isEmpty() ? QColor(140, 140, 150) : QColor(160, 210, 160);
         return {};
     }
 
@@ -473,6 +519,7 @@ QVariant CueListModel::headerData(int section, Qt::Orientation o, int role) cons
     case ColPostWait: return tr("Post-wait");
     case ColContinue: return "↳";
     case ColTarget:   return tr("Target");
+    case ColOutput:   return tr("Uscita");
     }
     return {};
 }
@@ -570,20 +617,51 @@ void CueListModel::onCueStateChanged(int index, Cue::State) {
 }
 
 void CueListModel::onCuePropertyChanged(int index) {
-    const QVector<int> next = computeVisibleRows();
-    if (next != m_visibleRows) {
-        beginResetModel();
-        m_visibleRows = next;
-        endResetModel();
-    } else {
-        const int vis = m_visibleRows.indexOf(index);
-        if (vis >= 0)
-            emit dataChanged(this->index(vis, 0), this->index(vis, ColCount - 1));
+    // E3: questo slot scatta per QUALSIASI propertyChanged() di QUALSIASI
+    // cue (volume, nome, note, ...), ma solo parentGroupId incide davvero
+    // sulla disposizione delle righe visibili (il collapse di un gruppo
+    // arriva a parte via cueLayoutChanged). Ricalcolare computeVisibleRows()
+    // — O(n log n) con allocazioni QSet/QMap — ad ogni singolo tick di una
+    // proprietà qualsiasi è inutile nella stragrande maggioranza dei casi:
+    // si ricalcola solo se QUESTA cue ha davvero cambiato parentGroupId
+    // rispetto all'ultimo rebuild.
+    Cue *cue = (index >= 0 && index < m_list->count()) ? m_list->cueAt(index) : nullptr;
+    const QString currentPgid = cue ? cue->parentGroupId() : QString();
+    const bool knownPgid = index >= 0 && index < m_lastParentGroupId.size();
+    const bool topologyMayHaveChanged = !knownPgid || m_lastParentGroupId[index] != currentPgid;
+
+    // E1: se la cue cambiata è una RecordCue, il suo linkedAudioCueId
+    // potrebbe essere cambiato: invalida solo quella cache, non ricostruirla
+    // subito (lazy, rifatta solo quando la colonna Target la richiede).
+    if (qobject_cast<RecordCue*>(cue))
+        m_recordSrcCacheDirty = true;
+
+    if (topologyMayHaveChanged) {
+        const QVector<int> next = computeVisibleRows();
+        if (knownPgid) m_lastParentGroupId[index] = currentPgid;
+        if (next != m_visibleRows) {
+            beginResetModel();
+            m_visibleRows = next;
+            endResetModel();
+            return; // il reset del modello copre già l'aggiornamento della vista
+        }
     }
+
+    const int vis = m_visibleRows.indexOf(index);
+    if (vis >= 0)
+        emit dataChanged(this->index(vis, 0), this->index(vis, ColCount - 1));
 }
 
-void CueListModel::onPlayheadChanged(int) {
-    if (rowCount() == 0) return;
-    emit dataChanged(this->index(0, 0), this->index(rowCount() - 1, ColCount - 1),
-                     {Qt::BackgroundRole});
+void CueListModel::onPlayheadChanged(int actualIndex) {
+    // E2: prima ridisegnava TUTTA la tabella (O(righe visibili)) per
+    // aggiornare l'evidenziazione di una sola riga. Tocca solo la riga che
+    // perde l'evidenziazione e quella che la riceve.
+    const int oldVis = m_lastPlayheadVisibleRow;
+    const int newVis = m_visibleRows.indexOf(actualIndex);
+    m_lastPlayheadVisibleRow = newVis;
+
+    if (oldVis >= 0 && oldVis < rowCount())
+        emit dataChanged(this->index(oldVis, 0), this->index(oldVis, ColCount - 1), {Qt::BackgroundRole});
+    if (newVis >= 0 && newVis != oldVis)
+        emit dataChanged(this->index(newVis, 0), this->index(newVis, ColCount - 1), {Qt::BackgroundRole});
 }

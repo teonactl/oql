@@ -10,6 +10,7 @@
 #include <QScrollArea>
 #include <QFrame>
 #include <QTimer>
+#include <QSet>
 
 ActiveCuesPanel::ActiveCuesPanel(CueList *cueList, QWidget *parent)
     : QWidget(parent), m_cueList(cueList)
@@ -70,147 +71,181 @@ void ActiveCuesPanel::onCueStateChanged(int, Cue::State) {
     else           m_timer->stop();
 }
 
-void ActiveCuesPanel::rebuildCards() {
-    // Remove all card widgets (keep the trailing stretch)
-    while (m_containerLay->count() > 1) {
-        QLayoutItem *item = m_containerLay->takeAt(0);
-        if (item->widget()) item->widget()->deleteLater();
-        delete item;
-    }
-    m_cards.clear();
+ActiveCuesPanel::CardWidgets ActiveCuesPanel::buildCard(Cue *cue, int indexInList) {
+    const Cue::State st = cue->state();
+    const bool waiting = (st == Cue::State::Waiting);
+    const bool playing = (st == Cue::State::Playing);
 
+    auto *card = new QFrame;
+    const QString chunkColor = waiting ? "#ddaa33" : "#44cc88";
+    card->setStyleSheet(
+        "QFrame { background:#252525; border:1px solid #333333; border-radius:4px; }"
+        "QLabel { background:transparent; color:#cccccc; font-size:11px; }"
+        "QProgressBar { background:#1a1a1a; border:none; border-radius:2px; }"
+        "QProgressBar::chunk { background:" + chunkColor + "; border-radius:2px; }");
+
+    auto *cardLay = new QVBoxLayout(card);
+    cardLay->setContentsMargins(6, 4, 6, 4);
+    cardLay->setSpacing(3);
+
+    // ── Top row ───────────────────────────────────────────
+    auto *topRow = new QWidget;
+    auto *topLay = new QHBoxLayout(topRow);
+    topLay->setContentsMargins(0, 0, 0, 0);
+    topLay->setSpacing(4);
+
+    auto *dotLbl = new QLabel(waiting ? "⏳" : "●");
+    dotLbl->setStyleSheet(waiting
+        ? "color:#ddaa33; font-size:10px;"
+        : (playing ? "color:#44dd88; font-size:10px;" : "color:#ddbb44; font-size:10px;"));
+    dotLbl->setFixedWidth(14);
+    topLay->addWidget(dotLbl);
+
+    const QString num = cue->number().isEmpty()
+        ? QString::number(indexInList + 1) : cue->number();
+    auto *numLbl = new QLabel("#" + num);
+    numLbl->setStyleSheet("color:#ffffff; font-weight:bold; font-size:11px;");
+    topLay->addWidget(numLbl);
+
+    QColor badgeColor;
+    switch (cue->type()) {
+    case Cue::Type::Audio: badgeColor = QColor(0x2a, 0x6d, 0xcc); break;
+    case Cue::Type::Video: badgeColor = QColor(0x2a, 0x88, 0x44); break;
+    case Cue::Type::Image: badgeColor = QColor(0xb0, 0x3a, 0x6b); break;
+    case Cue::Type::Stop:        badgeColor = QColor(0xcc, 0x33, 0x33); break;
+    case Cue::Type::Fade:        badgeColor = QColor(0xcc, 0x77, 0x22); break;
+    case Cue::Type::Pause:       badgeColor = QColor(0x88, 0x55, 0xcc); break;
+    case Cue::Type::Speed:       badgeColor = QColor(0x11, 0x99, 0x99); break;
+    case Cue::Type::Play:        badgeColor = QColor(0x22, 0xaa, 0x55); break;
+    case Cue::Type::Effect:      badgeColor = QColor(0x7b, 0x35, 0x9e); break;
+    case Cue::Type::ResetEffect: badgeColor = QColor(0x35, 0x7b, 0x9e); break;
+    default:                     badgeColor = QColor(0x44, 0x48, 0x58); break;
+    }
+    auto *typeLbl = new QLabel(cue->typeName());
+    typeLbl->setStyleSheet(QString(
+        "color:#fff; background:%1; border-radius:3px; padding:0px 4px;"
+        " font-size:10px; font-weight:bold;").arg(badgeColor.name()));
+    topLay->addWidget(typeLbl);
+
+    const QString nameStr = cue->name().isEmpty() ? "(senza nome)" : cue->name();
+    auto *nameLbl = new QLabel(nameStr);
+    nameLbl->setStyleSheet("color:#cccccc; font-size:11px;");
+    nameLbl->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    nameLbl->setMinimumWidth(0);
+    nameLbl->setToolTip(nameStr);
+    topLay->addWidget(nameLbl, 1);
+
+    auto *stopBtn = new QPushButton("✕");
+    const int sz = stopBtn->fontMetrics().height() + 2;
+    stopBtn->setFixedSize(sz, sz);
+    stopBtn->setStyleSheet(
+        "QPushButton { background:#553333; color:#ff6666;"
+        " border: 1px solid transparent;"
+        " border-radius:3px; font-weight:bold; padding:0px; }"
+        "QPushButton:hover { background:#884444; }");
+    connect(stopBtn, &QPushButton::clicked, cue, &Cue::stop);
+    topLay->addWidget(stopBtn);
+
+    cardLay->addWidget(topRow);
+
+    // ── Progress bar ──────────────────────────────────────
+    auto *progressBar = new QProgressBar;
+    progressBar->setRange(0, 1000);
+    progressBar->setTextVisible(false);
+    progressBar->setFixedHeight(4);
+
+    double barValue = 0.0;
+    if (waiting) {
+        const double total = cue->waitTotal();
+        barValue = total > 0.0 ? cue->waitElapsed() / total : 0.0;
+    } else {
+        const double dur = cue->duration();
+        barValue = dur > 0.0 ? cue->position() / dur : 0.0;
+    }
+    progressBar->setValue(int(qBound(0.0, barValue, 1.0) * 1000.0));
+    cardLay->addWidget(progressBar);
+
+    // ── Time row ──────────────────────────────────────────
+    auto *timeRow = new QWidget;
+    auto *timeLay = new QHBoxLayout(timeRow);
+    timeLay->setContentsMargins(0, 0, 0, 0);
+    timeLay->setSpacing(0);
+
+    auto *elapsedLbl   = new QLabel;
+    auto *remainingLbl = new QLabel;
+    elapsedLbl->setStyleSheet("color:#777777; font-size:10px; font-family:monospace;");
+    remainingLbl->setStyleSheet("color:#777777; font-size:10px; font-family:monospace;");
+    remainingLbl->setAlignment(Qt::AlignRight);
+
+    if (waiting) {
+        const double elapsed = cue->waitElapsed();
+        const double rem     = qMax(0.0, cue->waitTotal() - elapsed);
+        elapsedLbl->setText("pre-wait");
+        remainingLbl->setText(QString("-%1s").arg(rem, 0, 'f', 1));
+    } else {
+        const double dur = cue->duration();
+        const double pos = cue->position();
+        if (dur > 0.0) {
+            elapsedLbl->setText(QString("+%1s").arg(pos, 0, 'f', 1));
+            remainingLbl->setText(QString("-%1s").arg(qMax(0.0, dur - pos), 0, 'f', 1));
+        } else {
+            elapsedLbl->setText("—");
+        }
+    }
+
+    timeLay->addWidget(elapsedLbl);
+    timeLay->addStretch();
+    timeLay->addWidget(remainingLbl);
+    cardLay->addWidget(timeRow);
+
+    return { card, dotLbl, progressBar, elapsedLbl, remainingLbl };
+}
+
+void ActiveCuesPanel::rebuildCards() {
+    // E7: la versione precedente distruggeva e ricreava TUTTE le card ad
+    // ogni singolo cambiamento di stato di QUALSIASI cue — anche se solo
+    // UNA cue partiva/finiva mentre altre 10 erano già in corso, quelle 10
+    // venivano comunque buttate via e ricostruite da zero (flicker,
+    // allocazioni continue). Qui si sincronizza in modo incrementale: si
+    // rimuovono solo le card delle cue non più attive, si aggiungono solo
+    // quelle nuove, e si riposizionano (senza ricrearle) quelle che sono
+    // già lì ma nell'ordine sbagliato.
+    QVector<Cue*> activeOrdered;
+    QSet<Cue*> activeSet;
     for (int i = 0; i < m_cueList->count(); ++i) {
         Cue *cue = m_cueList->cueAt(i);
-        if (cue->state() == Cue::State::Idle) continue;
-
-        const Cue::State st = cue->state();
-        const bool waiting = (st == Cue::State::Waiting);
-        const bool playing = (st == Cue::State::Playing);
-
-        auto *card = new QFrame;
-        const QString chunkColor = waiting ? "#ddaa33" : "#44cc88";
-        card->setStyleSheet(
-            "QFrame { background:#252525; border:1px solid #333333; border-radius:4px; }"
-            "QLabel { background:transparent; color:#cccccc; font-size:11px; }"
-            "QProgressBar { background:#1a1a1a; border:none; border-radius:2px; }"
-            "QProgressBar::chunk { background:" + chunkColor + "; border-radius:2px; }");
-
-        auto *cardLay = new QVBoxLayout(card);
-        cardLay->setContentsMargins(6, 4, 6, 4);
-        cardLay->setSpacing(3);
-
-        // ── Top row ───────────────────────────────────────────
-        auto *topRow = new QWidget;
-        auto *topLay = new QHBoxLayout(topRow);
-        topLay->setContentsMargins(0, 0, 0, 0);
-        topLay->setSpacing(4);
-
-        auto *dotLbl = new QLabel(waiting ? "⏳" : "●");
-        dotLbl->setStyleSheet(waiting
-            ? "color:#ddaa33; font-size:10px;"
-            : (playing ? "color:#44dd88; font-size:10px;" : "color:#ddbb44; font-size:10px;"));
-        dotLbl->setFixedWidth(14);
-        topLay->addWidget(dotLbl);
-
-        const QString num = cue->number().isEmpty()
-            ? QString::number(i + 1) : cue->number();
-        auto *numLbl = new QLabel("#" + num);
-        numLbl->setStyleSheet("color:#ffffff; font-weight:bold; font-size:11px;");
-        topLay->addWidget(numLbl);
-
-        QColor badgeColor;
-        switch (cue->type()) {
-        case Cue::Type::Audio: badgeColor = QColor(0x2a, 0x6d, 0xcc); break;
-        case Cue::Type::Video: badgeColor = QColor(0x2a, 0x88, 0x44); break;
-        case Cue::Type::Image: badgeColor = QColor(0xb0, 0x3a, 0x6b); break;
-        case Cue::Type::Stop:        badgeColor = QColor(0xcc, 0x33, 0x33); break;
-        case Cue::Type::Fade:        badgeColor = QColor(0xcc, 0x77, 0x22); break;
-        case Cue::Type::Pause:       badgeColor = QColor(0x88, 0x55, 0xcc); break;
-        case Cue::Type::Speed:       badgeColor = QColor(0x11, 0x99, 0x99); break;
-        case Cue::Type::Play:        badgeColor = QColor(0x22, 0xaa, 0x55); break;
-        case Cue::Type::Effect:      badgeColor = QColor(0x7b, 0x35, 0x9e); break;
-        case Cue::Type::ResetEffect: badgeColor = QColor(0x35, 0x7b, 0x9e); break;
-        default:                     badgeColor = QColor(0x44, 0x48, 0x58); break;
+        if (cue->state() != Cue::State::Idle) {
+            activeOrdered.append(cue);
+            activeSet.insert(cue);
         }
-        auto *typeLbl = new QLabel(cue->typeName());
-        typeLbl->setStyleSheet(QString(
-            "color:#fff; background:%1; border-radius:3px; padding:0px 4px;"
-            " font-size:10px; font-weight:bold;").arg(badgeColor.name()));
-        topLay->addWidget(typeLbl);
+    }
 
-        const QString nameStr = cue->name().isEmpty() ? "(senza nome)" : cue->name();
-        auto *nameLbl = new QLabel(nameStr);
-        nameLbl->setStyleSheet("color:#cccccc; font-size:11px;");
-        nameLbl->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        nameLbl->setMinimumWidth(0);
-        nameLbl->setToolTip(nameStr);
-        topLay->addWidget(nameLbl, 1);
-
-        auto *stopBtn = new QPushButton("✕");
-        const int sz = stopBtn->fontMetrics().height() + 2;
-        stopBtn->setFixedSize(sz, sz);
-        stopBtn->setStyleSheet(
-            "QPushButton { background:#553333; color:#ff6666;"
-            " border: 1px solid transparent;"
-            " border-radius:3px; font-weight:bold; padding:0px; }"
-            "QPushButton:hover { background:#884444; }");
-        connect(stopBtn, &QPushButton::clicked, cue, &Cue::stop);
-        topLay->addWidget(stopBtn);
-
-        cardLay->addWidget(topRow);
-
-        // ── Progress bar ──────────────────────────────────────
-        auto *progressBar = new QProgressBar;
-        progressBar->setRange(0, 1000);
-        progressBar->setTextVisible(false);
-        progressBar->setFixedHeight(4);
-
-        double barValue = 0.0;
-        if (waiting) {
-            const double total = cue->waitTotal();
-            barValue = total > 0.0 ? cue->waitElapsed() / total : 0.0;
+    for (auto it = m_cards.begin(); it != m_cards.end(); ) {
+        if (!activeSet.contains(it.key())) {
+            if (it.value().card) {
+                m_containerLay->removeWidget(it.value().card);
+                it.value().card->deleteLater();
+            }
+            it = m_cards.erase(it);
         } else {
-            const double dur = cue->duration();
-            barValue = dur > 0.0 ? cue->position() / dur : 0.0;
+            ++it;
         }
-        progressBar->setValue(int(qBound(0.0, barValue, 1.0) * 1000.0));
-        cardLay->addWidget(progressBar);
+    }
 
-        // ── Time row ──────────────────────────────────────────
-        auto *timeRow = new QWidget;
-        auto *timeLay = new QHBoxLayout(timeRow);
-        timeLay->setContentsMargins(0, 0, 0, 0);
-        timeLay->setSpacing(0);
-
-        auto *elapsedLbl   = new QLabel;
-        auto *remainingLbl = new QLabel;
-        elapsedLbl->setStyleSheet("color:#777777; font-size:10px; font-family:monospace;");
-        remainingLbl->setStyleSheet("color:#777777; font-size:10px; font-family:monospace;");
-        remainingLbl->setAlignment(Qt::AlignRight);
-
-        if (waiting) {
-            const double elapsed = cue->waitElapsed();
-            const double rem     = qMax(0.0, cue->waitTotal() - elapsed);
-            elapsedLbl->setText("pre-wait");
-            remainingLbl->setText(QString("-%1s").arg(rem, 0, 'f', 1));
+    for (int pos = 0; pos < activeOrdered.size(); ++pos) {
+        Cue *cue = activeOrdered[pos];
+        auto it = m_cards.find(cue);
+        if (it == m_cards.end()) {
+            CardWidgets w = buildCard(cue, pos);
+            m_containerLay->insertWidget(pos, w.card);
+            m_cards.insert(cue, w);
         } else {
-            const double dur = cue->duration();
-            const double pos = cue->position();
-            if (dur > 0.0) {
-                elapsedLbl->setText(QString("+%1s").arg(pos, 0, 'f', 1));
-                remainingLbl->setText(QString("-%1s").arg(qMax(0.0, dur - pos), 0, 'f', 1));
-            } else {
-                elapsedLbl->setText("—");
+            QFrame *card = it.value().card;
+            if (m_containerLay->indexOf(card) != pos) {
+                m_containerLay->removeWidget(card);
+                m_containerLay->insertWidget(pos, card);
             }
         }
-
-        timeLay->addWidget(elapsedLbl);
-        timeLay->addStretch();
-        timeLay->addWidget(remainingLbl);
-        cardLay->addWidget(timeRow);
-
-        m_containerLay->insertWidget(m_containerLay->count() - 1, card);
-        m_cards[cue] = { dotLbl, progressBar, elapsedLbl, remainingLbl };
     }
 }
 

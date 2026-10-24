@@ -1,0 +1,22 @@
+name: Install Linux build dependencies
+description: >
+  Pacchetti apt necessari per compilare OQL su Ubuntu (lilv, suil,
+  soundtouch, X11, le librerie XCB per il platform plugin Qt). Prima era lo
+  stesso identico blocco ripetuto in build-linux.yml, build-beta.yml e
+  release.yml (R9) — un cambio qui andava fatto in 3 posti.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends \
+          liblilv-dev libsuil-dev libsoundtouch-dev \
+          libx11-dev pkg-config \
+          libfuse2 \
+          libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+          libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+          libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+          libxkbcommon-x11-0 libxkbcommon0 \
+          libgl1-mesa-dev libegl1-mesa-dev

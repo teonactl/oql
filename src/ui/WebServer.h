@@ -33,4 +33,8 @@ private:
     QTcpServer *m_server = nullptr;
     CueList    *m_cues;
     QHash<QTcpSocket*, QByteArray> m_buffers;
+    // Rigenerato a ogni start(): richiesto su ogni richiesta (query ?t=...)
+    // così chi non conosce l'URL mostrato in UI non può comandare le cue,
+    // anche con CORS aperto o essendo sulla stessa rete.
+    QString m_token;
 };

@@ -13,8 +13,16 @@
 #include <QUrl>
 #include <setjmp.h>
 #include <signal.h>
+#include <mutex>
+#include <atomic>
+#include <thread>
 
 // ── Shared world and suil host (one per process) ─────────────────────────────
+
+// Guards s_world (and the crash-guard globals below) against the prewarm
+// thread and the main thread racing to build the world at the same time.
+static std::mutex        s_worldMutex;
+static std::atomic<bool> s_worldReady{false};
 
 static LilvWorld *s_world    = nullptr;
 #ifdef Q_OS_LINUX
@@ -61,31 +69,60 @@ static void lilvCrashHandler(int sig) {
     raise(sig);
 }
 
-struct LilvGuard { struct sigaction oldSegv, oldAbrt, oldIll, oldBus; };
-
-static void lilvGuardInstall(LilvGuard &g) {
-    struct sigaction sa = {};
-    sa.sa_handler = lilvCrashHandler;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGSEGV, &sa, &g.oldSegv);
-    sigaction(SIGABRT, &sa, &g.oldAbrt);
-    sigaction(SIGILL,  &sa, &g.oldIll);
-    sigaction(SIGBUS,  &sa, &g.oldBus);
-}
-static void lilvGuardRestore(const LilvGuard &g) {
-    sigaction(SIGSEGV, &g.oldSegv, nullptr);
-    sigaction(SIGABRT, &g.oldAbrt, nullptr);
-    sigaction(SIGILL,  &g.oldIll,  nullptr);
-    sigaction(SIGBUS,  &g.oldBus,  nullptr);
+// Installa l'handler UNA VOLTA per processo, non ad ogni chiamata (stesso
+// ragionamento di VstPlugin::installVstCrashHandlerOnce: sigaction() è una
+// risorsa di processo, non di thread — installarla/ripristinarla ad ogni
+// process() nel thread audio costava syscall ad ogni blocco e creava una
+// race reale con le operazioni LV2 sul main thread che si sovrascrivevano a
+// vicenda il "vecchio" handler salvato).
+static void installLilvCrashHandlerOnce() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        struct sigaction sa = {};
+        sa.sa_handler = lilvCrashHandler;
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGSEGV, &sa, nullptr);
+        sigaction(SIGABRT, &sa, nullptr);
+        sigaction(SIGILL,  &sa, nullptr);
+        sigaction(SIGBUS,  &sa, nullptr);
+    });
 }
 #else
-struct LilvGuard {};
-static void lilvGuardInstall(LilvGuard &) {}
-static void lilvGuardRestore(const LilvGuard &) {}
+static void installLilvCrashHandlerOnce() {}
 static volatile sig_atomic_t tl_lv2ProcProtected = 0;
 #endif
 
+QByteArray Lv2Plugin::buildLv2PathValue(const QByteArray &currentEnv, const QStringList &extras) {
+    if (extras.isEmpty()) return currentEnv;  // nulla da aggiungere: non toccare la env var
+
+#ifdef Q_OS_WIN
+    constexpr char kSep = ';';
+#else
+    constexpr char kSep = ':';
+#endif
+
+    QByteArray cur = currentEnv;
+    if (cur.isEmpty()) {
+        // LV2_PATH non impostata: lilv usa i suoi default impliciti SOLO
+        // quando la variabile resta non definita. Impostarla ora con i soli
+        // path extra farebbe sparire quei default di sistema — li si
+        // replica esplicitamente (gli stessi path "well-known" documentati
+        // dalla specifica LV2 per ciascuna piattaforma).
+#ifdef Q_OS_WIN
+        cur = qgetenv("APPDATA") + "\\LV2;" + qgetenv("COMMONPROGRAMFILES") + "\\LV2";
+#else
+        cur = QByteArray(qgetenv("HOME")) + "/.lv2:/usr/lib/lv2:/usr/local/lib/lv2";
+#endif
+    }
+    for (const QString &extra : extras) {
+        cur += kSep;
+        cur += extra.toLocal8Bit();
+    }
+    return cur;
+}
+
 LilvWorld* Lv2Plugin::world() {
+    std::lock_guard<std::mutex> lock(s_worldMutex);
     if (!s_world) {
         s_world = lilv_world_new();
 
@@ -107,19 +144,18 @@ LilvWorld* Lv2Plugin::world() {
             lv2Path += ":" + extra.toLocal8Bit();
         qputenv("LV2_PATH", lv2Path);
 #else
-        // Linux/Windows: aggiunge i path extra dell'utente a LV2_PATH
+        // Linux/Windows: aggiunge i path extra dell'utente a LV2_PATH (P2+P3
+        // — separatore giusto per piattaforma, default di sistema non persi
+        // se la env var era vuota). Logica in buildLv2PathValue(), pura e
+        // testabile a parte.
         {
-            QByteArray cur = qgetenv("LV2_PATH");
-            for (const QString &extra : AppSettings::instance().lv2ExtraPaths()) {
-                if (!cur.isEmpty()) cur += ":";
-                cur += extra.toLocal8Bit();
-            }
-            if (!cur.isEmpty()) qputenv("LV2_PATH", cur);
+            const QByteArray newPath = buildLv2PathValue(
+                qgetenv("LV2_PATH"), AppSettings::instance().lv2ExtraPaths());
+            if (!newPath.isEmpty()) qputenv("LV2_PATH", newPath);
         }
 #endif
 
-        LilvGuard g;
-        lilvGuardInstall(g);
+        installLilvCrashHandlerOnce();
         s_lilvProtected = 1;
 #ifndef Q_OS_WIN
         if (sigsetjmp(s_lilvJump, 1) != 0) {
@@ -133,26 +169,37 @@ LilvWorld* Lv2Plugin::world() {
         }
 #endif
         s_lilvProtected = 0;
-        lilvGuardRestore(g);
     }
+    s_worldReady.store(true, std::memory_order_release);
     return s_world;
 }
 
 void Lv2Plugin::freeWorld() {
+    std::lock_guard<std::mutex> lock(s_worldMutex);
     if (s_world) { lilv_world_free(s_world); s_world = nullptr; }
+    s_worldReady.store(false, std::memory_order_release);
+}
+
+void Lv2Plugin::prewarmAsync() {
+    static std::once_flag started;
+    std::call_once(started, [] {
+        std::thread([] { Lv2Plugin::world(); }).detach();
+    });
+}
+
+bool Lv2Plugin::isWorldReady() {
+    return s_worldReady.load(std::memory_order_acquire);
 }
 
 std::vector<Lv2Plugin::Info> Lv2Plugin::enumerate() {
     std::vector<Info> result;
 
-    LilvGuard g;
-    lilvGuardInstall(g);
+    installLilvCrashHandlerOnce();
     s_lilvProtected = 1;
 #ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: crash during plugin enumeration — list may be incomplete");
         s_lilvProtected = 0;
-        lilvGuardRestore(g);
         return result;
     }
 #endif
@@ -175,7 +222,6 @@ std::vector<Lv2Plugin::Info> Lv2Plugin::enumerate() {
     }
 
     s_lilvProtected = 0;
-    lilvGuardRestore(g);
     return result;
 }
 
@@ -184,14 +230,12 @@ std::vector<Lv2Plugin::Info> Lv2Plugin::enumerate() {
 static LilvInstance *safeInstantiate(const LilvPlugin *plug, double sampleRate) {
     LilvInstance *inst = nullptr;
 
-    LilvGuard g;
-    lilvGuardInstall(g);
+    installLilvCrashHandlerOnce();
     s_lilvProtected = 1;
 #ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: plugin crashed during instantiation");
         s_lilvProtected = 0;
-        lilvGuardRestore(g);
         return nullptr;
     }
 #endif
@@ -199,7 +243,6 @@ static LilvInstance *safeInstantiate(const LilvPlugin *plug, double sampleRate) 
     inst = lilv_plugin_instantiate(plug, sampleRate, nullptr);
 
     s_lilvProtected = 0;
-    lilvGuardRestore(g);
     return inst;
 }
 
@@ -301,7 +344,24 @@ Lv2Plugin::~Lv2Plugin() {
 
 void Lv2Plugin::prepare(int sampleRate, int blockSize) {
     if (!m_instance) return;
+
+    // LV2 accetta il sample rate SOLO all'istanziazione (diversamente da
+    // VST2, che lo riaccetta dopo via effSetSampleRate): il costruttore
+    // istanzia sempre a 44100 perché non conosce ancora il rate reale
+    // dell'engine. Se qui è diverso, l'unico modo per farlo funzionare al
+    // rate giusto è ricreare l'istanza — altrimenti ogni filtro/delay/
+    // riverbero LV2 lavora a frequenze e tempi sbagliati per tutta la sessione.
+    if (sampleRate > 0 && sampleRate != m_sr) {
+        if (LilvInstance *fresh = safeInstantiate(m_lilvPlugin, double(sampleRate))) {
+            lilv_instance_deactivate(m_instance);
+            lilv_instance_free(m_instance);
+            m_instance = fresh;
+        }
+        // Se la ri-istanziazione fallisce si resta sulla vecchia istanza (al
+        // rate sbagliato ma funzionante) invece di perdere il plugin.
+    }
     m_sr = sampleRate;
+
     m_inL.resize(blockSize);  m_inR.resize(blockSize);
     m_outL.resize(blockSize); m_outR.resize(blockSize);
 
@@ -313,14 +373,20 @@ void Lv2Plugin::prepare(int sampleRate, int blockSize) {
     for (uint32_t idx : m_ctrlOutPorts)
         lilv_instance_connect_port(m_instance, idx, &m_ctrlOutScratch);
 
-    LilvGuard g;
-    lilvGuardInstall(g);
+    // Porte audio: connesse qui una volta ai buffer di lavoro (stabili finché
+    // non vengono fatti crescere in process(), vedi sotto) — prima venivano
+    // riconnesse ad ogni singolo blocco, 4 chiamate lilv per blocco senza motivo.
+    if (m_numAudioIn  >= 1) lilv_instance_connect_port(m_instance, m_audioInL,  m_inL.data());
+    if (m_numAudioIn  >= 2) lilv_instance_connect_port(m_instance, m_audioInR,  m_inR.data());
+    if (m_numAudioOut >= 1) lilv_instance_connect_port(m_instance, m_audioOutL, m_outL.data());
+    if (m_numAudioOut >= 2) lilv_instance_connect_port(m_instance, m_audioOutR, m_outR.data());
+
+    installLilvCrashHandlerOnce();
     s_lilvProtected = 1;
 #ifndef Q_OS_WIN
     if (sigsetjmp(s_lilvJump, 1) != 0) {
         qWarning("LV2: plugin crashed during activate, disabling");
         s_lilvProtected = 0;
-        lilvGuardRestore(g);
         m_instance = nullptr;
         return;
     }
@@ -329,11 +395,12 @@ void Lv2Plugin::prepare(int sampleRate, int blockSize) {
     lilv_instance_activate(m_instance);
 
     s_lilvProtected = 0;
-    lilvGuardRestore(g);
 }
 
 void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
-    if (!m_instance || !AudioPlugin::isActive()) {
+    // Il bypass (isActive()) è gestito centralmente da PluginChain::process();
+    // qui resta solo il controllo "il plugin non si è mai istanziato".
+    if (!m_instance) {
         if (inputs != outputs) {
             std::copy(inputs[0], inputs[0] + frames, outputs[0]);
             std::copy(inputs[1], inputs[1] + frames, outputs[1]);
@@ -341,21 +408,24 @@ void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
         return;
     }
 
-    // Ensure temp buffers are large enough
+    // Ensure temp buffers are large enough. Capita solo se l'host passa un
+    // blocco più grande di quello dichiarato in prepare() (raro, ma non
+    // impossibile): se i buffer vengono riallocati, le porte vanno
+    // riconnesse ai nuovi indirizzi, altrimenti lilv scriverebbe su memoria
+    // non più valida — da cui il reconnect qui dentro, SOLO quando la resize
+    // è avvenuta davvero (non ad ogni blocco, a differenza di prima).
     if (int(m_inL.size()) < frames) {
         m_inL.resize(frames); m_inR.resize(frames);
         m_outL.resize(frames); m_outR.resize(frames);
+        if (m_numAudioIn  >= 1) lilv_instance_connect_port(m_instance, m_audioInL,  m_inL.data());
+        if (m_numAudioIn  >= 2) lilv_instance_connect_port(m_instance, m_audioInR,  m_inR.data());
+        if (m_numAudioOut >= 1) lilv_instance_connect_port(m_instance, m_audioOutL, m_outL.data());
+        if (m_numAudioOut >= 2) lilv_instance_connect_port(m_instance, m_audioOutR, m_outR.data());
     }
 
     // Copy inputs (LV2 may read and write the same buffer — separate them)
     std::copy(inputs[0], inputs[0] + frames, m_inL.data());
     std::copy(inputs[1], inputs[1] + frames, m_inR.data());
-
-    // Connect audio ports
-    if (m_numAudioIn >= 1) lilv_instance_connect_port(m_instance, m_audioInL,  m_inL.data());
-    if (m_numAudioIn >= 2) lilv_instance_connect_port(m_instance, m_audioInR,  m_inR.data());
-    if (m_numAudioOut >= 1) lilv_instance_connect_port(m_instance, m_audioOutL, m_outL.data());
-    if (m_numAudioOut >= 2) lilv_instance_connect_port(m_instance, m_audioOutR, m_outR.data());
 
     // If mono plugin: mix inputs to mono, duplicate output
     if (m_numAudioIn == 1 && m_numAudioOut == 1) {
@@ -363,15 +433,14 @@ void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
             m_inL[i] = (inputs[0][i] + inputs[1][i]) * 0.5f;
     }
 
-    LilvGuard g;
-    lilvGuardInstall(g);
-
+    // L'handler è già installato (vedi installLilvCrashHandlerOnce): a
+    // differenza di prima, qui non si tocca più sigaction() a ogni blocco —
+    // solo il flag/jmp_buf thread-local di questa chiamata.
     tl_lv2ProcProtected = 1;
 #ifndef Q_OS_WIN
     if (sigsetjmp(tl_lv2ProcJump, 1) != 0) {
         // tl_lv2ProcProtected already cleared by the handler
         qWarning("LV2: plugin crashed during run, disabling");
-        lilvGuardRestore(g);
         m_instance = nullptr;
         std::copy(inputs[0], inputs[0] + frames, outputs[0]);
         std::copy(inputs[1], inputs[1] + frames, outputs[1]);
@@ -380,7 +449,6 @@ void Lv2Plugin::process(float* const* inputs, float** outputs, int frames) {
 #endif
     lilv_instance_run(m_instance, uint32_t(frames));
     tl_lv2ProcProtected = 0;
-    lilvGuardRestore(g);
 
     if (m_numAudioIn == 1 && m_numAudioOut == 1) {
         std::copy(m_outL.data(), m_outL.data() + frames, outputs[0]);

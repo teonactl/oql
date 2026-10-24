@@ -75,19 +75,10 @@ jobs:
           cache: true
 
       # ── Linux deps ────────────────────────────────────────────
+      # R9: deps identiche a build-linux.yml/build-beta.yml, centralizzate qui.
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends \
-            liblilv-dev libsuil-dev libsoundtouch-dev \
-            libx11-dev pkg-config \
-            libfuse2 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
-            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
-            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
-            libxkbcommon-x11-0 libxkbcommon0 \
-            libgl1-mesa-dev libegl1-mesa-dev
+        uses: ./.github/actions/install-linux-deps
 
       # ── macOS deps ────────────────────────────────────────────
       - name: Install dependencies (macOS)
@@ -95,12 +86,10 @@ jobs:
         run: brew install lilv sound-touch pkg-config
 
       # ── Windows deps (vcpkg) ──────────────────────────────────
+      # R9: deps identiche a build-windows.yml/build-beta.yml, centralizzate qui.
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install pkgconfiglite -y
-          vcpkg install lilv:x64-windows soundtouch:x64-windows
+        uses: ./.github/actions/install-windows-deps
 
       # ── Configure (Linux) ─────────────────────────────────────
       - name: Configure (Linux)
@@ -138,31 +127,12 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       # ── Package — Linux (.AppImage) ───────────────────────────
+      # R9: stesso blocco di build-linux.yml/build-beta.yml, ora centralizzato.
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: |
-          wget -q -O linuxdeploy \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          wget -q -O linuxdeploy-plugin-qt \
-            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
-          chmod +x linuxdeploy linuxdeploy-plugin-qt
-
-          install -Dm755 build/oql AppDir/usr/bin/oql
-          install -Dm644 resources/oql.svg \
-            AppDir/usr/share/icons/hicolor/scalable/apps/oql.svg
-          mkdir -p AppDir/usr/share/applications
-          sed 's|^Exec=.*|Exec=oql|; s|^Icon=.*|Icon=oql|' \
-            resources/oql.desktop \
-            > AppDir/usr/share/applications/oql.desktop
-
-          QMAKE=$(which qmake) \
-          APPIMAGE_EXTRACT_AND_RUN=1 \
-          ./linuxdeploy --appdir AppDir --plugin qt --output appimage
-
-          # linuxdeploy names output oql-x86_64.AppImage
-          find . -maxdepth 1 -name '*.AppImage' \
-            ! -name 'linuxdeploy' ! -name 'linuxdeploy-plugin-qt' \
-            -exec mv {} ${{ matrix.artifact }}.AppImage \;
+        uses: ./.github/actions/package-linux-appimage
+        with:
+          artifact-name: ${{ matrix.artifact }}
 
       # ── Package — macOS (.dmg) ────────────────────────────────
       - name: Package (macOS)
@@ -176,31 +146,12 @@ jobs:
           mv "$DMG" ${{ matrix.artifact }}.dmg
 
       # ── Package — Windows (.exe installer) ───────────────────
+      # R9: stesso blocco di build-windows.yml/build-beta.yml, ora centralizzato.
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item build\Release\oql.exe dist\
-          windeployqt --release --compiler-runtime dist\oql.exe
-          Copy-Item "$env:Qt6_DIR\bin\Qt6*.dll" dist\ -Force
-          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
-          foreach ($dll in @("lilv-0.dll","sord-0.dll","serd-0.dll","sratom-0.dll","zix-0.dll","soundtouch.dll")) {
-            $src = "$vcpkgBin\$dll"
-            if (-not (Test-Path $src)) { throw "DLL richiesta non trovata: $src" }
-            Copy-Item $src dist\
-          }
-          # msvcp140_1.dll: il vc_redist non garantisce sempre questo file
-          # su macchine con versioni preesistenti del redistributable.
-          $sys32Msvcp140_1 = "C:\Windows\System32\msvcp140_1.dll"
-          if (Test-Path $sys32Msvcp140_1) { Copy-Item $sys32Msvcp140_1 dist\ -Force }
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
-          $version = git describe --tags --always 2>$null
-          if (-not $version) { $version = "0.1.0" }
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
-            /DMyAppVersion="$version" `
-            /DOutputFile="${{ matrix.artifact }}" `
-            installer.iss
+        uses: ./.github/actions/package-windows-installer
+        with:
+          artifact-name: ${{ matrix.artifact }}
 
       # ── Upload artifact ───────────────────────────────────────
       - name: Upload artifact

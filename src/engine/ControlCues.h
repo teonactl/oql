@@ -2,6 +2,7 @@
 #include "Cue.h"
 #include "PluginChain.h"
 #include <QTimer>
+#include <QPointer>
 
 // ── ControlCue: abstract base for Stop / Fade / Pause ────────────────────────
 class ControlCue : public Cue {
@@ -21,7 +22,12 @@ public:
 
 protected:
     QString m_targetId;
-    Cue    *m_target = nullptr;
+    // QPointer, non Cue*: FadeCue/EffectCue tengono il target per tutta la
+    // durata del fade/effetto (un timer che corre per secondi), non solo per
+    // la durata di go(). Se nel frattempo l'utente elimina la cue target,
+    // QPointer si auto-azzera invece di lasciare un puntatore pendente che
+    // onTick()/onTimeout() dereferenzierebbero su memoria liberata.
+    QPointer<Cue> m_target;
 };
 
 // ── StopCue ───────────────────────────────────────────────────────────────────
@@ -159,7 +165,7 @@ private:
     PluginChain    m_chain;
     QTimer        *m_timer        = nullptr;
     double         m_duration     = 0.0;
-    Cue           *m_activeTarget = nullptr;
+    QPointer<Cue>  m_activeTarget;   // vedi commento su ControlCue::m_target
     QElapsedTimer  m_startTimer;
 };
 

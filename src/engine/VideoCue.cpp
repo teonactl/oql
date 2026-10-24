@@ -1,11 +1,28 @@
 #include "VideoCue.h"
+#include "AppSettings.h"
 #include <QFileInfo>
 #include <QUrl>
 #include <QVideoSink>
+#include <QMediaDevices>
+#include <QAudioDevice>
 
 VideoCue::VideoCue(QObject *parent) : Cue(parent) {
     m_player      = new QMediaPlayer(this);
     m_audioOutput = new QAudioOutput(this);
+
+    // Rispetta l'uscita configurata in Impostazioni → Hardware invece di
+    // andare sempre sul device di sistema — vedi lo stesso commento in
+    // MicCue::go() sul confronto "best effort" per descrizione (miniaudio e
+    // QMediaDevices sono due enumerazioni distinte). Letto una volta sola
+    // qui (non ad ogni go()): come per AudioCue, un cambio dell'impostazione
+    // vale per le cue create/ricaricate dopo, non per quelle già in corso.
+    const QString configuredOut = AppSettings::instance().audioOutputDevice();
+    if (!configuredOut.isEmpty()) {
+        for (const auto &dev : QMediaDevices::audioOutputs()) {
+            if (dev.description() == configuredOut) { m_audioOutput->setDevice(dev); break; }
+        }
+    }
+
     m_player->setAudioOutput(m_audioOutput);
     m_audioOutput->setVolume(float(m_volume));
 

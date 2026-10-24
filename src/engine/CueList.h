@@ -43,6 +43,20 @@ private:
     int  nextNonLabel(int from) const;
     int  nextInSequence(int from) const; // respects group membership
 
+    // R5: le 5 lambda connesse in connectCue() ripetevano lo stesso
+    // std::find_if per risalire dall'indirizzo di una Cue* al suo indice
+    // nel vettore — estratto qui. -1 se non trovata (cue già rimossa).
+    int indexOfCue(const Cue *cue) const;
+
+    // Implementazione interna di go(): `depth` conta i passi auto-continue/
+    // gruppo già fatti nella catena corrente SENZA alcuna attesa reale (go()
+    // esterno parte sempre da 0). Serve a interrompere con un avviso, invece
+    // di girare all'infinito, se un gruppo auto-referenziato o una lista
+    // interamente auto-continue che wrappa a inizio lista si richiamano a
+    // vicenda senza mai fermarsi.
+    void goAdvance(int depth);
+    static constexpr int kMaxAutoAdvanceDepth = 2000;
+
     std::vector<std::unique_ptr<Cue>> m_cues;
     int m_playhead = 0;
 };

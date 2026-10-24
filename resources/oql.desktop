@@ -2,10 +2,11 @@
 Name=OQL
 GenericName=Show Control Software
 Comment=Cue-based show control for audio, video and lighting
-Exec=oql
+Exec=oql %f
 Icon=oql
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Midi;
 Keywords=cue;show;audio;theater;stage;
 StartupWMClass=oql
+MimeType=application/x-oql-workspace;

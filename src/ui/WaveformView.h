@@ -64,6 +64,18 @@ private:
 
     void clampView();
 
+    // Bug segnalato dall'utente testando A8: il fade (overlay, linea di
+    // volume, drag handle) veniva posizionato rispetto a m_duration (intera
+    // durata del file), ignorando il trim — mentre il motore di
+    // riproduzione (AudioCue::fadeEnvelope(), Fase 3/A8) calcola il fade
+    // rispetto all'intervallo attivo trimStart..trimEnd. Risultato: con un
+    // trim impostato, il fade appariva (e si poteva spostare) alla fine del
+    // file invece che al trim. Questi due helper danno l'inizio/fine
+    // dell'intervallo attivo in coordinate normalizzate [0,1], usati ovunque
+    // il fade viene disegnato o interpretato invece degli 0.0/1.0 impliciti.
+    double activeStartNorm() const { return m_trimStart >= 0.0 ? m_trimStart : 0.0; }
+    double activeEndNorm()   const { return m_trimEnd   >= 0.0 ? m_trimEnd   : 1.0; }
+
     QString          m_filePath;
     double           m_duration   = 0.0;
     double           m_fadeIn     = 3.0;

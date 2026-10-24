@@ -21,6 +21,19 @@ AudioCue::~AudioCue() {
         m_playing.store(false);
         AudioEngine::instance().removeRenderer(this);
     }
+
+    // Aspetta che ogni thread di preparazione chain in background (applyPluginChain/
+    // restorePluginSnapshot) finisca: legge m_playing/m_framePos direttamente su
+    // `this` prima di postare il risultato, quindi deve concludersi prima che la
+    // memoria venga liberata. Si blocca solo nel raro caso in cui uno sia ancora
+    // davvero in corso (join su un thread già terminato ritorna subito).
+    {
+        std::lock_guard<std::mutex> lock(m_bgThreadsMtx);
+        for (auto &bg : m_bgThreads)
+            if (bg.t.joinable()) bg.t.join();
+        m_bgThreads.clear();
+    }
+
     std::lock_guard<std::mutex> lock(m_decoderMtx);
     if (m_decoderOk) {
         ma_decoder_uninit(m_decoder);
@@ -28,6 +41,74 @@ AudioCue::~AudioCue() {
     }
     delete m_decoder;
 }
+
+// Traccia un thread di preparazione chain invece di detach()-arlo (vedi
+// commento sul distruttore). Fa anche pulizia opportunistica: joina (senza
+// bloccare, dato che sono già finiti) i thread precedenti il cui flag `done`
+// è già a true, così il vettore non cresce senza limite in una sessione lunga.
+void AudioCue::trackBgThread(std::thread t, std::shared_ptr<std::atomic<bool>> done) {
+    std::lock_guard<std::mutex> lock(m_bgThreadsMtx);
+    for (auto it = m_bgThreads.begin(); it != m_bgThreads.end(); ) {
+        if (it->done->load(std::memory_order_acquire)) {
+            if (it->t.joinable()) it->t.join();
+            it = m_bgThreads.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    m_bgThreads.push_back({std::move(t), std::move(done)});
+}
+
+// R1: blocco comune a go()/setUserRate()/setPitchPreserve()/setPlaybackRate():
+// chiude il decoder corrente e lo riapre alla sample rate corrispondente a
+// `effectiveRate` (già clampata dal chiamante) e a m_pitchPreserve, poi
+// esegue il seek alla posizione richiesta. `updateTotalFrames` riproduce le
+// differenze pre-esistenti fra i chiamanti (setPitchPreserve() non lo fa).
+bool AudioCue::reinitDecoderAt(double posSeconds, double effectiveRate, bool updateTotalFrames) {
+    std::lock_guard<std::mutex> lock(m_decoderMtx);
+    if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
+
+    const int engineSR = AudioEngine::instance().sampleRate();
+#ifdef HAVE_SOUNDTOUCH
+    const uint32_t outSR = m_pitchPreserve
+        ? uint32_t(engineSR) : uint32_t(double(engineSR) / effectiveRate);
+#else
+    const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
+#endif
+    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
+    if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
+        return false;
+
+    m_decoderOk = true;
+    m_currentDecoderSR = int(outSR);
+
+    const ma_uint64 seekFrame = ma_uint64(posSeconds * double(outSR));
+    ma_decoder_seek_to_pcm_frame(m_decoder, seekFrame);
+    m_framePos.store(seekFrame);
+
+    if (updateTotalFrames) {
+        ma_uint64 total = 0;
+        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
+        m_totalFrames = total;
+    }
+    return true;
+}
+
+#ifdef HAVE_SOUNDTOUCH
+// R1: stesso blocco di reset di SoundTouch ripetuto in go()/setUserRate()/
+// setPitchPreserve() (setPlaybackRate() pre-esistente non lo faceva).
+void AudioCue::resetSoundTouchIfNeeded(double effectiveRate) {
+    if (!m_pitchPreserve) return;
+    const int engineSR = AudioEngine::instance().sampleRate();
+    m_soundTouch.clear();
+    m_soundTouch.setChannels(2);
+    m_soundTouch.setSampleRate(uint(engineSR));
+    m_soundTouch.setTempo(effectiveRate);
+    m_soundTouch.setPitch(1.0);
+    m_stAccum.clear();
+    m_stFlushDone = false;
+}
+#endif
 
 // ── File loading ──────────────────────────────────────────────────────────────
 
@@ -45,12 +126,36 @@ void AudioCue::setFilePath(const QString &path) {
             m_fileDuration = total > 0
                 ? double(total) / double(m_decoder->outputSampleRate)
                 : 0.0;
+        } else {
+            // File non apribile (mancante, corrotto, formato non supportato):
+            // non lasciare durata/totale frame del file precedente, altrimenti
+            // la UI mostrerebbe una durata che non corrisponde a nessun file reale.
+            m_totalFrames  = 0;
+            m_fileDuration = 0.0;
         }
     }
     m_filePath = path;
     if (m_name.isEmpty()) m_name = QFileInfo(path).completeBaseName();
     emit displayChanged();
     emit propertyChanged();
+}
+
+// Fade in/out calcolati relativi al range effettivamente in riproduzione
+// (trimStart..trimEnd), non all'intero file: con un trim impostato,
+// calcolarli su m_fileDuration faceva partire il fade-out nel punto sbagliato
+// (o mai, se trimEnd < fileDuration), e il fade-in restava sempre a 1.0 se
+// trimStart superava già da solo la durata del fade-in.
+double AudioCue::fadeEnvelope(double posS, double fadeIn, double fadeOut,
+                              double trimStart, double trimEnd, double fileDuration)
+{
+    const double effectiveEnd = (trimEnd > 0.001) ? trimEnd : fileDuration;
+    const double activeDur    = qMax(0.001, effectiveEnd - trimStart);
+    const double relPos       = qBound(0.0, posS - trimStart, activeDur);
+
+    double env = 1.0;
+    if (fadeIn  > 0.01) env *= qMin(1.0, relPos / fadeIn);
+    if (fadeOut > 0.01) env *= qMin(1.0, (activeDur - relPos) / fadeOut);
+    return env;
 }
 
 // ── Plugin chain snapshot (for EffectCue / ResetEffectCue) ───────────────────
@@ -61,11 +166,16 @@ void AudioCue::savePluginSnapshot() {
 }
 
 // Pre-fill a plugin chain with real audio from the file at the current playback
-// position. Covers lookahead limiters (empty delay lines → seconds of silence)
-// and slow-attack gates/compressors that need signal history before opening.
+// position, so envelope followers/filters/delay lines aren't starting from a
+// cold silent state when the chain is swapped in. Kept short (not full
+// steady-state, e.g. a 2s delay at 95% feedback needs minutes to settle fully)
+// since applyPluginChain()/restorePluginSnapshot() only swap in the new chain
+// once this finishes — longer values make "Applica Effetto" audibly laggy.
 // Called from a background thread; output of process() is intentionally discarded.
+static constexpr double kEffectPrefillSeconds = 0.3;
+
 static void preFillChain(PluginChain *chain, const QString &filePath,
-                         int decSR, int block, uint64_t startFrame, int fillSeconds)
+                         int decSR, int block, uint64_t startFrame, double fillSeconds)
 {
     if (filePath.isEmpty() || decSR <= 0 || fillSeconds <= 0) return;
     ma_decoder dec{};
@@ -73,7 +183,7 @@ static void preFillChain(PluginChain *chain, const QString &filePath,
     if (ma_decoder_init_file(filePath.toUtf8().constData(), &cfg, &dec) != MA_SUCCESS) return;
     ma_decoder_seek_to_pcm_frame(&dec, startFrame);
 
-    const int totalFrames = decSR * fillSeconds;
+    const int totalFrames = int(decSR * fillSeconds);
     std::vector<float> buf(block * 2), wL(block), wR(block);
     for (int done = 0; done < totalFrames; done += block) {
         ma_uint64 got = 0;
@@ -87,62 +197,48 @@ static void preFillChain(PluginChain *chain, const QString &filePath,
     ma_decoder_uninit(&dec);
 }
 
-bool AudioCue::restorePluginSnapshot() {
-    if (!m_hasPluginSnapshot) return false;
-    const int sr      = m_chainSR.load();
-    const int block   = m_chainBlock.load();
-    const QJsonArray snap = m_chainSnapshot;
-    const QString path    = m_filePath;
-    const int decSR       = m_currentDecoderSR;
-    auto newChain = std::make_shared<PluginChain>();
-
-    std::thread([this, newChain, snap, sr, block, path, decSR]() mutable {
-        newChain->fromJson(snap);
-        if (sr > 0) {
-            newChain->prepare(sr, block);
-            // Read position AFTER prepare() to minimise drift between fill and playback
-            if (m_playing.load()) {
-                const uint64_t frame = m_framePos.load(std::memory_order_relaxed);
-                preFillChain(newChain.get(), path, decSR, block, frame, 5);
-            }
-        }
-        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
-            auto old = m_chain;
-            m_chain  = std::move(nc);
-            m_activeChain.store(m_chain.get(), std::memory_order_release);
-            QTimer::singleShot(500, [kept = std::move(old)](){});
-            emit displayChanged();
-            emit pluginSnapshotRestored();
-        }, Qt::QueuedConnection);
-    }).detach();
-
-    return true;
-}
-
-void AudioCue::applyPluginChain(const QJsonArray &json) {
+// R2: restorePluginSnapshot() e applyPluginChain() differivano solo per la
+// fonte del JSON (snapshot salvato vs appena ricevuto) e per l'emissione di
+// pluginSnapshotRestored() — unificate in questo helper comune.
+void AudioCue::swapPluginChainAsync(const QJsonArray &json, bool isSnapshotRestore) {
     const int sr    = m_chainSR.load();
     const int block = m_chainBlock.load();
     const QString path = m_filePath;
     const int decSR    = m_currentDecoderSR;
     auto newChain = std::make_shared<PluginChain>();
 
-    std::thread([this, newChain, json, sr, block, path, decSR]() mutable {
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    std::thread th([this, newChain, json, sr, block, path, decSR, done, isSnapshotRestore]() mutable {
         newChain->fromJson(json);
         if (sr > 0) {
             newChain->prepare(sr, block);
+            // Read position AFTER prepare() to minimise drift between fill and playback
             if (m_playing.load()) {
                 const uint64_t frame = m_framePos.load(std::memory_order_relaxed);
-                preFillChain(newChain.get(), path, decSR, block, frame, 5);
+                preFillChain(newChain.get(), path, decSR, block, frame, kEffectPrefillSeconds);
             }
         }
-        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain)]() mutable {
+        QMetaObject::invokeMethod(this, [this, nc = std::move(newChain), isSnapshotRestore]() mutable {
             auto old = m_chain;
             m_chain  = std::move(nc);
             m_activeChain.store(m_chain.get(), std::memory_order_release);
             QTimer::singleShot(500, [kept = std::move(old)](){});
             emit displayChanged();
+            if (isSnapshotRestore) emit pluginSnapshotRestored();
         }, Qt::QueuedConnection);
-    }).detach();
+        done->store(true, std::memory_order_release);
+    });
+    trackBgThread(std::move(th), done);
+}
+
+bool AudioCue::restorePluginSnapshot() {
+    if (!m_hasPluginSnapshot) return false;
+    swapPluginChainAsync(m_chainSnapshot, /*isSnapshotRestore=*/true);
+    return true;
+}
+
+void AudioCue::applyPluginChain(const QJsonArray &json) {
+    swapPluginChainAsync(json, /*isSnapshotRestore=*/false);
 }
 
 // ── Volume helpers ────────────────────────────────────────────────────────────
@@ -172,49 +268,21 @@ void AudioCue::setUserRate(double r) {
     m_playing.store(false);
     AudioEngine::instance().removeRenderer(this);
 
-    {
-        std::lock_guard<std::mutex> lock(m_decoderMtx);
-        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
-
-        const int engineSR = AudioEngine::instance().sampleRate();
-        const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
-#ifdef HAVE_SOUNDTOUCH
-        const uint32_t outSR = m_pitchPreserve
-            ? uint32_t(engineSR) : uint32_t(double(engineSR) / effectiveRate);
-#else
-        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
-#endif
-        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
-        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
-            return;
-        m_decoderOk = true;
-        m_currentDecoderSR = int(outSR);
-
-        const ma_uint64 seekFrame = ma_uint64(posSeconds * double(outSR));
-        ma_decoder_seek_to_pcm_frame(m_decoder, seekFrame);
-        m_framePos.store(seekFrame);
-
-        ma_uint64 total = 0;
-        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
-        m_totalFrames = total;
+    const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
+    if (!reinitDecoderAt(posSeconds, effectiveRate, /*updateTotalFrames=*/true)) {
+        // Il reinit del decoder alla nuova velocità è fallito: la riproduzione
+        // è già stata fermata sopra (removeRenderer), quindi la cue deve
+        // tornare Idle invece di restare "Playing" senza renderer attivo.
+        setState(State::Idle);
+        return;
     }
 
 #ifdef HAVE_SOUNDTOUCH
-    if (m_pitchPreserve) {
-        const int engineSR = AudioEngine::instance().sampleRate();
-        const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
-        m_soundTouch.clear();
-        m_soundTouch.setChannels(2);
-        m_soundTouch.setSampleRate(uint(engineSR));
-        m_soundTouch.setTempo(effectiveRate);
-        m_soundTouch.setPitch(1.0);
-        m_stAccum.clear();
-        m_stFlushDone = false;
-    }
+    resetSoundTouchIfNeeded(effectiveRate);
 #endif
 
     m_playing.store(true);
-    AudioEngine::instance().addRenderer(this);
+    AudioEngine::instance().addRenderer(this, m_outputDevice.toStdString());
 }
 
 void AudioCue::setPitchPreserve(bool p) {
@@ -235,43 +303,20 @@ void AudioCue::setPitchPreserve(bool p) {
     // Audio thread is now stopped: safe to modify all state
     m_pitchPreserve = p;
 
-    const int engineSR = AudioEngine::instance().sampleRate();
     const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
-
-    {
-        std::lock_guard<std::mutex> lock(m_decoderMtx);
-        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
-#ifdef HAVE_SOUNDTOUCH
-        const uint32_t outSR = m_pitchPreserve
-            ? uint32_t(engineSR) : uint32_t(double(engineSR) / effectiveRate);
-#else
-        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
-#endif
-        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
-        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
-            return;
-        m_decoderOk = true;
-        m_currentDecoderSR = int(outSR);
-        const ma_uint64 seekFrame = ma_uint64(pos * double(outSR));
-        ma_decoder_seek_to_pcm_frame(m_decoder, seekFrame);
-        m_framePos.store(seekFrame);
+    // updateTotalFrames=false: comportamento pre-esistente, non toccato qui (R1).
+    if (!reinitDecoderAt(pos, effectiveRate, /*updateTotalFrames=*/false)) {
+        setState(State::Idle);
+        return;
     }
 
 #ifdef HAVE_SOUNDTOUCH
-    if (m_pitchPreserve) {
-        m_soundTouch.clear();
-        m_soundTouch.setChannels(2);
-        m_soundTouch.setSampleRate(uint(engineSR));
-        m_soundTouch.setTempo(effectiveRate);
-        m_soundTouch.setPitch(1.0);
-        m_stAccum.clear();
-        m_stFlushDone = false;
-    }
+    resetSoundTouchIfNeeded(effectiveRate);
 #endif
 
     emit propertyChanged();
     m_playing.store(true);
-    AudioEngine::instance().addRenderer(this);
+    AudioEngine::instance().addRenderer(this, m_outputDevice.toStdString());
 }
 
 void AudioCue::setPlaybackRate(double r) {
@@ -285,31 +330,20 @@ void AudioCue::setPlaybackRate(double r) {
     m_playing.store(false);
     AudioEngine::instance().removeRenderer(this);
 
-    {
-        std::lock_guard<std::mutex> lock(m_decoderMtx);
-        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
-
-        const int engineSR = AudioEngine::instance().sampleRate();
-        const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
-        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
-
-        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
-        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
-            return;
-        m_decoderOk = true;
-        m_currentDecoderSR = int(outSR);
-
-        const ma_uint64 seekFrame = ma_uint64(posSeconds * outSR);
-        ma_decoder_seek_to_pcm_frame(m_decoder, seekFrame);
-        m_framePos.store(seekFrame);
-
-        ma_uint64 total = 0;
-        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
-        m_totalFrames = total;
+    // Nota: a differenza di go()/setUserRate()/setPitchPreserve(), questa
+    // funzione non tocca SoundTouch dopo il reinit — comportamento
+    // pre-esistente, non toccato da questo refactor di deduplicazione (R1).
+    const double effectiveRate = qBound(0.1, m_userRate * m_playbackRate, 4.0);
+    if (!reinitDecoderAt(posSeconds, effectiveRate, /*updateTotalFrames=*/true)) {
+        // Vedi commento identico in setUserRate(): la riproduzione è già
+        // stata fermata sopra, quindi niente deve restare "Playing" senza
+        // un renderer attivo dietro.
+        setState(State::Idle);
+        return;
     }
 
     m_playing.store(true);
-    AudioEngine::instance().addRenderer(this);
+    AudioEngine::instance().addRenderer(this, m_outputDevice.toStdString());
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -334,47 +368,18 @@ void AudioCue::go() {
     m_playbackRate  = 1.0;
 
     // Reinitialize decoder: with pitch preserve → original SR; without → SR/rate
-    {
-        std::lock_guard<std::mutex> lock(m_decoderMtx);
-        if (m_decoderOk) { ma_decoder_uninit(m_decoder); m_decoderOk = false; }
-
-        const int engineSR = AudioEngine::instance().sampleRate();
-        const double effectiveRate = qBound(0.1, m_userRate, 4.0);
-#ifdef HAVE_SOUNDTOUCH
-        const uint32_t outSR = m_pitchPreserve
-            ? uint32_t(engineSR)
-            : uint32_t(double(engineSR) / effectiveRate);
-#else
-        const uint32_t outSR = uint32_t(double(engineSR) / effectiveRate);
-#endif
-
-        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, outSR);
-        if (ma_decoder_init_file(m_filePath.toUtf8().constData(), &cfg, m_decoder) != MA_SUCCESS)
-            return;
-        m_decoderOk = true;
-        m_currentDecoderSR = int(outSR);
-
-        const ma_uint64 startFrame = ma_uint64(m_trimStart * outSR);
-        ma_decoder_seek_to_pcm_frame(m_decoder, startFrame);
-        m_framePos.store(startFrame);
-
-        ma_uint64 total = 0;
-        ma_decoder_get_length_in_pcm_frames(m_decoder, &total);
-        m_totalFrames = total;
+    const double effectiveRate = qBound(0.1, m_userRate, 4.0);
+    if (!reinitDecoderAt(m_trimStart, effectiveRate, /*updateTotalFrames=*/true)) {
+        // File diventato illeggibile (rimosso, corrotto) proprio al GO, oppure
+        // go() richiamato su una cue già in riproduzione (es. PlayCue) il cui
+        // reinit fallisce: senza questo la cue restava "Playing" (stato mai
+        // toccato prima di questo return) senza alcun renderer attivo dietro.
+        setState(State::Idle);
+        return;
     }
 
 #ifdef HAVE_SOUNDTOUCH
-    if (m_pitchPreserve) {
-        const int engineSR = AudioEngine::instance().sampleRate();
-        const double effectiveRate = qBound(0.1, m_userRate, 4.0);
-        m_soundTouch.clear();
-        m_soundTouch.setChannels(2);
-        m_soundTouch.setSampleRate(uint(engineSR));
-        m_soundTouch.setTempo(effectiveRate);
-        m_soundTouch.setPitch(1.0);
-        m_stAccum.clear();
-        m_stFlushDone = false;
-    }
+    resetSoundTouchIfNeeded(effectiveRate);
 #endif
 
     m_loopsRemaining.store(m_loopCount > 0 ? m_loopCount : INT_MAX);
@@ -455,7 +460,7 @@ void AudioCue::go() {
         savePluginSnapshot();
 
     m_playing.store(true);
-    AudioEngine::instance().addRenderer(this);
+    AudioEngine::instance().addRenderer(this, m_outputDevice.toStdString());
     setState(State::Playing);
 }
 
@@ -644,16 +649,16 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
         const double posS  = double(curPos) / double(m_currentDecoderSR > 0 ? m_currentDecoderSR : 48000);
         const double normT = qBound(0.0, posS / durS, 1.0);
 
-        double volEnv = 1.0;
-        if (!m_volumePoints.isEmpty()) {
-            volEnv = interpolateVolume(normT);
-        } else {
-            if (m_fadeIn  > 0.01) volEnv *= qMin(1.0, posS / m_fadeIn);
-            if (m_fadeOut > 0.01) {
-                const double remaining = durS - posS;
-                volEnv *= qMin(1.0, remaining / m_fadeOut);
-            }
-        }
+        // Bug segnalato dall'utente ("il fade out non è percettibile"): fade e
+        // automazione del volume erano mutuamente esclusivi qui (if/else),
+        // mentre la linea di anteprima in WaveformView li mostra sempre
+        // COMBINATI (userVol * fadeEnv) — un solo punto di automazione
+        // disattivava silenziosamente il fade. Ora si moltiplicano, come
+        // promesso dall'anteprima: senza punti, l'automazione resta 1.0 e
+        // non cambia nulla (comportamento precedente preservato).
+        double volEnv = fadeEnvelope(posS, m_fadeIn, m_fadeOut, m_trimStart, m_trimEnd, m_fileDuration);
+        if (!m_volumePoints.isEmpty())
+            volEnv *= interpolateVolume(normT);
         const float vol = float(m_targetVolume * m_playbackScale * volEnv);
 
         for (int i = 0; i < n; ++i) {
@@ -768,17 +773,11 @@ bool AudioCue::renderAudio(float *out, int frames, int sampleRate) {
     const double posS  = double(curPos) / double(m_currentDecoderSR > 0 ? m_currentDecoderSR : 48000);
     const double normT = qBound(0.0, posS / durS, 1.0);
 
-    double volEnv = 1.0;
-    if (!m_volumePoints.isEmpty()) {
-        volEnv = interpolateVolume(normT);
-    } else {
-        if (m_fadeIn > 0.01)
-            volEnv *= qMin(1.0, posS / m_fadeIn);
-        if (m_fadeOut > 0.01) {
-            const double remaining = durS - posS;
-            volEnv *= qMin(1.0, remaining / m_fadeOut);
-        }
-    }
+    // Vedi commento identico nel ramo SoundTouch più sopra: fade e
+    // automazione ora si combinano invece di escludersi a vicenda.
+    double volEnv = fadeEnvelope(posS, m_fadeIn, m_fadeOut, m_trimStart, m_trimEnd, m_fileDuration);
+    if (!m_volumePoints.isEmpty())
+        volEnv *= interpolateVolume(normT);
     const float vol = float(m_targetVolume * m_playbackScale * volEnv);
 
     // Deinterleave decoded PCM → plugin chain → interleave to output
@@ -868,6 +867,7 @@ QJsonObject AudioCue::toJson() const {
     obj["loopCount"] = m_loopCount;
     obj["userRate"]      = m_userRate;
     obj["pitchPreserve"] = m_pitchPreserve;
+    obj["outputDevice"]  = m_outputDevice;
     obj["plugins"]   = m_chain->toJson();
 
     QJsonArray pts;
@@ -895,6 +895,7 @@ void AudioCue::fromJson(const QJsonObject &o) {
     m_loopCount     = o["loopCount"].toInt(1);
     m_userRate      = o["userRate"].toDouble(1.0);
     m_pitchPreserve = o["pitchPreserve"].toBool(false);
+    m_outputDevice  = o["outputDevice"].toString();
 
     m_slices.clear();
     for (const auto &v : o["slices"].toArray()) {

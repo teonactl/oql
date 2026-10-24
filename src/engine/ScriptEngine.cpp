@@ -4,11 +4,13 @@
 #include <QJSValue>
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrl>
+#include <QPointer>
 
 static QString cueTypeStr(Cue::Type t) {
     switch (t) {
@@ -72,7 +74,11 @@ public slots:
     void pause() { if (m_cue) m_cue->pause(); }
 
 private:
-    Cue *m_cue;
+    // QPointer: una variabile JS può tenere un JsCue vivo oltre la vita della
+    // Cue che avvolge (es. tra una sleep() e la successiva, se nel frattempo
+    // l'utente elimina quella cue dall'interfaccia). Senza questo, go()/stop()
+    // dereferenzierebbero memoria liberata.
+    QPointer<Cue> m_cue;
 };
 
 // ── JsWorkspace — exposes CueList to JS ──────────────────────────────────────
@@ -110,7 +116,9 @@ public slots:
 private:
     QJSValue wrap(Cue *c) {
         if (!c) return m_engine->evaluate("null");
-        return m_engine->newQObject(new JsCue(c, this));
+        // E12: NESSUN parent C++ qui — con un parent, QJSEngine non lo
+        // raccoglie mai (vedi commento sopra wrap()).
+        return m_engine->newQObject(new JsCue(c));
     }
     CueList   *m_cues;
     QJSEngine *m_engine;
@@ -162,11 +170,31 @@ private:
         else
             reply = m_nam->get(req);
 
+        // E13: senza timeout, uno script con http.get()/post() su un host
+        // che non risponde mai blocca lo show a tempo indeterminato — questo
+        // QEventLoop è bloccante e nessun'altra cue può avanzare nel
+        // frattempo. 15s è generoso per una chiamata di automazione normale
+        // ma limita comunque il danno di un host irraggiungibile.
         QEventLoop loop;
+        QTimer timeoutTimer;
+        timeoutTimer.setSingleShot(true);
+        bool timedOut = false;
         QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, [&]() { timedOut = true; loop.quit(); });
+        timeoutTimer.start(15000);
         loop.exec();
 
-        const QString result = QString::fromUtf8(reply->readAll());
+        if (timedOut) {
+            reply->abort();
+            reply->deleteLater();
+            return QString();
+        }
+
+        // Errore di rete (host irraggiungibile, DNS, ecc.): niente crash né
+        // hang, solo una risposta vuota — lo script deve già gestire una
+        // stringa vuota come "nessun contenuto".
+        const QString result = (reply->error() == QNetworkReply::NoError)
+            ? QString::fromUtf8(reply->readAll()) : QString();
         reply->deleteLater();
         return result;
     }

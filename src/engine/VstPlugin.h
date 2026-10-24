@@ -99,15 +99,18 @@ private:
     AEffect    *m_effect         = nullptr;
     int         m_sr             = 44100;
     int         m_block          = 512;
-    bool        m_active         = false;  // mains on?
+    bool        m_mainsOn       = false;  // R11: era m_active, nascondeva AudioPlugin::m_active (bypass) con significato opposto
     bool        m_editorCrashed  = false;  // set if effEditOpen/Idle crashed
     QByteArray         m_pendingChunk;   // applied in prepare() after effMainsChanged
     std::vector<float> m_pendingParams;  // re-applied in prepare() after effMainsChanged
 
-    // Serializes setParameter (main thread) vs processReplacing (audio thread).
-    // Raw lock/unlock used in process() so siglongjmp on crash leaves the mutex stuck,
-    // but m_effect is set to null immediately after, preventing any future lock attempt.
-    std::mutex m_effectMtx;
+    // Serializes setParameter/toJson/fromJson/param (main thread) vs
+    // processReplacing (audio thread). Raw lock/unlock used in process() so
+    // siglongjmp on crash leaves the mutex stuck, but m_effect is set to
+    // null immediately after, preventing any future lock attempt — ogni
+    // chiamante controlla sempre m_effect PRIMA di provare il lock.
+    // mutable: serve anche da toJson()/param() (const).
+    mutable std::mutex m_effectMtx;
 
     // Temp buffers for plugin processing (deinterleaved)
     std::vector<float> m_inL, m_inR, m_outL, m_outR;

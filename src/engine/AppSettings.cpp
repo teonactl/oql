@@ -194,3 +194,17 @@ QString AppSettings::outputScreenName() const {
 void AppSettings::setOutputScreenName(const QString &name) {
     m_s.setValue("hardware/outputScreenName", name);
 }
+
+QStringList AppSettings::recentFiles() const {
+    return m_s.value("recentFiles", QStringList{}).toStringList();
+}
+void AppSettings::setRecentFiles(const QStringList &files) {
+    m_s.setValue("recentFiles", files);
+}
+
+bool AppSettings::ultraDarkHintShown() const {
+    return m_s.value("ui/ultraDarkHintShown", false).toBool();
+}
+void AppSettings::setUltraDarkHintShown(bool v) {
+    m_s.setValue("ui/ultraDarkHintShown", v);
+}

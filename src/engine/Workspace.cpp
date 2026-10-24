@@ -1,5 +1,6 @@
 #include "Workspace.h"
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -36,15 +37,21 @@ bool Workspace::save(const QString &path) {
     const QString target = path.isEmpty() ? m_filePath : path;
     if (target.isEmpty()) return false;
 
-    QFile f(target);
-    if (!f.open(QIODevice::WriteOnly)) return false;
-
     QJsonObject root;
     root["name"]           = m_name;
     root["cues"]           = m_cueList.toJson();
     root["showCueNumbers"] = m_showCueNumbers;
     root["autoFadeOnStop"] = m_autoFadeOnStop;
-    f.write(QJsonDocument(root).toJson());
+    const QByteArray data = QJsonDocument(root).toJson();
+
+    // QSaveFile scrive su un file temporaneo nella stessa cartella e lo
+    // sostituisce atomicamente a commit() riuscito: un crash, un disco pieno
+    // o un errore di scrittura a metà salvataggio non possono più troncare
+    // il file .oql esistente (prima si scriveva direttamente sul target).
+    QSaveFile f(target);
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    if (f.write(data) != data.size()) { f.cancelWriting(); return false; }
+    if (!f.commit()) return false;
 
     m_filePath = target;
     m_name     = QFileInfo(target).completeBaseName();
@@ -58,7 +65,10 @@ bool Workspace::load(const QString &path) {
     if (!f.open(QIODevice::ReadOnly)) return false;
 
     const auto doc = QJsonDocument::fromJson(f.readAll());
-    if (doc.isNull()) return false;
+    // doc.object() su un JSON valido ma non-oggetto (array, numero, ecc.)
+    // restituirebbe silenziosamente un oggetto vuoto: senza isObject() un
+    // file .oql corrotto/non valido svuoterebbe il workspace senza errore.
+    if (doc.isNull() || !doc.isObject()) return false;
 
     const auto root = doc.object();
     m_name           = root["name"].toString(QFileInfo(path).completeBaseName());

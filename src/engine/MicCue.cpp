@@ -1,4 +1,5 @@
 #include "MicCue.h"
+#include "AppSettings.h"
 #include <QMediaDevices>
 #include <QAudioFormat>
 #include <QJsonObject>
@@ -51,7 +52,23 @@ void MicCue::go() {
     m_source = new QAudioSource(inputDev, fmt, this);
     m_source->setBufferSize(2048);
 
-    m_sink = new QAudioSink(QMediaDevices::defaultAudioOutput(), fmt, this);
+    // Rispetta l'uscita configurata in Impostazioni → Hardware invece di
+    // andare sempre sul device di sistema: quel nome viene da
+    // AudioEngine::enumerateDevices() (miniaudio), non da QMediaDevices —
+    // sono due enumerazioni distinte, quindi il confronto per descrizione
+    // qui sotto è un tentativo "best effort" (nessuna garanzia che le due
+    // librerie formattino il nome allo stesso modo su ogni piattaforma); se
+    // non trova corrispondenza si ricade silenziosamente sul default, come
+    // prima di questo fix.
+    QAudioDevice outputDev = QMediaDevices::defaultAudioOutput();
+    const QString configuredOut = AppSettings::instance().audioOutputDevice();
+    if (!configuredOut.isEmpty()) {
+        for (const auto &dev : QMediaDevices::audioOutputs()) {
+            if (dev.description() == configuredOut) { outputDev = dev; break; }
+        }
+    }
+
+    m_sink = new QAudioSink(outputDev, fmt, this);
     m_sink->setVolume(float(m_volume));
     m_sink->setBufferSize(2048);
 

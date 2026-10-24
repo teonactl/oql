@@ -4,10 +4,20 @@
 #include <QByteArray>
 #include <QDebug>
 #include <signal.h>
+#include <mutex>
+#include <thread>
+#include <chrono>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
-static void *oql_dlopen(const char *path) { return static_cast<void*>(LoadLibraryA(path)); }
+#include <QString>
+static void *oql_dlopen(const char *path) {
+    // `path` arriva come UTF-8 (QString::toStdString()); LoadLibraryA usa la
+    // code page ANSI e non trova silenziosamente un file con caratteri
+    // accentati nel percorso — serve LoadLibraryW su una stringa UTF-16.
+    const QString wpath = QString::fromUtf8(path);
+    return static_cast<void*>(LoadLibraryW(reinterpret_cast<const wchar_t*>(wpath.utf16())));
+}
 static void *oql_dlsym(void *lib, const char *sym) {
     return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(lib), sym));
 }
@@ -20,6 +30,36 @@ static void  oql_dlclose(void *lib) { FreeLibrary(static_cast<HMODULE>(lib)); }
 #else
 #include <dlfcn.h>
 #include <setjmp.h>
+#endif
+
+#ifdef Q_OS_MACOS
+#include <CoreFoundation/CoreFoundation.h>
+
+// I VST2 su macOS sono bundle (<Nome>.vst/Contents/MacOS/<Nome>), non un
+// singolo file: dlopen() non apre la cartella del bundle direttamente, va
+// risolto il binario Mach-O interno tramite CFBundle — lo stesso approccio
+// usato da qualunque host VST su macOS. Ritorna una stringa vuota se
+// `bundlePath` non è un bundle valido (es. già un binario diretto).
+static std::string resolveMacVstBinaryPath(const std::string &bundlePath) {
+    CFURLRef bundleUrl = CFURLCreateFromFileSystemRepresentation(
+        kCFAllocatorDefault, reinterpret_cast<const UInt8*>(bundlePath.c_str()),
+        static_cast<CFIndex>(bundlePath.size()), true /*isDirectory*/);
+    if (!bundleUrl) return {};
+
+    CFBundleRef bundle = CFBundleCreate(kCFAllocatorDefault, bundleUrl);
+    CFRelease(bundleUrl);
+    if (!bundle) return {};
+
+    std::string result;
+    if (CFURLRef execUrl = CFBundleCopyExecutableURL(bundle)) {
+        char buf[1024] = {};
+        if (CFURLGetFileSystemRepresentation(execUrl, true, reinterpret_cast<UInt8*>(buf), sizeof(buf)))
+            result = buf;
+        CFRelease(execUrl);
+    }
+    CFRelease(bundle);
+    return result;
+}
 #endif
 
 typedef AEffect* (*VstPluginMain)(VstHostCallback);
@@ -53,31 +93,91 @@ static void vstCrashHandler(int sig) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-struct VstGuard {
-    struct sigaction oldSegv, oldAbrt, oldIll, oldBus;
-};
-
-static void vstGuardInstall(VstGuard &g) {
-    struct sigaction sa = {};
-    sa.sa_handler = vstCrashHandler;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGSEGV, &sa, &g.oldSegv);
-    sigaction(SIGABRT, &sa, &g.oldAbrt);
-    sigaction(SIGILL,  &sa, &g.oldIll);
-    sigaction(SIGBUS,  &sa, &g.oldBus);
-}
-static void vstGuardRestore(const VstGuard &g) {
-    sigaction(SIGSEGV, &g.oldSegv, nullptr);
-    sigaction(SIGABRT, &g.oldAbrt, nullptr);
-    sigaction(SIGILL,  &g.oldIll,  nullptr);
-    sigaction(SIGBUS,  &g.oldBus,  nullptr);
+// Installa l'handler UNA VOLTA per processo, non ad ogni chiamata.
+// sigaction() è una risorsa di PROCESSO, non di thread: installarla/
+// ripristinarla ad ogni process() (audio thread) e ad ogni operazione sul
+// main thread (prepare/openEditor/...) costava 8 syscall per blocco audio
+// E creava una race reale fra i due thread che si sovrascrivevano a vicenda
+// il "vecchio" handler salvato — con la finestra apertasi, un crash poteva
+// restare senza protezione, o un siglongjmp finire nel jmp_buf sbagliato.
+// L'handler resta installato per tutta la vita del processo: quando non c'è
+// nessuna chiamata VST "protetta" (s_vstProtected/tl_vstProcProtected a 0) si
+// comporta come se non ci fosse — ripristina SIG_DFL e ri-rilancia — quindi
+// non altera il comportamento per crash non legati a plugin.
+static void installVstCrashHandlerOnce() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        struct sigaction sa = {};
+        sa.sa_handler = vstCrashHandler;
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGSEGV, &sa, nullptr);
+        sigaction(SIGABRT, &sa, nullptr);
+        sigaction(SIGILL,  &sa, nullptr);
+        sigaction(SIGBUS,  &sa, nullptr);
+    });
 }
 #else
+// Windows non ha sigaction/sigsetjmp: l'equivalente nativo è SEH
+// (Structured Exception Handling, __try/__except), che a differenza del
+// meccanismo POSIX non richiede un "handler" installato a parte — la
+// protezione è interamente strutturale, un __try per ogni chiamata a rischio
+// (vedi VST_SEH_TRY/VST_SEH_CATCH sotto). installVstCrashHandlerOnce() resta
+// quindi un no-op qui, mantenuto solo per non dover diramare ogni call site
+// con un ulteriore #ifdef.
+//
+// ATTENZIONE: percorso scritto senza poter compilare con MSVC su questa
+// macchina (solo Linux disponibile) — verificato dalla build Windows in CI,
+// ma il comportamento A RUNTIME va confermato su una macchina Windows reale
+// (vedi la checklist dei test nel doc del piano).
 static volatile sig_atomic_t tl_vstProcProtected = 0;
-struct VstGuard {};
-static void vstGuardInstall(VstGuard &) {}
-static void vstGuardRestore(const VstGuard &) {}
+static void installVstCrashHandlerOnce() {}
+
+// Eccezioni hardware che vale la pena intercettare (equivalente Windows di
+// SIGSEGV/SIGILL/SIGBUS/SIGFPE). EXCEPTION_STACK_OVERFLOW è esclusa
+// deliberatamente: a quel punto lo stack è già corrotto e continuare in
+// sicurezza richiederebbe _resetstkoflw() — qui si lascia che il processo
+// termini, come capiterebbe comunque nella pratica anche per un SIGSEGV da
+// stack overflow su Linux/macOS.
+static int vstSehFilter(unsigned int code) {
+    switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION:
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_PRIV_INSTRUCTION:
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+        return EXCEPTION_EXECUTE_HANDLER;
+    default:
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+}
+// Ogni call site usa questi due macro per restare leggibile e simmetrico
+// rispetto al ramo POSIX (sigsetjmp prima del lavoro, gestione del crash
+// nel corpo dell'if): VST_SEH_TRY apre il __try, VST_SEH_CATCH apre
+// l'__except — il corpo tra i due è lo stesso lavoro "a rischio" di sempre.
+#define VST_SEH_TRY    __try {
+#define VST_SEH_CATCH  } __except (vstSehFilter(GetExceptionCode())) {
+#define VST_SEH_END    }
 #endif
+
+// Prova ad acquisire il lock per un tempo limitato invece di bloccare per
+// sempre: nel caso normale il thread audio lo tiene solo per la durata di
+// un singolo blocco (microsecondi), quindi pochi tentativi bastano quasi
+// sempre; se restasse bloccato per sempre (il thread audio crashato mentre
+// lo teneva, saltando l'unlock via siglongjmp — un caso raro, comunque
+// protetto a parte dal controllo "m_effect è null?" prima di ogni lock),
+// questo non blocca comunque il main thread all'infinito. Usata da
+// toJson()/fromJson() — chiamate rare (salvataggio, snapshot undo) dove
+// perdere lo stato del plugin per colpa di una race non è accettabile,
+// a differenza di setParam() (tipicamente a frequenza di drag di uno
+// slider) che resta un try_lock() a singolo tentativo apposta.
+static bool tryLockBounded(std::mutex &m, int maxWaitUs = 10000) {
+    for (int waited = 0; waited < maxWaitUs; waited += 50) {
+        if (m.try_lock()) return true;
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    return false;
+}
 
 // Minimal host callback — VST2 plugins call this to query host capabilities.
 intptr_t VstPlugin::hostCallback(AEffect* /*effect*/, int32_t opcode,
@@ -95,7 +195,12 @@ intptr_t VstPlugin::hostCallback(AEffect* /*effect*/, int32_t opcode,
 // ── Constructor / destructor ──────────────────────────────────────────────────
 
 VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
-    m_lib = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+    std::string loadPath = path;
+#ifdef Q_OS_MACOS
+    if (const std::string resolved = resolveMacVstBinaryPath(path); !resolved.empty())
+        loadPath = resolved;
+#endif
+    m_lib = dlopen(loadPath.c_str(), RTLD_LAZY | RTLD_LOCAL);
     if (!m_lib) return;
 
     auto mainFn = reinterpret_cast<VstPluginMain>(dlsym(m_lib, "VSTPluginMain"));
@@ -103,15 +208,14 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
         mainFn = reinterpret_cast<VstPluginMain>(dlsym(m_lib, "main"));
     if (!mainFn) { dlclose(m_lib); m_lib = nullptr; return; }
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_effect = nullptr;
         dlclose(m_lib); m_lib = nullptr;
         return;
@@ -121,7 +225,6 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
     m_effect = mainFn(hostCallback);
     if (!m_effect || m_effect->magic != 0x56737450 /*'VstP'*/) {
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_effect = nullptr;
         dlclose(m_lib); m_lib = nullptr;
         return;
@@ -130,30 +233,52 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
     m_effect->dispatcher(m_effect, effOpen, 0, 0, nullptr, 0.0f);
     char buf[256] = {};
     m_effect->dispatcher(m_effect, effGetEffectName, 0, 0, buf, 0.0f);
-    m_name = (buf[0] != '\0') ? buf : path.substr(path.rfind('/') + 1);
+    if (buf[0] != '\0') {
+        m_name = buf;
+    } else {
+        // path.rfind('/') su un percorso Windows (solo '\') darebbe npos+1==0,
+        // cioè l'intero percorso invece del solo nome file: si cerca entrambi.
+        const size_t slash = path.find_last_of("/\\");
+        m_name = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    }
+
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
+        s_vstProtected = 0;
+        m_effect = nullptr;
+        dlclose(m_lib); m_lib = nullptr;
+        return;
+    VST_SEH_END
+#endif
 
     s_vstProtected = 0;
-    vstGuardRestore(g);
 }
 
 VstPlugin::~VstPlugin() {
     if (m_effect) {
-        VstGuard g;
-        vstGuardInstall(g);
+        installVstCrashHandlerOnce();
         s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+        VST_SEH_TRY
+#else
         if (sigsetjmp(s_vstJump, 1) == 0) {
 #endif
-            if (m_active)
+            if (m_mainsOn)
                 m_effect->dispatcher(m_effect, effMainsChanged, 0, 0, nullptr, 0.0f);
             if (!m_editorCrashed)
                 m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
             m_effect->dispatcher(m_effect, effClose, 0, 0, nullptr, 0.0f);
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+        VST_SEH_CATCH
+            // Durante il teardown non c'è molto da "recuperare": si ignora,
+            // come fa già il ramo POSIX in questo stesso caso (nessun log,
+            // nessuna azione — si prosegue con dlclose() comunque sotto).
+        VST_SEH_END
+#else
         }
 #endif
         s_vstProtected = 0;
-        vstGuardRestore(g);
     }
     if (m_lib) dlclose(m_lib);
 }
@@ -165,15 +290,14 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
     m_sr    = sampleRate;
     m_block = blockSize;
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during prepare, disabling");
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_effect = nullptr;
         return;
     }
@@ -181,9 +305,9 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
 
     m_effect->dispatcher(m_effect, effSetSampleRate, 0, 0, nullptr, float(sampleRate));
     m_effect->dispatcher(m_effect, effSetBlockSize,  0, blockSize, nullptr, 0.0f);
-    if (!m_active) {
+    if (!m_mainsOn) {
         m_effect->dispatcher(m_effect, effMainsChanged, 0, 1, nullptr, 0.0f);
-        m_active = true;
+        m_mainsOn = true;
 
         // Re-apply params after effMainsChanged: ZynFX resets internal state on activation
         for (int i = 0; i < int(m_pendingParams.size()) && i < m_effect->numParams; ++i)
@@ -199,8 +323,16 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
         }
     }
 
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed during prepare, disabling");
+        s_vstProtected = 0;
+        m_effect = nullptr;
+        return;
+    VST_SEH_END
+#endif
+
     s_vstProtected = 0;
-    vstGuardRestore(g);
 
     m_inL.assign(blockSize, 0.0f); m_inR.assign(blockSize, 0.0f);
     m_outL.assign(blockSize, 0.0f); m_outR.assign(blockSize, 0.0f);
@@ -209,7 +341,11 @@ void VstPlugin::prepare(int sampleRate, int blockSize) {
 // ── process ───────────────────────────────────────────────────────────────────
 
 void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
-    if (!m_effect || !AudioPlugin::isActive()) {
+    // Il bypass (isActive()) è gestito centralmente da PluginChain::process(),
+    // che copia input→output senza chiamare questo metodo quando il plugin è
+    // disattivato: qui serve solo il controllo "il plugin non è mai stato
+    // caricato correttamente".
+    if (!m_effect) {
         if (inputs != outputs) {
             std::copy(inputs[0], inputs[0] + frames, outputs[0]);
             std::copy(inputs[1], inputs[1] + frames, outputs[1]);
@@ -228,15 +364,30 @@ void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
     float* vstIn[2]  = { m_inL.data(), m_inR.data()  };
     float* vstOut[2] = { m_outL.data(), m_outR.data() };
 
-    VstGuard g;
-    vstGuardInstall(g);
+    // try_lock, non lock(): bloccare qui se il main thread sta facendo un
+    // setParam()/toJson()/fromJson() (vedi A4) trasformerebbe una breve
+    // attesa in un vero dropout udibile sul thread audio. Se occupato, si
+    // passa il segnale invariato per questo solo blocco — impercettibile, a
+    // differenza di un drop-out.
+    if (!m_effectMtx.try_lock()) {
+        std::copy(inputs[0], inputs[0] + frames, outputs[0]);
+        std::copy(inputs[1], inputs[1] + frames, outputs[1]);
+        return;
+    }
 
+    // L'handler è già installato (vedi installVstCrashHandlerOnce): a
+    // differenza di prima, qui non si tocca più sigaction() a ogni blocco —
+    // solo il flag/jmp_buf thread-local di questa chiamata.
     tl_vstProcProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(tl_vstProcJump, 1) != 0) {
-        // tl_vstProcProtected already cleared by the handler
+        // tl_vstProcProtected already cleared by the handler. Il mutex resta
+        // bloccato (il salto ha scavalcato l'unlock qui sotto): va bene,
+        // m_effect è già null quindi nessuno proverà più a riprenderlo
+        // (ogni chiamante controlla m_effect prima di tentare il lock).
         qWarning("VST2: plugin crashed during processReplacing, disabling");
-        vstGuardRestore(g);
         m_effect = nullptr;
         std::copy(inputs[0], inputs[0] + frames, outputs[0]);
         std::copy(inputs[1], inputs[1] + frames, outputs[1]);
@@ -244,15 +395,21 @@ void VstPlugin::process(float* const* inputs, float** outputs, int frames) {
     }
 #endif
 
-    // Acquire before processReplacing to block concurrent setParam from main thread.
-    // Raw lock/unlock (not RAII): if the plugin crashes and siglongjmp fires, the
-    // destructor is skipped and the mutex stays locked — but m_effect is set to null
-    // in the crash path, so no future caller will ever try to acquire this lock again.
-    m_effectMtx.lock();
     m_effect->processReplacing(m_effect, vstIn, vstOut, frames);
     m_effectMtx.unlock();
     tl_vstProcProtected = 0;
-    vstGuardRestore(g);
+
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        // Mutex volutamente non rilasciato (vedi commento sul ramo POSIX
+        // sopra): m_effect diventa null, nessuno proverà più a riprenderlo.
+        qWarning("VST2: plugin crashed during processReplacing, disabling");
+        m_effect = nullptr;
+        std::copy(inputs[0], inputs[0] + frames, outputs[0]);
+        std::copy(inputs[1], inputs[1] + frames, outputs[1]);
+        return;
+    VST_SEH_END
+#endif
 
     std::copy(m_outL.data(), m_outL.data() + frames, outputs[0]);
     std::copy(m_outR.data(), m_outR.data() + frames, outputs[1]);
@@ -267,6 +424,17 @@ int VstPlugin::numParams() const {
 PluginParam VstPlugin::param(int idx) const {
     PluginParam p;
     if (!m_effect || idx >= m_effect->numParams) return p;
+
+    // A4: dispatcher()/getParameter() leggono lo stato del plugin, che il
+    // thread audio può stare toccando dentro processReplacing() — senza il
+    // lock era una lettura concorrente non protetta. Chiamato a frequenza di
+    // drag di uno slider: try_lock a singolo tentativo, non la versione
+    // "bounded" di toJson/fromJson — se occupato si ritorna il default per
+    // questa sola chiamata (il prossimo refresh della UI lo richiama).
+    if (!m_effectMtx.try_lock()) return p;
+    std::lock_guard<std::mutex> lock(m_effectMtx, std::adopt_lock);
+    if (!m_effect) return p;
+
     char buf[256] = {};
     m_effect->dispatcher(m_effect, effGetParamName, idx, 0, buf, 0.0f);
     p.name = buf;
@@ -300,87 +468,111 @@ bool VstPlugin::hasEditor() const {
 bool VstPlugin::openEditor(void* parentWinId) {
     if (!hasEditor()) return false;
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed opening editor");
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_editorCrashed = true;
         return false;
     }
 #endif
     m_effect->dispatcher(m_effect, effEditOpen, 0, 0, parentWinId, 0.0f);
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed opening editor");
+        s_vstProtected = 0;
+        m_editorCrashed = true;
+        return false;
+    VST_SEH_END
+#endif
     s_vstProtected = 0;
-    vstGuardRestore(g);
     return true;
 }
 
 void VstPlugin::closeEditor() {
     if (!m_effect || m_editorCrashed) return;
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during closeEditor");
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_editorCrashed = true;
         return;
     }
 #endif
     m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed during closeEditor");
+        s_vstProtected = 0;
+        m_editorCrashed = true;
+        return;
+    VST_SEH_END
+#endif
     s_vstProtected = 0;
-    vstGuardRestore(g);
 }
 
 bool VstPlugin::getEditorRect(ERect **rect) const {
     if (!m_effect || !hasEditor() || !rect) return false;
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+    bool ok = false;  // dichiarata fuori dal __try: MSVC chiude lo scope di __try come un blocco normale
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during getEditorRect");
         s_vstProtected = 0;
-        vstGuardRestore(g);
         return false;
     }
 #endif
 
-    const bool ok = m_effect->dispatcher(m_effect, effEditGetRect, 0, 0, rect, 0.0f) != 0;
+    ok = m_effect->dispatcher(m_effect, effEditGetRect, 0, 0, rect, 0.0f) != 0;
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed during getEditorRect");
+        s_vstProtected = 0;
+        return false;
+    VST_SEH_END
+#endif
     s_vstProtected = 0;
-    vstGuardRestore(g);
     return ok;
 }
 
 void VstPlugin::editorIdle() {
     if (!m_effect || m_editorCrashed) return;
 
-    VstGuard g;
-    vstGuardInstall(g);
-
+    installVstCrashHandlerOnce();
     s_vstProtected = 1;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+    VST_SEH_TRY
+#else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during editorIdle");
         s_vstProtected = 0;
-        vstGuardRestore(g);
         m_editorCrashed = true;
         return;
     }
 #endif
     m_effect->dispatcher(m_effect, effEditIdle, 0, 0, nullptr, 0.0f);
+#ifdef Q_OS_WIN
+    VST_SEH_CATCH
+        qWarning("VST2: plugin crashed during editorIdle");
+        s_vstProtected = 0;
+        m_editorCrashed = true;
+        return;
+    VST_SEH_END
+#endif
     s_vstProtected = 0;
-    vstGuardRestore(g);
 }
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
@@ -388,8 +580,21 @@ void VstPlugin::editorIdle() {
 QJsonObject VstPlugin::toJson() const {
     auto obj = AudioPlugin::toJson();
     obj["path"] = QString::fromStdString(m_path);
+    if (!m_effect) return obj;
 
-    if (m_effect && (m_effect->flags & effFlagsProgramChunks)) {
+    // A4: effGetChunk/getParameter leggono lo stato del plugin mentre il
+    // thread audio può stare dentro processReplacing() — senza il lock era
+    // una lettura concorrente non protetta. toJson() è chiamato spesso
+    // (ogni operazione "undoable" e ogni tick dell'auto-salvataggio delle
+    // proprietà serializzano l'intera catena di plugin): a differenza di
+    // param(), perdere lo stato qui vorrebbe dire salvare un preset
+    // incompleto, quindi si usa il tentativo "bounded" invece del singolo
+    // try_lock di param()/setParam().
+    if (!tryLockBounded(m_effectMtx)) return obj;
+    std::lock_guard<std::mutex> lock(m_effectMtx, std::adopt_lock);
+    if (!m_effect) return obj;  // un crash concorrente può averlo appena azzerato
+
+    if (m_effect->flags & effFlagsProgramChunks) {
         void *chunkPtr = nullptr;
         const intptr_t chunkSize =
             m_effect->dispatcher(m_effect, effGetChunk, 1 /*preset*/, 0, &chunkPtr, 0.0f);
@@ -402,7 +607,7 @@ QJsonObject VstPlugin::toJson() const {
 
     QJsonArray params;
     for (int i = 0; i < numParams(); ++i)
-        params.append(m_effect ? m_effect->getParameter(m_effect, i) : 0.0);
+        params.append(m_effect->getParameter(m_effect, i));
     obj["params"] = params;
     return obj;
 }
@@ -413,9 +618,17 @@ void VstPlugin::fromJson(const QJsonObject &o) {
     if (!o["chunk"].isUndefined() && m_effect && (m_effect->flags & effFlagsProgramChunks)) {
         const QByteArray raw = QByteArray::fromBase64(o["chunk"].toString().toLatin1());
         if (!raw.isEmpty()) {
-            m_effect->dispatcher(m_effect, effSetChunk, 1 /*preset*/,
-                                 intptr_t(raw.size()),
-                                 const_cast<char*>(raw.constData()), 0.0f);
+            // A4: solo la chiamata diretta a dispatcher() va protetta (stesso
+            // ragionamento di toJson()); il fallback qui sotto delega a
+            // setParam(), che ha già il suo try_lock — prendere di nuovo lo
+            // stesso mutex (non ricorsivo) in quel ramo farebbe deadlock.
+            if (m_effect && tryLockBounded(m_effectMtx)) {
+                std::lock_guard<std::mutex> lock(m_effectMtx, std::adopt_lock);
+                if (m_effect)
+                    m_effect->dispatcher(m_effect, effSetChunk, 1 /*preset*/,
+                                         intptr_t(raw.size()),
+                                         const_cast<char*>(raw.constData()), 0.0f);
+            }
             m_pendingChunk = raw;
             return;
         }
@@ -427,7 +640,7 @@ void VstPlugin::fromJson(const QJsonObject &o) {
     m_pendingParams.clear();
     for (int i = 0; i < params.size() && i < numParams(); ++i) {
         const float v = float(params[i].toDouble());
-        setParam(i, v);
+        setParam(i, v);  // già protetto internamente (try_lock)
         m_pendingParams.push_back(v);
     }
 }

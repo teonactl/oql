@@ -118,45 +118,64 @@ void WaveformView::startDecode(const QString &path) {
         if (ma_decoder_init_file(pathUtf8.constData(), &cfg, &dec) != MA_SUCCESS)
             return;
 
+        // E5: la versione precedente caricava l'intero file decodificato in
+        // RAM (un QVector<float> con un append per campione) prima di
+        // calcolare i bucket min/max — per un file lungo questo significa
+        // allocare centinaia di MB solo per disegnare una waveform. Con la
+        // lunghezza totale nota in anticipo (quasi sempre disponibile per
+        // file locali seekable) si accumulano i min/max bucket per bucket
+        // in un unico passaggio, con memoria costante (solo i buffer dei
+        // bucket finali, non il file intero).
+        ma_uint64 totalFrames = 0;
+        const bool haveLength =
+            ma_decoder_get_length_in_pcm_frames(&dec, &totalFrames) == MA_SUCCESS
+            && totalFrames > 0;
+
+        const int kBuckets = AppSettings::instance().waveformBuckets();
+        QVector<float> wfMin, wfMax;
+        if (haveLength) {
+            wfMin.fill(0.0f, kBuckets);
+            wfMax.fill(0.0f, kBuckets);
+        }
+
         constexpr int kBufFrames = 8192;
         float buf[kBufFrames];
-        QVector<float> raw;
+        ma_uint64 framesConsumed = 0;
 
         while (!QThread::currentThread()->isInterruptionRequested()) {
             ma_uint64 framesRead = 0;
             ma_decoder_read_pcm_frames(&dec, buf, kBufFrames, &framesRead);
-            for (ma_uint64 i = 0; i < framesRead; ++i)
-                raw.append(buf[i]);   // signed — keep polarity for two-sided display
+            if (haveLength) {
+                for (ma_uint64 i = 0; i < framesRead; ++i) {
+                    const ma_uint64 globalIdx = framesConsumed + i;
+                    const int bucket = int(qMin<ma_uint64>(
+                        ma_uint64(kBuckets - 1), globalIdx * ma_uint64(kBuckets) / totalFrames));
+                    wfMin[bucket] = qMin(wfMin[bucket], buf[i]);
+                    wfMax[bucket] = qMax(wfMax[bucket], buf[i]);
+                }
+            }
+            framesConsumed += framesRead;
             if (framesRead < static_cast<ma_uint64>(kBufFrames)) break;
         }
         ma_decoder_uninit(&dec);
 
         if (QThread::currentThread()->isInterruptionRequested()) return;
 
-        const int N = raw.size();
-        QVector<float> wfMin, wfMax;
-        if (N > 0) {
-            const int kBuckets = AppSettings::instance().waveformBuckets();
-            wfMin.resize(kBuckets);
-            wfMax.resize(kBuckets);
-            for (int i = 0; i < kBuckets; ++i) {
-                const int s = int(qint64(i)   * N / kBuckets);
-                const int e = int(qint64(i+1) * N / kBuckets);
-                float bmin = 0.0f, bmax = 0.0f;
-                for (int j = s; j < e && j < N; ++j) {
-                    bmin = qMin(bmin, raw[j]);
-                    bmax = qMax(bmax, raw[j]);
-                }
-                wfMin[i] = bmin;
-                wfMax[i] = bmax;
-            }
-        }
-
         QMetaObject::invokeMethod(this, [this, gen, mn = std::move(wfMin), mx = std::move(wfMax)]() mutable {
             if (gen != m_decodeGeneration) return;
             m_wfMin = std::move(mn);
             m_wfMax = std::move(mx);
-            m_decodeThread = nullptr;
+            // E6: qui si limitava a dimenticare il puntatore (m_decodeThread
+            // = nullptr) senza mai liberare l'oggetto QThread quando il
+            // decode finiva normalmente (non per interruzione) — un leak
+            // dell'oggetto ad ogni singolo setFilePath(). Il thread nativo è
+            // già terminato (questa lambda invocata in coda è l'ULTIMA cosa
+            // che fa, dopo che run() è già tornato), quindi deleteLater() è
+            // sicuro qui.
+            if (m_decodeThread) {
+                m_decodeThread->deleteLater();
+                m_decodeThread = nullptr;
+            }
             update();
         }, Qt::QueuedConnection);
     });
@@ -223,7 +242,7 @@ void WaveformView::paintEvent(QPaintEvent *) {
     // ── Fade overlays ─────────────────────────────────────────────────────────
     if (m_duration > 0.01) {
         if (m_fadeIn > 0.01) {
-            const double tFI = qMin(m_fadeIn / m_duration, 1.0);
+            const double tFI = qMin(activeStartNorm() + m_fadeIn / m_duration, activeEndNorm());
             const int xFI = int(normToX(tFI));
             if (xFI > 0 && xFI < W) {
                 QLinearGradient g(0, 0, xFI, 0);
@@ -240,7 +259,7 @@ void WaveformView::paintEvent(QPaintEvent *) {
             }
         }
         if (m_fadeOut > 0.01) {
-            const double tFO = qMax(0.0, 1.0 - m_fadeOut / m_duration);
+            const double tFO = qMax(activeStartNorm(), activeEndNorm() - m_fadeOut / m_duration);
             const int xFO = int(normToX(tFO));
             if (xFO > 0 && xFO < W) {
                 QLinearGradient g(xFO, 0, W, 0);
@@ -260,12 +279,16 @@ void WaveformView::paintEvent(QPaintEvent *) {
 
     // ── Volume line (automation + fade envelope combined) ─────────────────────
     {
-        // Returns the fade envelope multiplier at normalised position t
+        // Returns the fade envelope multiplier at normalised position t.
+        // Calcolato rispetto all'intervallo attivo (trim), non al file intero
+        // — stessa logica di AudioCue::fadeEnvelope().
         auto fadeEnv = [&](double t) -> double {
             if (m_duration <= 0.01) return 1.0;
+            const double activeStart = activeStartNorm();
+            const double activeEnd   = activeEndNorm();
             double v = 1.0;
-            if (m_fadeIn  > 0.01) v *= qMin(1.0, t       * m_duration / m_fadeIn);
-            if (m_fadeOut > 0.01) v *= qMin(1.0, (1.0-t) * m_duration / m_fadeOut);
+            if (m_fadeIn  > 0.01) v *= qMin(1.0, qMax(0.0, t - activeStart)       * m_duration / m_fadeIn);
+            if (m_fadeOut > 0.01) v *= qMin(1.0, qMax(0.0, activeEnd - t)         * m_duration / m_fadeOut);
             return v;
         };
         // Returns the user-automation multiplier at normalised t (linear interpolation)
@@ -502,16 +525,24 @@ void WaveformView::mouseMoveEvent(QMouseEvent *event) {
     }
 
     if (m_dragFadeIn) {
+        const double activeStart = activeStartNorm();
+        const double activeEnd   = activeEndNorm();
+        // Non si può tirare il fade-in oltre dove comincia il fade-out.
         const double maxT = m_duration > 0.01
-            ? qMax(0.0, 1.0 - m_fadeOut / m_duration) : 1.0;
-        m_fadeIn = qBound(0.0, xToNorm(pos.x()), maxT) * m_duration;
+            ? qMax(activeStart, activeEnd - m_fadeOut / m_duration) : activeEnd;
+        const double newT = qBound(activeStart, xToNorm(pos.x()), maxT);
+        m_fadeIn = qMax(0.0, newT - activeStart) * m_duration;
         update();
         emit fadeInChanged(m_fadeIn);
         return;
     }
     if (m_dragFadeOut) {
-        const double minT = m_duration > 0.01 ? m_fadeIn / m_duration : 0.0;
-        m_fadeOut = qBound(0.0, 1.0 - xToNorm(pos.x()), 1.0 - minT) * m_duration;
+        const double activeStart = activeStartNorm();
+        const double activeEnd   = activeEndNorm();
+        const double minT = m_duration > 0.01
+            ? qMin(activeEnd, activeStart + m_fadeIn / m_duration) : activeStart;
+        const double newT = qBound(minT, xToNorm(pos.x()), activeEnd);
+        m_fadeOut = qMax(0.0, activeEnd - newT) * m_duration;
         update();
         emit fadeOutChanged(m_fadeOut);
         return;
@@ -705,12 +736,12 @@ int WaveformView::hitPoint(const QPointF &pos) const {
 
 bool WaveformView::hitFadeIn(const QPointF &pos) const {
     if (m_duration <= 0.01 || m_fadeIn <= 0.01) return false;
-    return qAbs(pos.x() - normToX(m_fadeIn / m_duration)) < 8.0;
+    return qAbs(pos.x() - normToX(activeStartNorm() + m_fadeIn / m_duration)) < 8.0;
 }
 
 bool WaveformView::hitFadeOut(const QPointF &pos) const {
     if (m_duration <= 0.01 || m_fadeOut <= 0.01) return false;
-    return qAbs(pos.x() - normToX(1.0 - m_fadeOut / m_duration)) < 8.0;
+    return qAbs(pos.x() - normToX(activeEndNorm() - m_fadeOut / m_duration)) < 8.0;
 }
 
 bool WaveformView::hitTrimStart(const QPointF &pos) const {

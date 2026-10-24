@@ -76,6 +76,14 @@ public:
     QString outputScreenName() const;
     void    setOutputScreenName(const QString &name);
 
+    // R8: file recenti e hint "Ultra Dark" — prima costruiti ad-hoc con
+    // QSettings("OQL","OQL") in 5 punti di MainWindow.cpp invece di passare
+    // da qui come il resto delle impostazioni.
+    QStringList recentFiles() const;
+    void        setRecentFiles(const QStringList &files);
+    bool        ultraDarkHintShown() const;
+    void        setUltraDarkHintShown(bool v);
+
 private:
     AppSettings();
     QSettings m_s;

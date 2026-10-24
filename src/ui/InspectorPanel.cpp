@@ -307,8 +307,22 @@ void InspectorPanel::buildUi() {
     m_loopSpin->setToolTip(tr("Ripetizioni: 0 = loop infinito, 1 = una volta"));
     m_loopSpin->setFixedWidth(60);
 
+    m_outputDeviceCombo = new QComboBox;
+    m_outputDeviceCombo->setToolTip(
+        tr("Dispositivo audio fisico su cui riprodurre questa cue.\n"
+           "\"Predefinita\" = la stessa uscita configurata in Impostazioni → Hardware."));
+    // Bug segnalato dall'utente: con il pannello stretto, la combo si
+    // comprimeva fino a tagliare il testo della voce selezionata senza
+    // ellissi ("Predefinita" → "Predefir") invece di restare leggibile o
+    // elidere visibilmente. AdjustToMinimumContentsLengthWithIcon +
+    // minimumContentsLength le danno una larghezza minima garantita, pari
+    // al nome di dispositivo più lungo atteso.
+    m_outputDeviceCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_outputDeviceCombo->setMinimumContentsLength(14);
+
     m_mediaForm->addRow(tr("File:"), fileRow);
     m_mediaForm->addRow(tr("Volume:"), m_volumeSpin);
+    m_mediaForm->addRow(tr("Uscita:"), m_outputDeviceCombo);
     m_mediaForm->addRow(tr("Loop:"), m_loopSpin);
 
     // Sfondo per il fade visivo (solo Video — Audio non ha contenuto visivo)
@@ -957,6 +971,7 @@ void InspectorPanel::buildUi() {
     connect(m_autoFollowCheck,  &QCheckBox::toggled, this, &InspectorPanel::onAutoFollowChanged);
     connect(m_browseBtn,        &QPushButton::clicked, this, &InspectorPanel::onBrowseFile);
     connect(m_volumeSpin,       QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onVolumeChanged);
+    connect(m_outputDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &InspectorPanel::onOutputDeviceChanged);
     connect(m_fadeInSpin,       QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onFadeInChanged);
     connect(m_fadeOutSpin,      QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onFadeOutChanged);
     connect(m_channelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -966,30 +981,30 @@ void InspectorPanel::buildUi() {
 
     connect(m_waveformView, &WaveformView::trimStartChanged, this, [this](double secs) {
         if (m_cue && m_cue->type() == Cue::Type::Audio)
-            static_cast<AudioCue*>(m_cue)->setTrimStart(secs);
+            static_cast<AudioCue*>(m_cue.data())->setTrimStart(secs);
     });
     connect(m_waveformView, &WaveformView::trimEndChanged, this, [this](double secs) {
         if (m_cue && m_cue->type() == Cue::Type::Audio)
-            static_cast<AudioCue*>(m_cue)->setTrimEnd(secs);
+            static_cast<AudioCue*>(m_cue.data())->setTrimEnd(secs);
     });
     connect(m_waveformView, &WaveformView::volumePointsChanged, this, [this](const QVector<QPointF> &pts) {
         if (m_cue && m_cue->type() == Cue::Type::Audio)
-            static_cast<AudioCue*>(m_cue)->setVolumePoints(pts);
+            static_cast<AudioCue*>(m_cue.data())->setVolumePoints(pts);
     });
     connect(m_waveformView, &WaveformView::fadeInChanged, this, [this](double s) {
         if (m_cue && m_cue->type() == Cue::Type::Audio) {
-            blockSignals(true);
+            blockFieldSignals(true);
             m_fadeInSpin->setValue(s);
-            blockSignals(false);
-            static_cast<AudioCue*>(m_cue)->setFadeInDuration(s);
+            blockFieldSignals(false);
+            static_cast<AudioCue*>(m_cue.data())->setFadeInDuration(s);
         }
     });
     connect(m_waveformView, &WaveformView::fadeOutChanged, this, [this](double s) {
         if (m_cue && m_cue->type() == Cue::Type::Audio) {
-            blockSignals(true);
+            blockFieldSignals(true);
             m_fadeOutSpin->setValue(s);
-            blockSignals(false);
-            static_cast<AudioCue*>(m_cue)->setFadeOutDuration(s);
+            blockFieldSignals(false);
+            static_cast<AudioCue*>(m_cue.data())->setFadeOutDuration(s);
         }
     });
 
@@ -1203,8 +1218,14 @@ void InspectorPanel::retranslateUi() {
     // Media form
     if (auto *l = fl(m_mediaForm, 0)) l->setText(tr("File:"));
     if (auto *l = fl(m_mediaForm, 1)) l->setText(tr("Volume:"));
-    if (auto *l = fl(m_mediaForm, 2)) l->setText(tr("Loop:"));
-    if (auto *l = fl(m_mediaForm, 3)) l->setText(tr("Sfondo (fade):"));
+    if (auto *l = fl(m_mediaForm, 2)) l->setText(tr("Uscita:"));
+    if (auto *l = fl(m_mediaForm, 3)) l->setText(tr("Loop:"));
+    if (auto *l = fl(m_mediaForm, 4)) l->setText(tr("Sfondo (fade):"));
+    if (m_outputDeviceCombo && m_outputDeviceCombo->count() > 0) {
+        const int cur = m_outputDeviceCombo->currentIndex();
+        m_outputDeviceCombo->setItemText(0, tr("Predefinita"));
+        m_outputDeviceCombo->setCurrentIndex(cur);
+    }
     if (m_videoBgCombo) {
         const int cur = m_videoBgCombo->currentIndex();
         m_videoBgCombo->setItemText(0, tr("Nero"));
@@ -1213,7 +1234,7 @@ void InspectorPanel::retranslateUi() {
         m_videoBgCombo->setCurrentIndex(cur);
     }
     if (m_videoBgImageBtn && (!m_cue || m_cue->type() != Cue::Type::Video
-                               || static_cast<VideoCue*>(m_cue)->backgroundImagePath().isEmpty()))
+                               || static_cast<VideoCue*>(m_cue.data())->backgroundImagePath().isEmpty()))
         m_videoBgImageBtn->setText(tr("Scegli immagine…"));
     if (m_fileEdit)  m_fileEdit->setPlaceholderText(tr("Nessun file..."));
     if (m_loopSpin)  m_loopSpin->setToolTip(tr("Ripetizioni: 0 = loop infinito, 1 = una volta"));
@@ -1305,7 +1326,7 @@ void InspectorPanel::retranslateUi() {
     if (m_imagesBtn) {
         m_imagesBtn->setToolTip(tr("Apri elenco immagini della slideshow"));
         if (m_cue && m_cue->type() == Cue::Type::Image) {
-            const int n = static_cast<ImageCue*>(m_cue)->imageCount();
+            const int n = static_cast<ImageCue*>(m_cue.data())->imageCount();
             m_imagesBtn->setText(n > 0 ? tr("Immagini (%1)…").arg(n) : tr("Immagini…"));
         }
     }
@@ -1329,7 +1350,7 @@ void InspectorPanel::retranslateUi() {
         m_backgroundCombo->setCurrentIndex(cur);
     }
     if (m_backgroundImageBtn && (!m_cue || m_cue->type() != Cue::Type::Image
-                                  || static_cast<ImageCue*>(m_cue)->backgroundImagePath().isEmpty()))
+                                  || static_cast<ImageCue*>(m_cue.data())->backgroundImagePath().isEmpty()))
         m_backgroundImageBtn->setText(tr("Scegli immagine…"));
     if (m_addImagesBtn)    m_addImagesBtn->setText(tr("+ Aggiungi…"));
     if (m_removeImagesBtn) m_removeImagesBtn->setText(tr("Rimuovi selezionate"));
@@ -1383,7 +1404,7 @@ void InspectorPanel::setCue(Cue *cue) {
 void InspectorPanel::loadFromCue() {
     if (!m_cue || m_loadingFromCue) return;
     m_loadingFromCue = true;
-    blockSignals(true);
+    blockFieldSignals(true);
 
     m_typeLabel->setText(m_cue->typeName() + " Cue");
     m_numberEdit->setText(m_cue->number());
@@ -1395,7 +1416,7 @@ void InspectorPanel::loadFromCue() {
     m_autoFollowCheck->setChecked(m_cue->autoFollow());
 
     updateMediaSection();
-    blockSignals(false);
+    blockFieldSignals(false);
     m_loadingFromCue = false;
 }
 
@@ -1418,9 +1439,13 @@ void InspectorPanel::updateMediaSection() {
     const bool isRecord    = (t == Cue::Type::Record);
 
     m_mediaGroup->setVisible(isAudio || isVideo);
-    if (auto *item = m_mediaForm->itemAt(3, QFormLayout::LabelRole))
+    // Righe di m_mediaForm: 0=File, 1=Volume, 2=Uscita (solo audio), 3=Loop, 4=Sfondo (solo video)
+    if (auto *item = m_mediaForm->itemAt(4, QFormLayout::LabelRole))
         if (auto *l = item->widget()) l->setVisible(isVideo);
     m_videoBgCombo->parentWidget()->setVisible(isVideo);
+    if (auto *item = m_mediaForm->itemAt(2, QFormLayout::LabelRole))
+        if (auto *l = item->widget()) l->setVisible(isAudio);
+    m_outputDeviceCombo->setVisible(isAudio);
     m_fadeGroup->setVisible(isAudio);
     m_audioSection->setVisible(isAudio);
     m_controlSection->setVisible(isControl);
@@ -1436,7 +1461,7 @@ void InspectorPanel::updateMediaSection() {
     if (!isImageCue && m_imageListDialog) m_imageListDialog->hide();
 
     if (isAudio) {
-        auto *a = static_cast<AudioCue*>(m_cue);
+        auto *a = static_cast<AudioCue*>(m_cue.data());
 
         // Show source RecordCue if one targets this AudioCue
         QString recSrcText;
@@ -1450,6 +1475,18 @@ void InspectorPanel::updateMediaSection() {
         }
         m_recSourceLabel->setText(recSrcText);
         m_recSourceLabel->setVisible(!recSrcText.isEmpty());
+
+        m_outputDeviceCombo->blockSignals(true);
+        m_outputDeviceCombo->clear();
+        m_outputDeviceCombo->addItem(tr("Predefinita"), QString());
+        for (const auto &dev : AudioEngine::instance().enumerateDevices())
+            m_outputDeviceCombo->addItem(QString::fromStdString(dev.name),
+                                          QString::fromStdString(dev.name));
+        {
+            const int idx = m_outputDeviceCombo->findData(a->outputDevice());
+            m_outputDeviceCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+        }
+        m_outputDeviceCombo->blockSignals(false);
 
         m_fileEdit->setText(QFileInfo(a->filePath()).fileName());
         m_volumeSpin->setValue(linearToDb(a->volume()));
@@ -1505,7 +1542,7 @@ void InspectorPanel::updateMediaSection() {
             }
         });
     } else if (isVideo) {
-        auto *v = static_cast<VideoCue*>(m_cue);
+        auto *v = static_cast<VideoCue*>(m_cue.data());
         m_fileEdit->setText(QFileInfo(v->filePath()).fileName());
         m_volumeSpin->setValue(linearToDb(v->volume()));
         m_loopSpin->setValue(v->loopCount());
@@ -1522,7 +1559,7 @@ void InspectorPanel::updateMediaSection() {
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isMic) {
-        auto *mc = static_cast<MicCue*>(m_cue);
+        auto *mc = static_cast<MicCue*>(m_cue.data());
         m_micDeviceCombo->blockSignals(true);
         m_micDeviceCombo->clear();
         m_micDeviceCombo->addItem("Default", QString{});
@@ -1538,7 +1575,7 @@ void InspectorPanel::updateMediaSection() {
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isControl) {
         populateTargetCombo();
-        auto *cc = static_cast<ControlCue*>(m_cue);
+        auto *cc = static_cast<ControlCue*>(m_cue.data());
         const int idx = m_targetCombo->findData(cc->targetId());
         m_targetCombo->blockSignals(true);
         m_targetCombo->setCurrentIndex(idx >= 0 ? idx : 0);
@@ -1549,7 +1586,7 @@ void InspectorPanel::updateMediaSection() {
         m_speedGroup->setVisible(isSpeed);
         m_effectGroup->setVisible(isEffect);
         if (isEffect) {
-            auto *ec = static_cast<EffectCue*>(m_cue);
+            auto *ec = static_cast<EffectCue*>(m_cue.data());
             m_effectDurSpin->blockSignals(true);
             m_effectDurSpin->setValue(ec->effectDuration());
             m_effectDurSpin->blockSignals(false);
@@ -1560,13 +1597,13 @@ void InspectorPanel::updateMediaSection() {
             m_effectPluginChainWidget->setChain(nullptr);
         }
         if (isSpeed) {
-            auto *sc = static_cast<SpeedCue*>(m_cue);
+            auto *sc = static_cast<SpeedCue*>(m_cue.data());
             m_speedRateSpin->blockSignals(true);
             m_speedRateSpin->setValue(sc->rate());
             m_speedRateSpin->blockSignals(false);
         }
         if (isFade) {
-            auto *fc = static_cast<FadeCue*>(m_cue);
+            auto *fc = static_cast<FadeCue*>(m_cue.data());
             m_fadeTargetVolSpin->blockSignals(true);
             m_fadeDurationSpin->blockSignals(true);
             m_fadeStopAtEndCheck->blockSignals(true);
@@ -1578,7 +1615,7 @@ void InspectorPanel::updateMediaSection() {
             m_fadeStopAtEndCheck->blockSignals(false);
         }
     } else if (isTextCue) {
-        auto *tc = static_cast<TextCue*>(m_cue);
+        auto *tc = static_cast<TextCue*>(m_cue.data());
         m_textContent->blockSignals(true);
         m_fontFamilyCombo->blockSignals(true);
         m_fontSizeSpin->blockSignals(true);
@@ -1618,7 +1655,7 @@ void InspectorPanel::updateMediaSection() {
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isImageCue) {
-        auto *ic = static_cast<ImageCue*>(m_cue);
+        auto *ic = static_cast<ImageCue*>(m_cue.data());
         m_slideDurationSpin->blockSignals(true);
         m_transitionDurationSpin->blockSignals(true);
         m_transitionCombo->blockSignals(true);
@@ -1653,7 +1690,7 @@ void InspectorPanel::updateMediaSection() {
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isRecord) {
-        auto *rc = static_cast<RecordCue*>(m_cue);
+        auto *rc = static_cast<RecordCue*>(m_cue.data());
 
         // Input device combo
         m_recDeviceCombo->blockSignals(true);
@@ -1687,7 +1724,7 @@ void InspectorPanel::updateMediaSection() {
     }
 }
 
-void InspectorPanel::blockSignals(bool block) {
+void InspectorPanel::blockFieldSignals(bool block) {
     m_numberEdit->blockSignals(block);
     m_nameEdit->blockSignals(block);
     m_notesEdit->blockSignals(block);
@@ -1755,8 +1792,8 @@ void InspectorPanel::onBrowseFile() {
     if (!m_cue) return;
     const Cue::Type expectedType = isAudio ? Cue::Type::Audio : Cue::Type::Video;
     if (m_cue->type() != expectedType) return;
-    if (isAudio) static_cast<AudioCue*>(m_cue)->setFilePath(path);
-    else         static_cast<VideoCue*>(m_cue)->setFilePath(path);
+    if (isAudio) static_cast<AudioCue*>(m_cue.data())->setFilePath(path);
+    else         static_cast<VideoCue*>(m_cue.data())->setFilePath(path);
     updateMediaSection();
     loadFromCue();
 }
@@ -1766,20 +1803,26 @@ void InspectorPanel::onFilePathChanged() {}
 void InspectorPanel::onVolumeChanged(double v) {
     if (!m_cue) return;
     const double linear = dbToLinear(v);
-    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue)->setVolume(linear);
-    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue)->setVolume(linear);
+    if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue.data())->setVolume(linear);
+    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue.data())->setVolume(linear);
+}
+
+void InspectorPanel::onOutputDeviceChanged(int index) {
+    if (!m_cue || m_cue->type() != Cue::Type::Audio) return;
+    const QString deviceName = m_outputDeviceCombo->itemData(index).toString();
+    static_cast<AudioCue*>(m_cue.data())->setOutputDevice(deviceName);
 }
 
 void InspectorPanel::onFadeInChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Audio) {
-        static_cast<AudioCue*>(m_cue)->setFadeInDuration(v);
+        static_cast<AudioCue*>(m_cue.data())->setFadeInDuration(v);
         m_waveformView->setFadeIn(v);
     }
 }
 
 void InspectorPanel::onFadeOutChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Audio) {
-        static_cast<AudioCue*>(m_cue)->setFadeOutDuration(v);
+        static_cast<AudioCue*>(m_cue.data())->setFadeOutDuration(v);
         m_waveformView->setFadeOut(v);
     }
 }
@@ -1793,7 +1836,7 @@ void InspectorPanel::onFadeInCheckChanged(bool checked) {
         m_fadeInSpin->setValue(3.0);
         m_fadeInSpin->blockSignals(false);
     }
-    static_cast<AudioCue*>(m_cue)->setFadeInDuration(val);
+    static_cast<AudioCue*>(m_cue.data())->setFadeInDuration(val);
     m_waveformView->setFadeIn(val);
 }
 
@@ -1806,7 +1849,7 @@ void InspectorPanel::onFadeOutCheckChanged(bool checked) {
         m_fadeOutSpin->setValue(3.0);
         m_fadeOutSpin->blockSignals(false);
     }
-    static_cast<AudioCue*>(m_cue)->setFadeOutDuration(val);
+    static_cast<AudioCue*>(m_cue.data())->setFadeOutDuration(val);
     m_waveformView->setFadeOut(val);
 }
 
@@ -1816,7 +1859,7 @@ void InspectorPanel::onCuePropertyChanged() {
 
 void InspectorPanel::onChannelChanged(int idx) {
     if (m_cue && m_cue->type() == Cue::Type::Audio)
-        static_cast<AudioCue*>(m_cue)->setChannelRoute(AudioCue::ChannelRoute(idx));
+        static_cast<AudioCue*>(m_cue.data())->setChannelRoute(AudioCue::ChannelRoute(idx));
 }
 
 void InspectorPanel::syncPlayButton(Cue::State state) {
@@ -1888,80 +1931,80 @@ void InspectorPanel::onTargetChanged(int) {
     if (t == Cue::Type::Stop  || t == Cue::Type::Fade  || t == Cue::Type::Pause
      || t == Cue::Type::Play  || t == Cue::Type::Speed
      || t == Cue::Type::Effect || t == Cue::Type::ResetEffect)
-        static_cast<ControlCue*>(m_cue)->setTargetId(m_targetCombo->currentData().toString());
+        static_cast<ControlCue*>(m_cue.data())->setTargetId(m_targetCombo->currentData().toString());
 }
 
 void InspectorPanel::onFadeTargetVolChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
-        static_cast<FadeCue*>(m_cue)->setTargetVolume(dbToLinear(v));
+        static_cast<FadeCue*>(m_cue.data())->setTargetVolume(dbToLinear(v));
 }
 
 void InspectorPanel::onFadeDurationChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
-        static_cast<FadeCue*>(m_cue)->setFadeDuration(v);
+        static_cast<FadeCue*>(m_cue.data())->setFadeDuration(v);
 }
 
 void InspectorPanel::onFadeStopAtEndChanged(bool v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
-        static_cast<FadeCue*>(m_cue)->setStopAtEnd(v);
+        static_cast<FadeCue*>(m_cue.data())->setStopAtEnd(v);
 }
 
 void InspectorPanel::onMicDeviceChanged(int) {
     if (m_cue && m_cue->type() == Cue::Type::Mic)
-        static_cast<MicCue*>(m_cue)->setInputDeviceId(m_micDeviceCombo->currentData().toString());
+        static_cast<MicCue*>(m_cue.data())->setInputDeviceId(m_micDeviceCombo->currentData().toString());
 }
 
 void InspectorPanel::onMicVolumeChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Mic)
-        static_cast<MicCue*>(m_cue)->setVolume(dbToLinear(v));
+        static_cast<MicCue*>(m_cue.data())->setVolume(dbToLinear(v));
 }
 
 void InspectorPanel::onEffectDurationChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Effect)
-        static_cast<EffectCue*>(m_cue)->setEffectDuration(v);
+        static_cast<EffectCue*>(m_cue.data())->setEffectDuration(v);
 }
 
 void InspectorPanel::onSpeedRateChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Speed)
-        static_cast<SpeedCue*>(m_cue)->setRate(v);
+        static_cast<SpeedCue*>(m_cue.data())->setRate(v);
 }
 
 void InspectorPanel::onLoopCountChanged(int v) {
     if (!m_cue) return;
     if (m_cue->type() == Cue::Type::Audio)
-        static_cast<AudioCue*>(m_cue)->setLoopCount(v);
+        static_cast<AudioCue*>(m_cue.data())->setLoopCount(v);
     else if (m_cue->type() == Cue::Type::Video)
-        static_cast<VideoCue*>(m_cue)->setLoopCount(v);
+        static_cast<VideoCue*>(m_cue.data())->setLoopCount(v);
 }
 
 void InspectorPanel::onTextContentChanged() {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setText(m_textContent->toPlainText());
+        static_cast<TextCue*>(m_cue.data())->setText(m_textContent->toPlainText());
 }
 
 void InspectorPanel::onFontFamilyChanged(const QFont &f) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setFontFamily(f.family());
+        static_cast<TextCue*>(m_cue.data())->setFontFamily(f.family());
 }
 
 void InspectorPanel::onFontSizeChanged(int v) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setFontSize(v);
+        static_cast<TextCue*>(m_cue.data())->setFontSize(v);
 }
 
 void InspectorPanel::onBoldChanged(bool v) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setBold(v);
+        static_cast<TextCue*>(m_cue.data())->setBold(v);
 }
 
 void InspectorPanel::onItalicChanged(bool v) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setItalic(v);
+        static_cast<TextCue*>(m_cue.data())->setItalic(v);
 }
 
 void InspectorPanel::onTextColorClicked() {
     if (!m_cue || m_cue->type() != Cue::Type::Text) return;
-    auto *tc = static_cast<TextCue*>(m_cue);
+    auto *tc = static_cast<TextCue*>(m_cue.data());
     const QColor c = QColorDialog::getColor(tc->textColor(), this, "Colore testo");
     if (!c.isValid()) return;
     tc->setTextColor(c);
@@ -1971,7 +2014,7 @@ void InspectorPanel::onTextColorClicked() {
 
 void InspectorPanel::onBgColorClicked() {
     if (!m_cue || m_cue->type() != Cue::Type::Text) return;
-    auto *tc = static_cast<TextCue*>(m_cue);
+    auto *tc = static_cast<TextCue*>(m_cue.data());
     const QColor c = QColorDialog::getColor(tc->backgroundColor(), this, "Colore sfondo");
     if (!c.isValid()) return;
     tc->setBackgroundColor(c);
@@ -1981,35 +2024,35 @@ void InspectorPanel::onBgColorClicked() {
 
 void InspectorPanel::onTextAlignChanged(int idx) {
     if (m_cue && m_cue->type() == Cue::Type::Text)
-        static_cast<TextCue*>(m_cue)->setAlignment(m_textAlignCombo->itemData(idx).toInt());
+        static_cast<TextCue*>(m_cue.data())->setAlignment(m_textAlignCombo->itemData(idx).toInt());
 }
 
 // ── Image cue (slideshow) ─────────────────────────────────────────────────────
 
 void InspectorPanel::onSlideDurationChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Image)
-        static_cast<ImageCue*>(m_cue)->setSlideDuration(v);
+        static_cast<ImageCue*>(m_cue.data())->setSlideDuration(v);
 }
 
 void InspectorPanel::onTransitionDurationChanged(double v) {
     if (m_cue && m_cue->type() == Cue::Type::Image)
-        static_cast<ImageCue*>(m_cue)->setTransitionDuration(v);
+        static_cast<ImageCue*>(m_cue.data())->setTransitionDuration(v);
 }
 
 void InspectorPanel::onTransitionTypeChanged(int idx) {
     if (m_cue && m_cue->type() == Cue::Type::Image)
-        static_cast<ImageCue*>(m_cue)->setTransitionType(
+        static_cast<ImageCue*>(m_cue.data())->setTransitionType(
             ImageCue::Transition(m_transitionCombo->itemData(idx).toInt()));
 }
 
 void InspectorPanel::onLoopChanged(bool v) {
     if (m_cue && m_cue->type() == Cue::Type::Image)
-        static_cast<ImageCue*>(m_cue)->setLoop(v);
+        static_cast<ImageCue*>(m_cue.data())->setLoop(v);
 }
 
 void InspectorPanel::onBackgroundChanged(int idx) {
     if (!m_cue || m_cue->type() != Cue::Type::Image) return;
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     const auto bg = ImageCue::Background(m_backgroundCombo->itemData(idx).toInt());
     ic->setBackground(bg);
     m_backgroundImageBtn->setEnabled(bg == ImageCue::Background::Image);
@@ -2017,7 +2060,7 @@ void InspectorPanel::onBackgroundChanged(int idx) {
 
 void InspectorPanel::onChooseBackgroundImage() {
     if (!m_cue || m_cue->type() != Cue::Type::Image) return;
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     const QString file = QFileDialog::getOpenFileName(
         this, tr("Seleziona immagine di sfondo"), QString(),
         tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
@@ -2028,7 +2071,7 @@ void InspectorPanel::onChooseBackgroundImage() {
 
 void InspectorPanel::onVideoBackgroundChanged(int idx) {
     if (!m_cue || m_cue->type() != Cue::Type::Video) return;
-    auto *vc = static_cast<VideoCue*>(m_cue);
+    auto *vc = static_cast<VideoCue*>(m_cue.data());
     const auto bg = VideoCue::Background(m_videoBgCombo->itemData(idx).toInt());
     vc->setBackground(bg);
     m_videoBgImageBtn->setEnabled(bg == VideoCue::Background::Image);
@@ -2036,7 +2079,7 @@ void InspectorPanel::onVideoBackgroundChanged(int idx) {
 
 void InspectorPanel::onChooseVideoBackgroundImage() {
     if (!m_cue || m_cue->type() != Cue::Type::Video) return;
-    auto *vc = static_cast<VideoCue*>(m_cue);
+    auto *vc = static_cast<VideoCue*>(m_cue.data());
     const QString file = QFileDialog::getOpenFileName(
         this, tr("Seleziona immagine di sfondo"), QString(),
         tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
@@ -2052,7 +2095,7 @@ void InspectorPanel::refreshImageList() {
         if (m_imageCountLbl) m_imageCountLbl->setText(QString());
         return;
     }
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     m_imageList->blockSignals(true);
     m_imageList->clear();
     for (const QString &path : ic->imagePaths()) {
@@ -2068,7 +2111,7 @@ void InspectorPanel::refreshImageList() {
 
 void InspectorPanel::onAddImages() {
     if (!m_cue || m_cue->type() != Cue::Type::Image) return;
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     const QStringList files = QFileDialog::getOpenFileNames(
         this, tr("Seleziona immagini"), QString(),
         tr("Immagini (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tutti i file (*)"));
@@ -2082,7 +2125,7 @@ void InspectorPanel::onAddImages() {
 
 void InspectorPanel::onRemoveSelectedImages() {
     if (!m_cue || m_cue->type() != Cue::Type::Image) return;
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     const QList<QListWidgetItem*> selected = m_imageList->selectedItems();
     if (selected.isEmpty()) return;
     QSet<QListWidgetItem*> toRemove(selected.begin(), selected.end());
@@ -2101,7 +2144,7 @@ void InspectorPanel::onRemoveSelectedImages() {
 
 void InspectorPanel::onImageListReordered() {
     if (!m_cue || m_cue->type() != Cue::Type::Image) return;
-    auto *ic = static_cast<ImageCue*>(m_cue);
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
     QStringList paths;
     for (int i = 0; i < m_imageList->count(); ++i)
         paths << m_imageList->item(i)->data(Qt::UserRole).toString();
@@ -2242,6 +2285,7 @@ void InspectorPanel::setShowMode(bool showMode) {
     // Media
     m_browseBtn->setEnabled(edit);
     m_volumeSpin->setEnabled(edit);
+    m_outputDeviceCombo->setEnabled(edit);
     if (m_loopSpin)  m_loopSpin->setEnabled(edit);
 
     // Fade

@@ -15,6 +15,7 @@
 #include "engine/LabelCue.h"
 #include "engine/TextCue.h"
 #include "engine/ImageCue.h"
+#include "engine/Lv2Plugin.h"
 #ifndef OQL_BASE
 #include "engine/ScriptCue.h"
 #include "engine/RecordCue.h"
@@ -54,6 +55,7 @@
 #include <QPainter>
 #include <QClipboard>
 #include <QMouseEvent>
+#include <QItemSelection>
 #include <QItemSelectionModel>
 #include <algorithm>
 
@@ -192,6 +194,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("OQL");
     resize(1440, 900);
     setWindowState(Qt::WindowMaximized);
+
+    // Scansiona i plugin LV2 in background fin da subito: la prima chiamata a
+    // Lv2Plugin::world() (lilv_world_load_all) è lenta, così è già pronta
+    // quando l'utente apre per la prima volta "Aggiungi effetto".
+    Lv2Plugin::prewarmAsync();
 
     m_videoOut  = new VideoOutputWindow(this);
     m_textOut   = new TextOutputWindow(this);
@@ -578,7 +585,9 @@ void MainWindow::buildMenus() {
     menuAction(file, tr("&Salva"),       QKeySequence::Save,   this, &MainWindow::saveWorkspace);
     menuAction(file, tr("Salva &come…"), QKeySequence::SaveAs, this, &MainWindow::saveWorkspaceAs);
     file->addSeparator();
-    menuAction(file, tr("&Esci"),        QKeySequence::Quit,   qApp, &QApplication::quit);
+    // close() passa da closeEvent()/confirmUnsaved(), come il pulsante nativo
+    // di chiusura — qApp->quit() lo saltava e scartava le modifiche senza chiedere.
+    menuAction(file, tr("&Esci"),        QKeySequence::Quit,   this, &MainWindow::close);
 
     // Modifica
     auto *edit = menuBar()->addMenu(tr("&Modifica"));
@@ -617,6 +626,9 @@ void MainWindow::buildMenus() {
     edit->addSeparator();
 #endif
     menuAction(edit, tr("&Elimina cue"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+    edit->addSeparator();
+    menuAction(edit, tr("Sposta cue &su"),   QKeySequence("Ctrl+Up"),   this, &MainWindow::moveSelectedCueUp);
+    menuAction(edit, tr("Sposta cue &giù"),  QKeySequence("Ctrl+Down"), this, &MainWindow::moveSelectedCueDown);
 
     // Finestra
     auto *win = menuBar()->addMenu(tr("&Finestra"));
@@ -1113,14 +1125,20 @@ void MainWindow::applyShortcuts() {
 
 // ── Cue management ────────────────────────────────────────────────────────────
 
-void MainWindow::addAudioCue() {
+// R3: le 9 add*Cue() per le cue "semplici" (non di controllo, già servite
+// da addControlCueImpl) erano identiche a meno del tipo concreto, del nome
+// di default e di un'eventuale configurazione aggiuntiva — unificate qui.
+void MainWindow::addSimpleCue(const QString &undoLabel, const QString &defaultName,
+                               const std::function<std::unique_ptr<Cue>()> &factory,
+                               const std::function<void(Cue*)> &extraSetup)
+{
     const auto sel = m_cueView->selectionModel()->selectedRows();
     const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Audio Cue", [&] {
-        auto cue = std::make_unique<AudioCue>();
+    doUndoable(undoLabel, [&] {
+        auto cue = factory();
         cue->setNumber(nextCueNumber());
-        cue->setFadeInDuration(AppSettings::instance().defaultFadeInDuration());
-        cue->setFadeOutDuration(AppSettings::instance().defaultFadeOutDuration());
+        if (!defaultName.isEmpty()) cue->setName(defaultName);
+        if (extraSetup) extraSetup(cue.get());
         m_workspace.cueList()->addCue(std::move(cue), idx);
     });
     const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
@@ -1128,17 +1146,18 @@ void MainWindow::addAudioCue() {
     m_cueView->setFocus();
 }
 
+void MainWindow::addAudioCue() {
+    addSimpleCue("Aggiungi Audio Cue", QString(),
+        [] { return std::make_unique<AudioCue>(); },
+        [](Cue *c) {
+            auto *ac = static_cast<AudioCue*>(c);
+            ac->setFadeInDuration(AppSettings::instance().defaultFadeInDuration());
+            ac->setFadeOutDuration(AppSettings::instance().defaultFadeOutDuration());
+        });
+}
+
 void MainWindow::addVideoCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Video Cue", [&] {
-        auto cue = std::make_unique<VideoCue>();
-        cue->setNumber(nextCueNumber());
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Video Cue", QString(), [] { return std::make_unique<VideoCue>(); });
 }
 
 void MainWindow::addStopCue()    { addControlCueImpl(Cue::Type::Stop); }
@@ -1147,73 +1166,23 @@ void MainWindow::addPauseCue()   { addControlCueImpl(Cue::Type::Pause); }
 void MainWindow::addPlayCue()    { addControlCueImpl(Cue::Type::Play); }
 
 void MainWindow::addMicCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Microfono Cue", [&] {
-        auto cue = std::make_unique<MicCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Microfono");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Microfono Cue", "Microfono", [] { return std::make_unique<MicCue>(); });
 }
 
 void MainWindow::addGroupCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Gruppo", [&] {
-        auto cue = std::make_unique<GroupCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Gruppo");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Gruppo", "Gruppo", [] { return std::make_unique<GroupCue>(); });
 }
 
 void MainWindow::addLabelCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Etichetta", [&] {
-        auto cue = std::make_unique<LabelCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Etichetta");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Etichetta", "Etichetta", [] { return std::make_unique<LabelCue>(); });
 }
 
 void MainWindow::addTextCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Testo Cue", [&] {
-        auto cue = std::make_unique<TextCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Testo");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Testo Cue", "Testo", [] { return std::make_unique<TextCue>(); });
 }
 
 void MainWindow::addImageCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Immagine Cue", [&] {
-        auto cue = std::make_unique<ImageCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Immagine");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Immagine Cue", "Immagine", [] { return std::make_unique<ImageCue>(); });
 }
 
 #ifndef OQL_BASE
@@ -1223,31 +1192,11 @@ void MainWindow::addEffectCue()      { addControlCueImpl(Cue::Type::Effect); }
 void MainWindow::addResetEffectCue() { addControlCueImpl(Cue::Type::ResetEffect); }
 
 void MainWindow::addScriptCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Script Cue", [&] {
-        auto cue = std::make_unique<ScriptCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Script");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Script Cue", "Script", [] { return std::make_unique<ScriptCue>(); });
 }
 
 void MainWindow::addRecordCue() {
-    const auto sel = m_cueView->selectionModel()->selectedRows();
-    const int  idx = sel.isEmpty() ? -1 : m_model->actualRowForVisible(sel.first().row()) + 1;
-    doUndoable("Aggiungi Record Cue", [&] {
-        auto cue = std::make_unique<RecordCue>();
-        cue->setNumber(nextCueNumber());
-        cue->setName("Registrazione");
-        m_workspace.cueList()->addCue(std::move(cue), idx);
-    });
-    const int actual = idx < 0 ? m_workspace.cueList()->count() - 1 : idx;
-    m_cueView->selectRow(m_model->visibleRowForActual(actual));
-    m_cueView->setFocus();
+    addSimpleCue("Aggiungi Record Cue", "Registrazione", [] { return std::make_unique<RecordCue>(); });
 }
 #endif // OQL_BASE
 
@@ -1365,8 +1314,8 @@ void MainWindow::applyUltraDark(bool on) {
         m_cueView->setUltraDark(true);
 
         // Show one-time hint dialog (unless user disabled it)
-        QSettings cfg("OQL", "OQL");
-        if (!cfg.value("ui/ultraDarkHintShown", false).toBool()) {
+        // R8: passa da AppSettings invece di un QSettings("OQL","OQL") ad-hoc.
+        if (!AppSettings::instance().ultraDarkHintShown()) {
             QDialog dlg(this);
             dlg.setWindowTitle(tr("Ultra Dark Mode"));
             dlg.setWindowFlags(dlg.windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -1385,7 +1334,7 @@ void MainWindow::applyUltraDark(bool on) {
             vlay->addWidget(btn);
             dlg.exec();
             if (cb->isChecked())
-                cfg.setValue("ui/ultraDarkHintShown", true);
+                AppSettings::instance().setUltraDarkHintShown(true);
         }
     } else {
         if (m_toolBar)    m_toolBar->show();
@@ -1450,6 +1399,59 @@ void MainWindow::deleteSelectedCue() {
         for (int a : actuals)
             m_workspace.cueList()->removeCue(a);
     });
+}
+
+void MainWindow::moveSelectedCueUp() {
+    if (m_showMode) return;
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+    if (sel.isEmpty()) return;
+
+    QVector<int> actuals;
+    for (const auto &idx : sel) {
+        const int a = m_model->actualRowForVisible(idx.row());
+        if (a >= 0) actuals.append(a);
+    }
+    std::sort(actuals.begin(), actuals.end());
+    if (actuals.isEmpty() || actuals.first() == 0) return;  // già in cima
+
+    doUndoable("Sposta cue su", [&] {
+        for (int a : actuals)
+            m_workspace.cueList()->moveCue(a, a - 1);
+    });
+
+    QItemSelection newSel;
+    for (int a : actuals) {
+        const int vis = m_model->visibleRowForActual(a - 1);
+        if (vis >= 0) newSel.select(m_model->index(vis, 0), m_model->index(vis, CueListModel::ColCount - 1));
+    }
+    m_cueView->selectionModel()->select(newSel, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+}
+
+void MainWindow::moveSelectedCueDown() {
+    if (m_showMode) return;
+    const auto sel = m_cueView->selectionModel()->selectedRows();
+    if (sel.isEmpty()) return;
+
+    QVector<int> actuals;
+    for (const auto &idx : sel) {
+        const int a = m_model->actualRowForVisible(idx.row());
+        if (a >= 0) actuals.append(a);
+    }
+    std::sort(actuals.begin(), actuals.end(), std::greater<int>());
+    const int last = m_workspace.cueList()->count() - 1;
+    if (actuals.isEmpty() || actuals.first() == last) return;  // già in fondo
+
+    doUndoable("Sposta cue giù", [&] {
+        for (int a : actuals)
+            m_workspace.cueList()->moveCue(a, a + 1);
+    });
+
+    QItemSelection newSel;
+    for (int a : actuals) {
+        const int vis = m_model->visibleRowForActual(a + 1);
+        if (vis >= 0) newSel.select(m_model->index(vis, 0), m_model->index(vis, CueListModel::ColCount - 1));
+    }
+    m_cueView->selectionModel()->select(newSel, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
 }
 
 void MainWindow::addControlCueImpl(Cue::Type type, double extra) {
@@ -1675,12 +1677,24 @@ void MainWindow::openWorkspace() {
         QMessageBox::warning(this, "Errore", "Impossibile aprire il file.");
         return;
     }
+    refreshAfterLoad(path);
+}
+
+void MainWindow::refreshAfterLoad(const QString &path) {
     assignVideoSinkToAll();
     m_inspector->setCue(nullptr);
     m_undoPropTimer->stop();
     m_undoStack->clear();
     m_undoLastPushed = m_workspace.cueList()->toJson();
     addToRecentFiles(path);
+}
+
+void MainWindow::openFileAtStartup(const QString &path) {
+    if (!m_workspace.load(path)) {
+        QMessageBox::warning(this, "Errore", "Impossibile aprire il file:\n" + path);
+        return;
+    }
+    refreshAfterLoad(path);
 }
 
 bool MainWindow::saveWorkspace() {
@@ -1712,32 +1726,20 @@ bool MainWindow::saveWorkspaceAs() {
 
 // ── Video output ──────────────────────────────────────────────────────────────
 
-void MainWindow::toggleVideoOutput() {
-    const bool nowVisible = !m_videoOut->isVisible();
-    if (m_videoAction) {
-        const QSignalBlocker b(m_videoAction);
-        m_videoAction->setChecked(nowVisible);
+// R6: toggleVideo/Text/ImageOutput() erano identiche a meno della finestra
+// e dell'azione di menu coinvolte.
+void MainWindow::toggleOutputWindow(QWidget *win, QAction *action) {
+    const bool nowVisible = !win->isVisible();
+    if (action) {
+        const QSignalBlocker b(action);
+        action->setChecked(nowVisible);
     }
-    m_videoOut->setVisible(nowVisible);
+    win->setVisible(nowVisible);
 }
 
-void MainWindow::toggleTextOutput() {
-    const bool nowVisible = !m_textOut->isVisible();
-    if (m_textAction) {
-        const QSignalBlocker b(m_textAction);
-        m_textAction->setChecked(nowVisible);
-    }
-    m_textOut->setVisible(nowVisible);
-}
-
-void MainWindow::toggleImageOutput() {
-    const bool nowVisible = !m_imageOut->isVisible();
-    if (m_imageAction) {
-        const QSignalBlocker b(m_imageAction);
-        m_imageAction->setChecked(nowVisible);
-    }
-    m_imageOut->setVisible(nowVisible);
-}
+void MainWindow::toggleVideoOutput() { toggleOutputWindow(m_videoOut, m_videoAction); }
+void MainWindow::toggleTextOutput()  { toggleOutputWindow(m_textOut,  m_textAction); }
+void MainWindow::toggleImageOutput() { toggleOutputWindow(m_imageOut, m_imageAction); }
 
 // ── Event filter: sync toggle-action checked state with window visibility ─────
 
@@ -1754,15 +1756,18 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
     const auto type = ev->type();
     if (type == QEvent::Show || type == QEvent::Hide) {
         const bool visible = (type == QEvent::Show);
-        if (obj == m_videoOut && m_videoAction && m_videoAction->isChecked() != visible) {
-            const QSignalBlocker b(m_videoAction);
-            m_videoAction->setChecked(visible);
-        } else if (obj == m_textOut && m_textAction && m_textAction->isChecked() != visible) {
-            const QSignalBlocker b(m_textAction);
-            m_textAction->setChecked(visible);
-        } else if (obj == m_imageOut && m_imageAction && m_imageAction->isChecked() != visible) {
-            const QSignalBlocker b(m_imageAction);
-            m_imageAction->setChecked(visible);
+        // R6: i 3 rami erano identici a meno della finestra/azione coinvolte.
+        const struct { QWidget *win; QAction *action; } outputs[] = {
+            { m_videoOut, m_videoAction },
+            { m_textOut,  m_textAction },
+            { m_imageOut, m_imageAction },
+        };
+        for (const auto &o : outputs) {
+            if (obj == o.win && o.action && o.action->isChecked() != visible) {
+                const QSignalBlocker b(o.action);
+                o.action->setChecked(visible);
+                break;
+            }
         }
     }
     return QMainWindow::eventFilter(obj, ev);
@@ -1821,21 +1826,22 @@ void MainWindow::doUndoable(const QString &desc, std::function<void()> fn) {
     m_suppressUndoTracking = false;
 }
 
+// R8: le 5 QSettings("OQL","OQL") ad-hoc per i file recenti/hint sono state
+// sostituite da AppSettings::recentFiles()/setRecentFiles() (e
+// ultraDarkHintShown() più sopra), coerente col resto delle impostazioni.
 void MainWindow::addToRecentFiles(const QString &path) {
-    QSettings s("OQL", "OQL");
-    QStringList recent = s.value("recentFiles").toStringList();
+    QStringList recent = AppSettings::instance().recentFiles();
     recent.removeAll(path);
     recent.prepend(path);
     while (recent.size() > kMaxRecent) recent.removeLast();
-    s.setValue("recentFiles", recent);
+    AppSettings::instance().setRecentFiles(recent);
     rebuildRecentMenu();
 }
 
 void MainWindow::rebuildRecentMenu() {
     if (!m_recentMenu) return;
     m_recentMenu->clear();
-    QSettings s("OQL", "OQL");
-    const QStringList recent = s.value("recentFiles").toStringList();
+    const QStringList recent = AppSettings::instance().recentFiles();
     for (const QString &path : recent) {
         const QString label = QFileInfo(path).fileName();
         m_recentMenu->addAction(label, this, [this, path]() { openRecentFile(path); });
@@ -1844,7 +1850,7 @@ void MainWindow::rebuildRecentMenu() {
         m_recentMenu->addAction("(nessun file recente)")->setEnabled(false);
     m_recentMenu->addSeparator();
     m_recentMenu->addAction("Svuota recenti", this, [this]() {
-        QSettings("OQL", "OQL").setValue("recentFiles", QStringList{});
+        AppSettings::instance().setRecentFiles({});
         rebuildRecentMenu();
     });
 }
@@ -1853,19 +1859,13 @@ void MainWindow::openRecentFile(const QString &path) {
     if (!confirmUnsaved()) return;
     if (!m_workspace.load(path)) {
         QMessageBox::warning(this, "Errore", "Impossibile aprire il file:\n" + path);
-        QSettings s("OQL", "OQL");
-        QStringList recent = s.value("recentFiles").toStringList();
+        QStringList recent = AppSettings::instance().recentFiles();
         recent.removeAll(path);
-        s.setValue("recentFiles", recent);
+        AppSettings::instance().setRecentFiles(recent);
         rebuildRecentMenu();
         return;
     }
-    assignVideoSinkToAll();
-    m_inspector->setCue(nullptr);
-    m_undoPropTimer->stop();
-    m_undoStack->clear();
-    m_undoLastPushed = m_workspace.cueList()->toJson();
-    addToRecentFiles(path);
+    refreshAfterLoad(path);
 }
 
 void MainWindow::updateTitle() {

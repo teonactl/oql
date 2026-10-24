@@ -27,5 +27,50 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <!-- Senza questa chiave macOS termina il processo (non lo nega e basta)
+         al primo accesso al microfono da parte di MicCue/RecordCue. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>OQL usa il microfono per le cue Microfono e Registrazione.</string>
+    <!-- Associa i file .oql a OQL (doppio clic / "Apri con" in Finder). -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>OQL Workspace</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.oql.oql.workspace</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>oql</string>
+            </array>
+            <key>CFBundleTypeIconFile</key>
+            <string>oql</string>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.oql.oql.workspace</string>
+            <key>UTTypeDescription</key>
+            <string>OQL Workspace</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>oql</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>
