@@ -194,6 +194,29 @@ intptr_t VstPlugin::hostCallback(AEffect* /*effect*/, int32_t opcode,
 
 // ── Constructor / destructor ──────────────────────────────────────────────────
 
+#ifdef Q_OS_WIN
+// Isolato dal costruttore: MSVC vieta __try in un costruttore/distruttore
+// (C2712 — richiedono object unwinding implicito per i membri, incompatibile
+// con SEH nella stessa funzione). Nessun parametro/locale con distruttore
+// non banale qui dentro, solo puntatori e un char buffer POD.
+static AEffect* vstSehInitPlugin(VstPluginMain mainFn, VstHostCallback cb,
+                                  char *nameBufOut, bool *crashed)
+{
+    AEffect *effect = nullptr;
+    VST_SEH_TRY
+        effect = mainFn(cb);
+        if (effect && effect->magic == 0x56737450 /*'VstP'*/) {
+            effect->dispatcher(effect, effOpen, 0, 0, nullptr, 0.0f);
+            effect->dispatcher(effect, effGetEffectName, 0, 0, nameBufOut, 0.0f);
+        }
+    VST_SEH_CATCH
+        effect = nullptr;
+        *crashed = true;
+    VST_SEH_END
+    return effect;
+}
+#endif
+
 VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
     std::string loadPath = path;
 #ifdef Q_OS_MACOS
@@ -210,8 +233,17 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
 
     installVstCrashHandlerOnce();
     s_vstProtected = 1;
+    char nameBuf[256] = {};
 #ifdef Q_OS_WIN
-    VST_SEH_TRY
+    bool crashed = false;
+    m_effect = vstSehInitPlugin(mainFn, hostCallback, nameBuf, &crashed);
+    if (crashed) {
+        qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
+        s_vstProtected = 0;
+        m_effect = nullptr;
+        dlclose(m_lib); m_lib = nullptr;
+        return;
+    }
 #else
     if (sigsetjmp(s_vstJump, 1) != 0) {
         qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
@@ -220,9 +252,13 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
         dlclose(m_lib); m_lib = nullptr;
         return;
     }
+    m_effect = mainFn(hostCallback);
+    if (m_effect && m_effect->magic == 0x56737450 /*'VstP'*/) {
+        m_effect->dispatcher(m_effect, effOpen, 0, 0, nullptr, 0.0f);
+        m_effect->dispatcher(m_effect, effGetEffectName, 0, 0, nameBuf, 0.0f);
+    }
 #endif
 
-    m_effect = mainFn(hostCallback);
     if (!m_effect || m_effect->magic != 0x56737450 /*'VstP'*/) {
         s_vstProtected = 0;
         m_effect = nullptr;
@@ -230,11 +266,8 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
         return;
     }
 
-    m_effect->dispatcher(m_effect, effOpen, 0, 0, nullptr, 0.0f);
-    char buf[256] = {};
-    m_effect->dispatcher(m_effect, effGetEffectName, 0, 0, buf, 0.0f);
-    if (buf[0] != '\0') {
-        m_name = buf;
+    if (nameBuf[0] != '\0') {
+        m_name = nameBuf;
     } else {
         // path.rfind('/') su un percorso Windows (solo '\') darebbe npos+1==0,
         // cioè l'intero percorso invece del solo nome file: si cerca entrambi.
@@ -242,40 +275,41 @@ VstPlugin::VstPlugin(const std::string &path) : m_path(path) {
         m_name = (slash == std::string::npos) ? path : path.substr(slash + 1);
     }
 
-#ifdef Q_OS_WIN
-    VST_SEH_CATCH
-        qWarning("VST2: plugin crashed during initialization, skipping: %s", path.c_str());
-        s_vstProtected = 0;
-        m_effect = nullptr;
-        dlclose(m_lib); m_lib = nullptr;
-        return;
-    VST_SEH_END
-#endif
-
     s_vstProtected = 0;
 }
+
+#ifdef Q_OS_WIN
+// Isolato dal distruttore per lo stesso motivo del costruttore sopra
+// (C2712). Nessun locale con distruttore non banale: solo il puntatore e
+// due bool passati per valore.
+static void vstSehTeardown(AEffect *effect, bool mainsOn, bool editorCrashed) {
+    VST_SEH_TRY
+        if (mainsOn)
+            effect->dispatcher(effect, effMainsChanged, 0, 0, nullptr, 0.0f);
+        if (!editorCrashed)
+            effect->dispatcher(effect, effEditClose, 0, 0, nullptr, 0.0f);
+        effect->dispatcher(effect, effClose, 0, 0, nullptr, 0.0f);
+    VST_SEH_CATCH
+        // Durante il teardown non c'è molto da "recuperare": si ignora,
+        // come fa già il ramo POSIX in questo stesso caso (nessun log,
+        // nessuna azione — si prosegue con dlclose() comunque sotto).
+    VST_SEH_END
+}
+#endif
 
 VstPlugin::~VstPlugin() {
     if (m_effect) {
         installVstCrashHandlerOnce();
         s_vstProtected = 1;
 #ifdef Q_OS_WIN
-        VST_SEH_TRY
+        vstSehTeardown(m_effect, m_mainsOn, m_editorCrashed);
 #else
         if (sigsetjmp(s_vstJump, 1) == 0) {
-#endif
             if (m_mainsOn)
                 m_effect->dispatcher(m_effect, effMainsChanged, 0, 0, nullptr, 0.0f);
             if (!m_editorCrashed)
                 m_effect->dispatcher(m_effect, effEditClose, 0, 0, nullptr, 0.0f);
             m_effect->dispatcher(m_effect, effClose, 0, 0, nullptr, 0.0f);
-#ifdef Q_OS_WIN
-        VST_SEH_CATCH
-            // Durante il teardown non c'è molto da "recuperare": si ignora,
-            // come fa già il ramo POSIX in questo stesso caso (nessun log,
-            // nessuna azione — si prosegue con dlclose() comunque sotto).
-        VST_SEH_END
-#else
         }
 #endif
         s_vstProtected = 0;
