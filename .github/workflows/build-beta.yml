@@ -1,12 +1,18 @@
 name: Build Beta (Full + scadenza)
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       expiry:
         description: 'Data scadenza beta (YYYY-MM-DD)'
         required: false
         default: '2027-06-21'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
