@@ -46,6 +46,8 @@ qt_add_executable(oql
     src/engine/AudioCue.cpp
     src/engine/VideoCue.h
     src/engine/VideoCue.cpp
+    src/engine/ProjectionWarp.h
+    src/engine/ProjectionWarp.cpp
     src/engine/CueList.h
     src/engine/CueList.cpp
     src/engine/ControlCues.h
@@ -74,6 +76,8 @@ qt_add_executable(oql
     src/ui/CueRowDelegate.cpp
     src/ui/InspectorPanel.h
     src/ui/InspectorPanel.cpp
+    src/ui/WarpCalibrationOverlay.h
+    src/ui/WarpCalibrationOverlay.cpp
     src/ui/VideoOutputWindow.h
     src/ui/VideoOutputWindow.cpp
     src/ui/TextOutputWindow.h
@@ -217,6 +221,8 @@ if(OQL_BUILD_TESTS)
         src/engine/AudioCue.cpp
         src/engine/VideoCue.h
         src/engine/VideoCue.cpp
+        src/engine/ProjectionWarp.h
+        src/engine/ProjectionWarp.cpp
         src/engine/CueList.h
         src/engine/CueList.cpp
         src/engine/ControlCues.h
@@ -252,6 +258,7 @@ if(OQL_BUILD_TESTS)
         tests/fase4_tests.cpp
         tests/fase5_tests.cpp
         tests/fase6_tests.cpp
+        tests/fase7_tests.cpp
     )
 
     target_link_libraries(oql_tests PRIVATE

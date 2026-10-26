@@ -1,8 +1,7 @@
 #include "ImageOutputWindow.h"
+#include "WarpCalibrationOverlay.h"
 #include "engine/ImageCue.h"
-#include <QLabel>
-#include <QGraphicsOpacityEffect>
-#include <QVBoxLayout>
+#include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
@@ -11,36 +10,14 @@ ImageOutputWindow::ImageOutputWindow(QWidget *parent)
     : QWidget(parent, Qt::Window)
 {
     setWindowTitle("Image Output — OQL");
-    setStyleSheet("background: black;");
     resize(1280, 720);
 
-    m_backgroundLabel = new QLabel(this);
-    m_backgroundLabel->setAlignment(Qt::AlignCenter);
-    m_backgroundLabel->setStyleSheet("background: black;");
-    m_backgroundLabel->setGeometry(rect());
-
-    m_container = new QWidget(this);
-    m_container->setStyleSheet("background: transparent;");
-
-    m_bottomLabel = new QLabel(m_container);
-    m_bottomLabel->setAlignment(Qt::AlignCenter);
-    m_bottomLabel->setStyleSheet("background: transparent;");
-
-    m_topLabel = new QLabel(m_container);
-    m_topLabel->setAlignment(Qt::AlignCenter);
-    m_topLabel->setStyleSheet("background: transparent;");
-    m_topOpacity = new QGraphicsOpacityEffect(m_topLabel);
-    m_topLabel->setGraphicsEffect(m_topOpacity);
-    m_topLabel->hide();
-
-    m_blackOverlay = new QWidget(this);
-    m_blackOverlay->setStyleSheet("background: black;");
-    m_blackOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_overlayOpacity = new QGraphicsOpacityEffect(m_blackOverlay);
-    m_overlayOpacity->setOpacity(0.0);
-    m_blackOverlay->setGraphicsEffect(m_overlayOpacity);
-    m_blackOverlay->setGeometry(rect());
-    m_blackOverlay->raise();
+    m_calibOverlay = new WarpCalibrationOverlay(this);
+    m_calibOverlay->setGeometry(rect());
+    connect(m_calibOverlay, &WarpCalibrationOverlay::warpEdited,
+            this, [this] { update(); emit calibrationEdited(); });
+    connect(m_calibOverlay, &WarpCalibrationOverlay::warpCommitted,
+            this, [this] { update(); emit calibrationCommitted(); });
 }
 
 QPixmap ImageOutputWindow::pixmapFor(const QString &path) {
@@ -61,17 +38,6 @@ QPixmap ImageOutputWindow::pixmapFor(const QString &path) {
     return px;
 }
 
-void ImageOutputWindow::setLabelPixmap(QLabel *label, const QString &path, QString &lastKey) {
-    const QSize size = label->size();
-    const QString key = path + '@' + QString::number(size.width()) + 'x' + QString::number(size.height());
-    if (key == lastKey) return;
-    lastKey = key;
-    if (path.isEmpty()) { label->clear(); return; }
-    const QPixmap src = pixmapFor(path);
-    if (src.isNull()) { label->clear(); return; }
-    label->setPixmap(src.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-}
-
 void ImageOutputWindow::showCue(ImageCue *cue) {
     if (m_connection) disconnect(m_connection);
     m_cue = cue;
@@ -85,81 +51,108 @@ void ImageOutputWindow::showCue(ImageCue *cue) {
 void ImageOutputWindow::clearImage() {
     if (m_connection) disconnect(m_connection);
     m_cue = nullptr;
-    m_bottomLabel->clear();
-    m_topLabel->clear();
-    m_topLabel->hide();
-    m_lastBottomKey.clear();
-    m_lastTopKey.clear();
-    m_lastBackgroundKey.clear();
-    m_backgroundLabel->clear();
-    m_backgroundLabel->setStyleSheet("background: black;");
-    m_overlayOpacity->setOpacity(0.0);
-}
-
-void ImageOutputWindow::updateBackground() {
-    if (!m_cue) return;
-
-    if (m_cue->background() == ImageCue::Background::Image) {
-        const QString path = m_cue->backgroundImagePath();
-        const QString key = path + '@' + QString::number(width()) + 'x' + QString::number(height());
-        if (key != m_lastBackgroundKey) {
-            m_lastBackgroundKey = key;
-            const QPixmap src = path.isEmpty() ? QPixmap() : pixmapFor(path);
-            if (src.isNull()) {
-                m_backgroundLabel->clear();
-                m_backgroundLabel->setStyleSheet("background: black;");
-            } else {
-                m_backgroundLabel->setStyleSheet("background: transparent;");
-                m_backgroundLabel->setPixmap(src.scaled(
-                    size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
-            }
-        }
-    } else {
-        m_lastBackgroundKey.clear();
-        m_backgroundLabel->clear();
-        m_backgroundLabel->setStyleSheet(
-            m_cue->background() == ImageCue::Background::White ? "background: white;"
-                                                                  : "background: black;");
-    }
+    update();
 }
 
 void ImageOutputWindow::refresh() {
-    if (!m_cue) return;
+    update();
+}
 
-    updateBackground();
-    setLabelPixmap(m_bottomLabel, m_cue->currentImagePath(), m_lastBottomKey);
-    m_overlayOpacity->setOpacity(1.0 - m_cue->visualLevel());
+QImage ImageOutputWindow::composeFrame() const {
+    const QSize sz = size();
+    QImage canvas(sz, QImage::Format_ARGB32_Premultiplied);
+    canvas.fill(Qt::black);
+    if (sz.isEmpty() || !m_cue) return canvas;
 
+    QPainter p(&canvas);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    // Sfondo: colore pieno o immagine "expanding" (riempie tutta la
+    // finestra, eventualmente ritagliata) — stesso comportamento di prima.
+    if (m_cue->background() == ImageCue::Background::Image && !m_cue->backgroundImagePath().isEmpty()) {
+        const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(m_cue->backgroundImagePath());
+        if (!src.isNull()) {
+            p.drawPixmap(canvas.rect(), src.scaled(
+                sz, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+        }
+    } else {
+        p.fillRect(canvas.rect(),
+                   m_cue->background() == ImageCue::Background::White ? QColor(Qt::white)
+                                                                         : QColor(Qt::black));
+    }
+
+    // Immagine corrente ("bottom"), centrata mantenendo le proporzioni.
+    const QString bottomPath = m_cue->currentImagePath();
+    if (!bottomPath.isEmpty()) {
+        const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(bottomPath);
+        if (!src.isNull()) {
+            const QImage scaled = src.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
+            const QPoint topLeft((sz.width() - scaled.width()) / 2, (sz.height() - scaled.height()) / 2);
+            p.drawImage(topLeft, scaled);
+        }
+    }
+
+    // Transizione verso la prossima immagine ("top"): crossfade o scorrimento.
     const bool transitioning = m_cue->isTransitioning()
                              && m_cue->transitionType() != ImageCue::Transition::Cut;
     if (transitioning) {
-        setLabelPixmap(m_topLabel, m_cue->nextImagePath(), m_lastTopKey);
-        m_topLabel->show();
-        const double progress = m_cue->transitionProgress();
-        if (m_cue->transitionType() == ImageCue::Transition::Crossfade) {
-            m_topLabel->move(0, 0);
-            m_topOpacity->setOpacity(progress);
-        } else { // SlideHorizontal
-            m_topOpacity->setOpacity(1.0);
-            const int x = int(width() * (1.0 - progress));
-            m_topLabel->move(x, 0);
+        const QString topPath = m_cue->nextImagePath();
+        if (!topPath.isEmpty()) {
+            const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(topPath);
+            if (!src.isNull()) {
+                const QImage scaled = src.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
+                const QPoint centered((sz.width() - scaled.width()) / 2, (sz.height() - scaled.height()) / 2);
+                const double progress = m_cue->transitionProgress();
+                if (m_cue->transitionType() == ImageCue::Transition::Crossfade) {
+                    p.setOpacity(progress);
+                    p.drawImage(centered, scaled);
+                    p.setOpacity(1.0);
+                } else { // SlideHorizontal
+                    const int x = int(sz.width() * (1.0 - progress));
+                    p.drawImage(QPoint(x, centered.y()), scaled);
+                }
+            }
         }
-    } else {
-        m_topLabel->hide();
     }
+
+    // Fade a nero/bianco/immagine (stesso schema di VideoOutputWindow).
+    const double overlayAlpha = 1.0 - m_cue->visualLevel();
+    if (overlayAlpha > 0.001) {
+        QColor c = Qt::black;
+        p.setOpacity(overlayAlpha);
+        p.fillRect(canvas.rect(), c);
+        p.setOpacity(1.0);
+    }
+    return canvas;
+}
+
+void ImageOutputWindow::paintEvent(QPaintEvent *) {
+    const QImage frame = composeFrame();
+    QPainter painter(this);
+    if (m_warp && !m_warp->isIdentity())
+        painter.drawImage(0, 0, m_warp->renderWarped(frame, size()));
+    else
+        painter.drawImage(0, 0, frame);
+}
+
+void ImageOutputWindow::setProjectionWarp(ProjectionWarp *warp) {
+    m_warp = warp;
+    m_calibOverlay->setWarp(warp);
+    update();
+}
+
+void ImageOutputWindow::setCalibrating(bool on) {
+    m_calibOverlay->setCalibrating(on);
+    update();
+}
+
+bool ImageOutputWindow::isCalibrating() const {
+    return m_calibOverlay->isCalibrating();
 }
 
 void ImageOutputWindow::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
-    m_backgroundLabel->setGeometry(rect());
-    m_container->setGeometry(rect());
-    m_bottomLabel->setGeometry(0, 0, width(), height());
-    m_topLabel->resize(width(), height());
-    m_blackOverlay->setGeometry(rect());
-    m_lastBottomKey.clear();
-    m_lastTopKey.clear();
-    m_lastBackgroundKey.clear();
-    if (m_cue) refresh();
+    m_calibOverlay->setGeometry(rect());
 }
 
 void ImageOutputWindow::toggleFullScreen() {
@@ -169,7 +162,8 @@ void ImageOutputWindow::toggleFullScreen() {
         showFullScreen();
 }
 
-void ImageOutputWindow::mouseDoubleClickEvent(QMouseEvent *) {
+void ImageOutputWindow::mouseDoubleClickEvent(QMouseEvent *event) {
+    if (isCalibrating()) { QWidget::mouseDoubleClickEvent(event); return; }
     toggleFullScreen();
 }
 

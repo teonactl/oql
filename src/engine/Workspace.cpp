@@ -27,6 +27,12 @@ void Workspace::setAutoFadeOnStop(bool v) {
     emit projectSettingsChanged();
 }
 
+void Workspace::setProjectionWarp(const ProjectionWarp &warp) {
+    m_projectionWarp = warp;
+    setModified(true);
+    emit projectionWarpChanged();
+}
+
 void Workspace::setModified(bool v) {
     if (m_modified == v) return;
     m_modified = v;
@@ -42,6 +48,7 @@ bool Workspace::save(const QString &path) {
     root["cues"]           = m_cueList.toJson();
     root["showCueNumbers"] = m_showCueNumbers;
     root["autoFadeOnStop"] = m_autoFadeOnStop;
+    root["projectionWarp"] = m_projectionWarp.toJson();
     const QByteArray data = QJsonDocument(root).toJson();
 
     // QSaveFile scrive su un file temporaneo nella stessa cartella e lo
@@ -74,11 +81,13 @@ bool Workspace::load(const QString &path) {
     m_name           = root["name"].toString(QFileInfo(path).completeBaseName());
     m_showCueNumbers = root["showCueNumbers"].toBool(true);
     m_autoFadeOnStop = root["autoFadeOnStop"].toBool(false);
+    m_projectionWarp.fromJson(root["projectionWarp"].toObject());
     m_cueList.fromJson(root["cues"].toArray());
     m_filePath = path;
     setModified(false);
     emit filePathChanged(m_filePath);
     emit projectSettingsChanged();
+    emit projectionWarpChanged();
     return true;
 }
 
@@ -89,7 +98,9 @@ void Workspace::reset() {
     m_filePath.clear();
     m_showCueNumbers = true;
     m_autoFadeOnStop = false;
+    m_projectionWarp = ProjectionWarp();
     setModified(false);
     emit filePathChanged(m_filePath);
     emit projectSettingsChanged();
+    emit projectionWarpChanged();
 }

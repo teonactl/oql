@@ -37,6 +37,7 @@ void run_fase3_tests();  // tests/fase3_tests.cpp
 void run_fase4_tests();  // tests/fase4_tests.cpp
 void run_fase5_tests();  // tests/fase5_tests.cpp
 void run_fase6_tests();  // tests/fase6_tests.cpp
+void run_fase7_tests();  // tests/fase7_tests.cpp
 
 // Scrive un WAV PCM16 minimale (silenzio) che miniaudio decodifica senza problemi.
 static bool writeTestWav(const QString &path, double seconds = 1.0,
@@ -338,6 +339,9 @@ int main(int argc, char *argv[]) {
 
     printf("\n=== OQL — test Fase 6 ===\n");
     run_fase6_tests();
+
+    printf("\n=== OQL — test Fase 7 ===\n");
+    run_fase7_tests();
 
     const int n = failureCount();
     printf("\n=== %s (%d fallimenti) ===\n", n == 0 ? "TUTTI I TEST OK" : "ALCUNI TEST FALLITI", n);

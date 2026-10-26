@@ -39,7 +39,6 @@
 #include <QCloseEvent>
 #include <QEvent>
 #include <QKeyEvent>
-#include <QVideoWidget>
 #include <QFileInfo>
 #include <QSettings>
 #include <QPainter>
@@ -206,6 +205,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_videoOut->installEventFilter(this);
     m_textOut->installEventFilter(this);
     m_imageOut->installEventFilter(this);
+
+    // Calibrazione proiezione: Video e Image Output condividono lo stesso
+    // warp (vedi commento su Workspace::projectionWarp) — puntatore stabile
+    // per tutta la vita di m_workspace, non serve riagganciarlo a ogni
+    // load()/reset() perché quelle mutano l'oggetto esistente sul posto.
+    m_videoOut->setProjectionWarp(&m_workspace.projectionWarp());
+    m_imageOut->setProjectionWarp(&m_workspace.projectionWarp());
+    connect(&m_workspace, &Workspace::projectionWarpChanged, this, [this] {
+        m_videoOut->update();
+        m_imageOut->update();
+    });
+    auto commitWarp = [this] { m_workspace.setProjectionWarp(m_workspace.projectionWarp()); };
+    connect(m_videoOut, &VideoOutputWindow::calibrationCommitted, this, commitWarp);
+    connect(m_imageOut, &ImageOutputWindow::calibrationCommitted, this, commitWarp);
     m_undoStack = new QUndoStack(this);
 
     buildUi();   // m_cueView is created here
@@ -635,6 +648,22 @@ void MainWindow::buildMenus() {
     menuAction(win, tr("Output &video"),  QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
     menuAction(win, tr("Output &testo"),  QKeySequence("Ctrl+T"), this, &MainWindow::toggleTextOutput);
     menuAction(win, tr("Output &immagine"), QKeySequence("Ctrl+I"), this, &MainWindow::toggleImageOutput);
+    win->addSeparator();
+    {
+        // Calibrazione warp proiezione: attiva/disattiva la griglia
+        // trascinabile su entrambe le finestre di output (condividono lo
+        // stesso ProjectionWarp — vedi Workspace::projectionWarp) e le apre
+        // se non già visibili, altrimenti non c'è nulla da calibrare a video.
+        auto *calibAction = new QAction(tr("&Calibra proiezione…"), win);
+        calibAction->setCheckable(true);
+        calibAction->setShortcut(QKeySequence("Ctrl+Shift+C"));
+        connect(calibAction, &QAction::toggled, this, [this](bool on) {
+            m_videoOut->setCalibrating(on);
+            m_imageOut->setCalibrating(on);
+            if (on) { m_videoOut->show(); m_imageOut->show(); }
+        });
+        win->addAction(calibAction);
+    }
 
     // Strumenti
     auto *tools = menuBar()->addMenu(tr("&Strumenti"));
@@ -1218,7 +1247,7 @@ void MainWindow::wireVideoCueOpacity(VideoCue *cue) {
 void MainWindow::setupNewVideoCue(int index) {
     auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));
     if (cue) {
-        cue->setVideoSink(m_videoOut->videoWidget()->videoSink());
+        cue->setVideoSink(m_videoOut->videoSink());
         wireVideoCueOpacity(cue);
     }
 }
@@ -1374,7 +1403,7 @@ void MainWindow::assignVideoSinkToAll() {
     for (int i = 0; i < list->count(); ++i) {
         auto *cue = qobject_cast<VideoCue*>(list->cueAt(i));
         if (cue) {
-            cue->setVideoSink(m_videoOut->videoWidget()->videoSink());
+            cue->setVideoSink(m_videoOut->videoSink());
             wireVideoCueOpacity(cue);
         }
     }
