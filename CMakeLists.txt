@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(OQL VERSION 0.1.0 LANGUAGES CXX)
+project(OQL VERSION 0.1.13 LANGUAGES CXX)
 
 set(OQL_EDITION "full" CACHE STRING "Build edition: full or base")
 set_property(CACHE OQL_EDITION PROPERTY STRINGS full base)

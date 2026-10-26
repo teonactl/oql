@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     app.setApplicationName("OQL");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.1.13");
     app.setOrganizationName("OQL");
     app.setWindowIcon(QIcon(":/icons/oql.svg"));
     applyDarkTheme(app);
