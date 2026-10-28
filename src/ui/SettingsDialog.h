@@ -60,5 +60,5 @@ private:
 
     // Hardware
     QComboBox *m_audioDeviceCombo;
-    QComboBox *m_outputScreenCombo;
+    QCheckBox *m_combinedOutputCheck;
 };

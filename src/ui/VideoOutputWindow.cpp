@@ -1,120 +1,157 @@
 #include "VideoOutputWindow.h"
-#include "WarpCalibrationOverlay.h"
+#include "engine/VideoCue.h"
+#include "engine/Workspace.h"
+#include "engine/CueList.h"
 #include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
-#include <QResizeEvent>
+#include <QSet>
 
-VideoOutputWindow::VideoOutputWindow(QWidget *parent)
-    : QWidget(parent, Qt::Window)
+VideoOutputWindow::VideoOutputWindow(QWidget *parent, bool embedded)
+    : QWidget(parent, embedded ? Qt::Widget : (Qt::Window | Qt::FramelessWindowHint)), m_embedded(embedded)
 {
-    setWindowTitle("Video Output — OQL");
-    resize(1280, 720);
-
-    // Il sink non è agganciato a un QVideoWidget: catturiamo i frame grezzi
-    // per poterli comporre e deformare (warp) a mano in paintEvent — vedi
-    // il commento in VideoOutputWindow.h sul perché.
-    m_sink = new QVideoSink(this);
-    connect(m_sink, &QVideoSink::videoFrameChanged,
-            this,   &VideoOutputWindow::onVideoFrameChanged);
-
-    m_calibOverlay = new WarpCalibrationOverlay(this);
-    m_calibOverlay->setGeometry(rect());
-    connect(m_calibOverlay, &WarpCalibrationOverlay::warpEdited,
-            this, [this] { update(); emit calibrationEdited(); });
-    connect(m_calibOverlay, &WarpCalibrationOverlay::warpCommitted,
-            this, [this] { update(); emit calibrationCommitted(); });
-}
-
-void VideoOutputWindow::onVideoFrameChanged(const QVideoFrame &frame) {
-    if (frame.isValid())
-        m_lastFrame = frame.toImage();
-    update();
-}
-
-void VideoOutputWindow::setOpacity(double level) {
-    m_opacity = qBound(0.0, level, 1.0);
-    update();
-}
-
-void VideoOutputWindow::setBackground(Background mode, const QString &imagePath) {
-    m_bgMode      = mode;
-    m_bgImagePath = imagePath;
-    update();
-}
-
-void VideoOutputWindow::setProjectionWarp(ProjectionWarp *warp) {
-    m_warp = warp;
-    m_calibOverlay->setWarp(warp);
-    update();
-}
-
-void VideoOutputWindow::setCalibrating(bool on) {
-    m_calibOverlay->setCalibrating(on);
-    update();
-}
-
-bool VideoOutputWindow::isCalibrating() const {
-    return m_calibOverlay->isCalibrating();
-}
-
-QImage VideoOutputWindow::composeFrame() const {
-    const QSize sz = size();
-    QImage canvas(sz, QImage::Format_ARGB32_Premultiplied);
-    canvas.fill(Qt::black);
-    if (sz.isEmpty()) return canvas;
-
-    QPainter p(&canvas);
-    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-
-    if (!m_lastFrame.isNull()) {
-        const QImage scaled = m_lastFrame.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        const QPoint topLeft((sz.width() - scaled.width()) / 2, (sz.height() - scaled.height()) / 2);
-        p.drawImage(topLeft, scaled);
+    if (!embedded) {
+        setWindowTitle("Video Output — OQL");
+        resize(1280, 720);
     }
 
-    // Overlay di fade verso nero/bianco/immagine: più opaco quanto più
-    // m_opacity scende verso 0 — stesso comportamento dell'implementazione
-    // precedente basata su QGraphicsOpacityEffect, solo composito a mano
-    // perché ora tutto passa per un'unica QImage da (eventualmente) warpare.
-    const double overlayAlpha = 1.0 - m_opacity;
+    m_repaintTimer = new QTimer(this);
+    m_repaintTimer->setInterval(33); // ~30fps, coerente col vecchio ImageCue::m_timer
+    connect(m_repaintTimer, &QTimer::timeout, this, QOverload<>::of(&QWidget::update));
+}
+
+void VideoOutputWindow::setOutput(Workspace *workspace, const QString &physicalOutputId) {
+    if (m_workspace && m_workspace->cueList())
+        disconnect(m_workspace->cueList(), nullptr, this, nullptr);
+
+    m_workspace = workspace;
+    m_outputId  = physicalOutputId;
+
+    if (m_workspace && m_workspace->cueList()) {
+        // Quale VideoCue è "attiva" per ciascuno schermo può cambiare in
+        // qualunque momento (play/stop, riassegnazione degli schermi) — ad
+        // ogni cambio si ricostruiscono i collegamenti frameChanged().
+        connect(m_workspace->cueList(), &CueList::cueStateChanged, this,
+                [this](int, Cue::State) { rescanActiveCueConnections(); });
+        connect(m_workspace->cueList(), &CueList::cuePropertyChanged, this,
+                [this](int) { rescanActiveCueConnections(); });
+    }
+    rescanActiveCueConnections();
+}
+
+void VideoOutputWindow::rescanActiveCueConnections() {
+    for (const auto &c : m_cueFrameConnections) disconnect(c);
+    m_cueFrameConnections.clear();
+
+    if (m_workspace) {
+        QSet<VideoCue*> seen;
+        for (VirtualScreen *screen : m_workspace->virtualScreensFor(m_outputId)) {
+            VideoCue *cue = m_workspace->cueList()->activeVideoCueForScreen(screen->id());
+            if (!cue || seen.contains(cue)) continue;
+            seen.insert(cue);
+            m_cueFrameConnections.append(
+                connect(cue, &VideoCue::frameChanged, this, QOverload<>::of(&QWidget::update)));
+        }
+    }
+    update();
+}
+
+void VideoOutputWindow::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    m_repaintTimer->start();
+}
+
+void VideoOutputWindow::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    m_repaintTimer->stop();
+}
+
+QImage VideoOutputWindow::composeCueFrame(VideoCue *cue) const {
+    // Il frame NATIVO (risoluzione propria del video), non adattato a
+    // nessuna finestra: l'adattamento (fitMode/canvasRect) lo decide
+    // applyVirtualScreenMask() per ciascuno schermo — farlo qui prima
+    // avrebbe "cotto" bande nere di letterbox nei pixel, rendendo il
+    // fitMode per-schermo inefficace (bug osservato: cambiare l'adattamento
+    // sembrava non avere alcun effetto visibile).
+    // Niente conversione/copia qui: QImage è copy-on-write, quindi finché
+    // non si disegna sopra (solo quando c'è davvero un fade in corso, vedi
+    // sotto) `frame` condivide gli stessi pixel di cue->currentFrame() senza
+    // allocazioni. Convertire formato a OGNI repaint (30 volte al secondo,
+    // anche a video fermo sull'ultimo frame) era un costo pesante e per lo
+    // più inutile — probabile causa degli scatti osservati.
+    QImage frame = cue->currentFrame();
+    if (frame.isNull()) return QImage();
+    const QSize sz = frame.size();
+
+    // Overlay di fade verso nero/bianco/immagine, con le proprietà lette
+    // direttamente dalla cue (non più spinte dall'esterno con setBackground/
+    // setOpacity): ogni schermo può così mostrare una cue diversa con il suo
+    // proprio fade, invece di condividere un unico stato a livello finestra.
+    const double overlayAlpha = 1.0 - cue->visualLevel();
     if (overlayAlpha > 0.001) {
-        if (m_bgMode == Background::Image && !m_bgImagePath.isEmpty()) {
+        // La conversione serve solo ora che si disegna davvero sopra (un
+        // formato non alpha-capable non reggerebbe il blend dell'overlay) —
+        // scatta quindi solo durante un fade effettivo, non a ogni frame.
+        if (frame.format() != QImage::Format_ARGB32_Premultiplied)
+            frame = frame.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        QPainter p(&frame);
+        if (cue->background() == VideoCue::Background::Image && !cue->backgroundImagePath().isEmpty()) {
             QPixmap px;
-            auto it = m_pixmapCache.constFind(m_bgImagePath);
+            auto it = m_pixmapCache.constFind(cue->backgroundImagePath());
             if (it != m_pixmapCache.constEnd()) {
                 px = it.value();
             } else {
-                px = QPixmap(m_bgImagePath);
-                const_cast<VideoOutputWindow*>(this)->m_pixmapCache.insert(m_bgImagePath, px);
+                px = QPixmap(cue->backgroundImagePath());
+                m_pixmapCache.insert(cue->backgroundImagePath(), px);
             }
             if (!px.isNull()) {
                 p.setOpacity(overlayAlpha);
-                p.drawPixmap(canvas.rect(), px.scaled(
+                p.drawPixmap(frame.rect(), px.scaled(
                     sz, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
                 p.setOpacity(1.0);
             }
         } else {
-            QColor c = (m_bgMode == Background::White) ? QColor(Qt::white) : QColor(Qt::black);
+            QColor c = (cue->background() == VideoCue::Background::White) ? QColor(Qt::white) : QColor(Qt::black);
             c.setAlphaF(overlayAlpha);
-            p.fillRect(canvas.rect(), c);
+            p.fillRect(frame.rect(), c);
         }
+    }
+    return frame;
+}
+
+QImage VideoOutputWindow::composeCanvas() const {
+    const QSize sz = size();
+    QImage canvas(sz, QImage::Format_ARGB32_Premultiplied);
+    // Da incorporato (layer dentro CombinedOutputWindow) resta trasparente
+    // dove non c'è nessuna cue attiva, così i layer sotto restano visibili
+    // invece di essere coperti da un nero opaco — da finestra separata
+    // resta nero come prima (nessuno sfondo dietro a cui "vedere attraverso").
+    canvas.fill(m_embedded ? Qt::transparent : Qt::black);
+    if (sz.isEmpty() || !m_workspace) return canvas;
+
+    QPainter painter(&canvas);
+    for (VirtualScreen *screen : m_workspace->virtualScreensFor(m_outputId)) {
+        VideoCue *cue = m_workspace->cueList()->activeVideoCueForScreen(screen->id());
+        if (!cue) continue;
+        const QImage cueFrame = composeCueFrame(cue);
+        if (cueFrame.isNull()) continue;
+        // Disegna direttamente su `painter` (il canvas condiviso) invece di
+        // allocare un buffer trasparente a parte per questo schermo e
+        // ricopiarlo sopra — con più schermi quel costo si moltiplicava a
+        // ogni frame ed era una causa concreta di scatti nella riproduzione.
+        applyVirtualScreenMask(painter, cueFrame, sz, *screen);
     }
     return canvas;
 }
 
 void VideoOutputWindow::paintEvent(QPaintEvent *) {
-    const QImage frame = composeFrame();
+    QImage canvas = composeCanvas();
+    PhysicalOutput *out = m_workspace ? m_workspace->physicalOutputById(m_outputId) : nullptr;
     QPainter painter(this);
-    if (m_warp && !m_warp->isIdentity())
-        painter.drawImage(0, 0, m_warp->renderWarped(frame, size()));
+    if (out && !out->warp().isIdentity())
+        painter.drawImage(0, 0, out->warp().renderWarped(canvas, size()));
     else
-        painter.drawImage(0, 0, frame);
-}
-
-void VideoOutputWindow::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event);
-    m_calibOverlay->setGeometry(rect());
+        painter.drawImage(0, 0, canvas);
 }
 
 void VideoOutputWindow::toggleFullScreen() {
@@ -124,9 +161,25 @@ void VideoOutputWindow::toggleFullScreen() {
         showFullScreen();
 }
 
-void VideoOutputWindow::mouseDoubleClickEvent(QMouseEvent *event) {
-    if (isCalibrating()) { QWidget::mouseDoubleClickEvent(event); return; }
+void VideoOutputWindow::mouseDoubleClickEvent(QMouseEvent *) {
     toggleFullScreen();
+}
+
+void VideoOutputWindow::mousePressEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton || window()->isFullScreen()) return;
+    m_draggingWindow     = true;
+    m_dragStartGlobalPos = event->globalPosition().toPoint();
+    m_dragStartWindowPos = window()->pos();
+}
+
+void VideoOutputWindow::mouseMoveEvent(QMouseEvent *event) {
+    if (!m_draggingWindow) return;
+    const QPoint delta = event->globalPosition().toPoint() - m_dragStartGlobalPos;
+    window()->move(m_dragStartWindowPos + delta);
+}
+
+void VideoOutputWindow::mouseReleaseEvent(QMouseEvent *) {
+    m_draggingWindow = false;
 }
 
 void VideoOutputWindow::keyPressEvent(QKeyEvent *event) {

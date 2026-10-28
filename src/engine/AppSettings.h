@@ -72,9 +72,14 @@ public:
     QString audioOutputDevice() const;
     void    setAudioOutputDevice(const QString &name);
 
-    // Hardware: video/image/text output screen (empty = current screen)
-    QString outputScreenName() const;
-    void    setOutputScreenName(const QString &name);
+    // Una sola finestra per video/immagine/testo (CombinedOutputWindow,
+    // default) oppure tre finestre separate come prima di questa opzione.
+    // Richiede un riavvio per avere effetto: ricostruire al volo l'intera
+    // gerarchia di finestre di output (con tutti i relativi binding a
+    // schermi/warp/cue) a sessione in corso è rischioso quanto inutile per
+    // un'impostazione che l'utente cambia una volta, non ogni show.
+    bool combinedOutputWindow() const;
+    void setCombinedOutputWindow(bool v);
 
     // R8: file recenti e hint "Ultra Dark" — prima costruiti ad-hoc con
     // QSettings("OQL","OQL") in 5 punti di MainWindow.cpp invece di passare

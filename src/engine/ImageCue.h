@@ -2,12 +2,20 @@
 #include "Cue.h"
 #include <QStringList>
 #include <QTimer>
+#include <QColor>
+#include <QImage>
+#include <QSize>
 
 class ImageCue : public Cue {
     Q_OBJECT
 public:
     enum class Transition { Cut, Crossfade, SlideHorizontal };
     enum class Background { Black, White, Image };
+    // File: slideshow classica (m_imagePaths). SolidColor/Gradient: contenuto
+    // generato al volo (nessun file, nessuna slideshow) — pensato per
+    // riempire uno schermo/proiettore con un colore o un degradé, es. come
+    // fondo di scena o per test di calibrazione colore.
+    enum class ContentMode { File, SolidColor, Gradient };
 
     explicit ImageCue(QObject *parent = nullptr);
 
@@ -43,6 +51,29 @@ public:
     void setBackground(Background b)            { m_background = b; emit propertyChanged(); }
     void setBackgroundImagePath(const QString &p) { m_backgroundImagePath = p; emit propertyChanged(); }
 
+    ContentMode contentMode()     const { return m_contentMode; }
+    QColor      solidColor()      const { return m_solidColor; }
+    QColor      gradientColor1()  const { return m_gradientColor1; }
+    QColor      gradientColor2()  const { return m_gradientColor2; }
+    double      gradientAngle()   const { return m_gradientAngle; } // gradi, 0 = sinistra→destra
+
+    // Id degli VirtualScreen (engine/VirtualScreen.h) a cui questa cue è
+    // assegnata — vedi lo stesso campo/commento in VideoCue.h.
+    QStringList assignedScreenIds() const { return m_assignedScreenIds; }
+    void setAssignedScreenIds(const QStringList &ids) { m_assignedScreenIds = ids; emit propertyChanged(); }
+
+    void setContentMode(ContentMode m)      { m_contentMode = m; emit propertyChanged(); }
+    void setSolidColor(const QColor &c)     { m_solidColor = c; emit propertyChanged(); }
+    void setGradientColor1(const QColor &c) { m_gradientColor1 = c; emit propertyChanged(); }
+    void setGradientColor2(const QColor &c) { m_gradientColor2 = c; emit propertyChanged(); }
+    void setGradientAngle(double deg)       { m_gradientAngle = deg; emit propertyChanged(); }
+
+    // Contenuto generato (colore pieno o gradiente) alla dimensione
+    // richiesta — usato da ImageOutputWindow al posto del file quando
+    // contentMode() != File. Immagine nera se contentMode() == File (non
+    // dovrebbe mai essere chiamata in quel caso).
+    QImage renderGeneratedContent(QSize size) const;
+
     // Stato runtime per la finestra di output
     QString currentImagePath()  const;
     QString nextImagePath()     const;   // vuoto se non in transizione
@@ -68,6 +99,13 @@ private:
     double      m_visualLevel        = 1.0;
     Background  m_background         = Background::Black;
     QString     m_backgroundImagePath;
+
+    ContentMode m_contentMode    = ContentMode::File;
+    QColor      m_solidColor     = Qt::black;
+    QColor      m_gradientColor1 = Qt::black;
+    QColor      m_gradientColor2 = Qt::white;
+    double      m_gradientAngle  = 0.0;
+    QStringList m_assignedScreenIds;
 
     QTimer *m_timer = nullptr;
     int     m_currentIndex = 0;

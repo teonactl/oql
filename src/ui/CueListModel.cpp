@@ -8,6 +8,7 @@
 #include "engine/TextCue.h"
 #include "engine/ImageCue.h"
 #include "engine/RecordCue.h"
+#include "engine/Workspace.h"
 #include <QColor>
 #include <QFileInfo>
 #include <QFont>
@@ -174,6 +175,22 @@ static QIcon makeCueIcon(Cue::Type type) {
     return cache[key];
 }
 
+static QString resolveAssignedScreensLabel(Workspace *ws, const QStringList &ids) {
+    if (!ws) return {};
+    if (ids.isEmpty()) return QObject::tr("Tutti");
+    QStringList names;
+    for (const QString &id : ids) {
+        VirtualScreen *vs = ws->virtualScreenById(id);
+        if (!vs) continue;
+        PhysicalOutput *out = ws->physicalOutputById(vs->physicalOutputId());
+        const QString real = (out && !out->physicalScreenName().isEmpty())
+            ? out->physicalScreenName()
+            : QObject::tr("Schermo principale");
+        if (!names.contains(real)) names.append(real);
+    }
+    return names.isEmpty() ? QObject::tr("(schermo rimosso)") : names.join(", ");
+}
+
 CueListModel::CueListModel(CueList *list, QObject *parent)
     : QAbstractTableModel(parent), m_list(list)
 {
@@ -190,6 +207,19 @@ CueListModel::CueListModel(CueList *list, QObject *parent)
     connect(list, &CueList::cueLayoutChanged,   this, &CueListModel::onCuePropertyChanged);
     connect(list, &CueList::playheadChanged,    this, &CueListModel::onPlayheadChanged);
     rebuildVisibleRows();
+}
+
+void CueListModel::setWorkspace(Workspace *ws) {
+    if (m_workspace) disconnect(m_workspace, nullptr, this, nullptr);
+    m_workspace = ws;
+    if (!ws) return;
+    // Rinominare un output/schermo o riassegnarlo a un altro schermo reale
+    // cambia l'etichetta mostrata nella colonna Uscita senza che sia
+    // cambiata nessuna proprietà della cue — va ridisegnata a parte.
+    connect(ws, &Workspace::screensChanged, this, [this] {
+        if (m_visibleRows.isEmpty()) return;
+        emit dataChanged(index(0, ColOutput), index(m_visibleRows.size() - 1, ColOutput));
+    });
 }
 
 QVector<int> CueListModel::computeVisibleRows() const {
@@ -485,12 +515,27 @@ QVariant CueListModel::data(const QModelIndex &idx, int role) const {
     }
 
     if (idx.column() == ColOutput) {
-        const auto *ac = dynamic_cast<const AudioCue*>(cue);
-        if (!ac) return {};
-        if (role == Qt::DisplayRole)
-            return ac->outputDevice().isEmpty() ? tr("Predefinita") : ac->outputDevice();
-        if (role == Qt::ForegroundRole)
-            return ac->outputDevice().isEmpty() ? QColor(140, 140, 150) : QColor(160, 210, 160);
+        if (const auto *ac = dynamic_cast<const AudioCue*>(cue)) {
+            if (role == Qt::DisplayRole)
+                return ac->outputDevice().isEmpty() ? tr("Predefinita") : ac->outputDevice();
+            if (role == Qt::ForegroundRole)
+                return ac->outputDevice().isEmpty() ? QColor(140, 140, 150) : QColor(160, 210, 160);
+            return {};
+        }
+        // Per le cue video/immagine, lo schermo REALE (non il nome dello
+        // schermo virtuale) a cui sono assegnate — la domanda che conta per
+        // chi guarda la cue list è "da dove esce", non l'id interno dello
+        // schermo virtuale.
+        if (cue->type() == Cue::Type::Video || cue->type() == Cue::Type::Image) {
+            const QStringList ids = (cue->type() == Cue::Type::Video)
+                ? static_cast<const VideoCue*>(cue)->assignedScreenIds()
+                : static_cast<const ImageCue*>(cue)->assignedScreenIds();
+            if (role == Qt::DisplayRole)
+                return resolveAssignedScreensLabel(m_workspace, ids);
+            if (role == Qt::ForegroundRole)
+                return ids.isEmpty() ? QColor(140, 140, 150) : QColor(160, 210, 160);
+            return {};
+        }
         return {};
     }
 

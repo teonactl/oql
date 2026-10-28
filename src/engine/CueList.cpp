@@ -73,6 +73,26 @@ Cue* CueList::findCueById(const QString &id) const {
     return nullptr;
 }
 
+VideoCue* CueList::activeVideoCueForScreen(const QString &screenId) const {
+    for (const auto &c : m_cues) {
+        if (c->type() != Cue::Type::Video || c->state() != Cue::State::Playing) continue;
+        auto *vc = static_cast<VideoCue*>(c.get());
+        const QStringList ids = vc->assignedScreenIds();
+        if (ids.isEmpty() || ids.contains(screenId)) return vc;
+    }
+    return nullptr;
+}
+
+ImageCue* CueList::activeImageCueForScreen(const QString &screenId) const {
+    for (const auto &c : m_cues) {
+        if (c->type() != Cue::Type::Image || c->state() != Cue::State::Playing) continue;
+        auto *ic = static_cast<ImageCue*>(c.get());
+        const QStringList ids = ic->assignedScreenIds();
+        if (ids.isEmpty() || ids.contains(screenId)) return ic;
+    }
+    return nullptr;
+}
+
 void CueList::setPlayhead(int index) {
     index = qBound(0, index, int(m_cues.size()));
     if (m_playhead != index) {

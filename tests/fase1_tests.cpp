@@ -38,6 +38,11 @@ void run_fase4_tests();  // tests/fase4_tests.cpp
 void run_fase5_tests();  // tests/fase5_tests.cpp
 void run_fase6_tests();  // tests/fase6_tests.cpp
 void run_fase7_tests();  // tests/fase7_tests.cpp
+void run_fase8_tests();  // tests/fase8_tests.cpp
+void run_fase9_tests();  // tests/fase9_tests.cpp
+void run_fase10_tests(); // tests/fase10_tests.cpp
+void run_fase11_tests(); // tests/fase11_tests.cpp
+void run_fase12_tests(); // tests/fase12_tests.cpp
 
 // Scrive un WAV PCM16 minimale (silenzio) che miniaudio decodifica senza problemi.
 static bool writeTestWav(const QString &path, double seconds = 1.0,
@@ -342,6 +347,21 @@ int main(int argc, char *argv[]) {
 
     printf("\n=== OQL — test Fase 7 ===\n");
     run_fase7_tests();
+
+    printf("\n=== OQL — test Fase 8 ===\n");
+    run_fase8_tests();
+
+    printf("\n=== OQL — test Fase 9 ===\n");
+    run_fase9_tests();
+
+    printf("\n=== OQL — test Fase 10 ===\n");
+    run_fase10_tests();
+
+    printf("\n=== OQL — test Fase 11 ===\n");
+    run_fase11_tests();
+
+    printf("\n=== OQL — test Fase 12 ===\n");
+    run_fase12_tests();
 
     const int n = failureCount();
     printf("\n=== %s (%d fallimenti) ===\n", n == 0 ? "TUTTI I TEST OK" : "ALCUNI TEST FALLITI", n);

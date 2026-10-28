@@ -15,6 +15,9 @@
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include "engine/CueList.h"
+#include "engine/Workspace.h"
+#include "ScreenFitDialog.h"
+#include <QSlider>
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -171,6 +174,38 @@ InspectorPanel::InspectorPanel(CueList *cueList, QWidget *parent)
     }
 }
 
+void InspectorPanel::setWorkspace(Workspace *ws) {
+    if (m_workspace) disconnect(m_workspace, nullptr, this, nullptr);
+    m_workspace = ws;
+    if (!ws) return;
+    // Rinominare/aggiungere/rimuovere un output o uno schermo altrove (es.
+    // ScreensManagerDialog) deve riflettersi nelle liste "Schermi" qui.
+    connect(ws, &Workspace::screensChanged, this, [this] {
+        if (m_cue && (m_cue->type() == Cue::Type::Video || m_cue->type() == Cue::Type::Image))
+            loadFromCue();
+    });
+}
+
+// Popola `list` con un item spuntabile per ciascuno VirtualScreen del
+// progetto (etichettato "Output / Schermo"), con lo stato di spunta preso
+// da `assignedIds` — usata sia per le cue video che immagine.
+static void populateScreensList(QListWidget *list, Workspace *ws, const QStringList &assignedIds) {
+    list->blockSignals(true);
+    list->clear();
+    if (ws) {
+        for (const PhysicalOutput &out : ws->physicalOutputs()) {
+            for (VirtualScreen *scr : const_cast<Workspace*>(ws)->virtualScreensFor(out.id())) {
+                auto *item = new QListWidgetItem(QString("%1 / %2").arg(out.name(), scr->name()));
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(assignedIds.contains(scr->id()) ? Qt::Checked : Qt::Unchecked);
+                item->setData(Qt::UserRole, scr->id());
+                list->addItem(item);
+            }
+        }
+    }
+    list->blockSignals(false);
+}
+
 void InspectorPanel::buildUi() {
     setMinimumHeight(150);
 
@@ -325,6 +360,23 @@ void InspectorPanel::buildUi() {
     m_mediaForm->addRow(tr("Uscita:"), m_outputDeviceCombo);
     m_mediaForm->addRow(tr("Loop:"), m_loopSpin);
 
+    // Muto + slider volume (solo Video): lo spinbox "Volume:" sopra (in dB,
+    // condiviso con Audio) resta per l'inserimento numerico preciso — qui
+    // un controllo più immediato, a vista, per il solo audio del video.
+    auto *videoAudioRow = new QWidget;
+    auto *videoAudioRowLay = new QHBoxLayout(videoAudioRow);
+    videoAudioRowLay->setContentsMargins(0, 0, 0, 0);
+    videoAudioRowLay->setSpacing(6);
+    m_videoMuteBtn = new QPushButton(tr("Muto"));
+    m_videoMuteBtn->setCheckable(true);
+    m_videoMuteBtn->setToolTip(tr("Disattiva/riattiva l'audio di questo video"));
+    videoAudioRowLay->addWidget(m_videoMuteBtn);
+    m_videoVolumeSlider = new QSlider(Qt::Horizontal);
+    m_videoVolumeSlider->setRange(0, 100);
+    m_videoVolumeSlider->setToolTip(tr("Volume audio"));
+    videoAudioRowLay->addWidget(m_videoVolumeSlider, 1);
+    m_mediaForm->addRow(tr("Audio:"), videoAudioRow);
+
     // Sfondo per il fade visivo (solo Video — Audio non ha contenuto visivo)
     auto *videoBgRow = new QWidget;
     auto *videoBgRowLay = new QHBoxLayout(videoBgRow);
@@ -338,6 +390,38 @@ void InspectorPanel::buildUi() {
     m_videoBgImageBtn = new QPushButton(tr("Scegli immagine…"));
     videoBgRowLay->addWidget(m_videoBgImageBtn);
     m_mediaForm->addRow(tr("Sfondo (fade):"), videoBgRow);
+
+    // Schermi virtuali a cui questa cue è assegnata (solo Video — vedi
+    // engine/VirtualScreen.h). Nessuna spunta = nessuna restrizione, si
+    // mostra su qualunque schermo (default retrocompatibile).
+    m_videoScreensList = new QListWidget;
+    m_videoScreensList->setMaximumHeight(70);
+    m_videoScreensList->setToolTip(
+        tr("Nessuna spunta = nessuna restrizione (si mostra su qualunque schermo)."));
+    m_mediaForm->addRow(tr("Schermi:"), m_videoScreensList);
+
+    m_videoFitBtn = new QPushButton(tr("Adattamento negli schermi…"));
+    m_videoFitBtn->setToolTip(tr("Come il video riempie lo spazio disponibile in ciascuno schermo assegnato"));
+    m_mediaForm->addRow(m_videoFitBtn);
+
+    // Fade in/out automatico della cue (0 = nessuno, parte/finisce a
+    // scatto) — distinto dalla cue Fade esplicita, che agisce a comando a
+    // metà riproduzione e può scegliere di toccare solo video o solo audio.
+    m_videoFadeInSpin = new QDoubleSpinBox;
+    m_videoFadeInSpin->setRange(0.0, 999.0);
+    m_videoFadeInSpin->setSingleStep(0.5);
+    m_videoFadeInSpin->setDecimals(2);
+    m_videoFadeInSpin->setSuffix(" s");
+    m_videoFadeInSpin->setSpecialValueText(tr("nessuno"));
+    m_mediaForm->addRow(tr("Fade in:"), m_videoFadeInSpin);
+
+    m_videoFadeOutSpin = new QDoubleSpinBox;
+    m_videoFadeOutSpin->setRange(0.0, 999.0);
+    m_videoFadeOutSpin->setSingleStep(0.5);
+    m_videoFadeOutSpin->setDecimals(2);
+    m_videoFadeOutSpin->setSuffix(" s");
+    m_videoFadeOutSpin->setSpecialValueText(tr("nessuno"));
+    m_mediaForm->addRow(tr("Fade out:"), m_videoFadeOutSpin);
 
     groupsLay->addWidget(m_mediaGroup);
 
@@ -454,19 +538,36 @@ void InspectorPanel::buildUi() {
     m_fadeParamsGroup = new QGroupBox(tr("Parametri Fade"));
     m_fadeParamsForm = new QFormLayout(m_fadeParamsGroup);
     m_fadeParamsForm->setSpacing(3);
+    m_fadeChannelCombo = new QComboBox;
+    m_fadeChannelCombo->addItem(tr("Video e audio"), int(FadeCue::FadeChannel::Both));
+    m_fadeChannelCombo->addItem(tr("Solo video"),    int(FadeCue::FadeChannel::VideoOnly));
+    m_fadeChannelCombo->addItem(tr("Solo audio"),    int(FadeCue::FadeChannel::AudioOnly));
+    m_fadeParamsForm->addRow(tr("Canale (target video):"), m_fadeChannelCombo);
+
     m_fadeTargetVolSpin = new QDoubleSpinBox;
     m_fadeTargetVolSpin->setRange(-60.0, 0.0);
     m_fadeTargetVolSpin->setSingleStep(0.5);
     m_fadeTargetVolSpin->setDecimals(1);
     m_fadeTargetVolSpin->setSuffix(" dB");
+    m_fadeParamsForm->addRow(tr("Volume target (audio):"), m_fadeTargetVolSpin);
+
+    // Il livello video è una percentuale (0-100%), non dB: non ha senso
+    // esprimere un'opacità visiva in decibel come per il volume audio.
+    m_fadeTargetVisualSpin = new QDoubleSpinBox;
+    m_fadeTargetVisualSpin->setRange(0.0, 100.0);
+    m_fadeTargetVisualSpin->setSingleStep(5.0);
+    m_fadeTargetVisualSpin->setDecimals(0);
+    m_fadeTargetVisualSpin->setSuffix(" %");
+    m_fadeParamsForm->addRow(tr("Livello video target:"), m_fadeTargetVisualSpin);
+
     m_fadeDurationSpin = new QDoubleSpinBox;
     m_fadeDurationSpin->setRange(0.01, 999.0);
     m_fadeDurationSpin->setSingleStep(0.1);
     m_fadeDurationSpin->setDecimals(2);
     m_fadeDurationSpin->setSuffix(" s");
+    m_fadeParamsForm->addRow(tr("Durata:"), m_fadeDurationSpin);
+
     m_fadeStopAtEndCheck = new QCheckBox(tr("Stop al termine del fade"));
-    m_fadeParamsForm->addRow(tr("Volume target:"), m_fadeTargetVolSpin);
-    m_fadeParamsForm->addRow(tr("Durata:"),        m_fadeDurationSpin);
     m_fadeParamsForm->addRow(m_fadeStopAtEndCheck);
     ctrlRowLay->addWidget(m_fadeParamsGroup);
 
@@ -776,6 +877,47 @@ void InspectorPanel::buildUi() {
     auto *imageRowLay = new QHBoxLayout(imageRow);
     imageRowLay->setContentsMargins(0, 0, 0, 0);
     imageRowLay->setSpacing(6);
+
+    m_imageContentGroup = new QGroupBox(tr("Contenuto"));
+    m_imageContentForm  = new QFormLayout(m_imageContentGroup);
+    m_imageContentForm->setSpacing(3);
+
+    m_imageContentModeCombo = new QComboBox;
+    m_imageContentModeCombo->addItem(tr("File immagine"), int(ImageCue::ContentMode::File));
+    m_imageContentModeCombo->addItem(tr("Colore pieno"),  int(ImageCue::ContentMode::SolidColor));
+    m_imageContentModeCombo->addItem(tr("Gradiente"),     int(ImageCue::ContentMode::Gradient));
+    m_imageContentForm->addRow(tr("Tipo:"), m_imageContentModeCombo);
+
+    m_imageSolidColorBtn = new QPushButton;
+    m_imageContentForm->addRow(tr("Colore:"), m_imageSolidColorBtn);
+
+    auto *gradRow = new QWidget;
+    auto *gradRowLay = new QHBoxLayout(gradRow);
+    gradRowLay->setContentsMargins(0, 0, 0, 0);
+    gradRowLay->setSpacing(4);
+    m_imageGradientColor1Btn = new QPushButton;
+    m_imageGradientColor2Btn = new QPushButton;
+    gradRowLay->addWidget(m_imageGradientColor1Btn);
+    gradRowLay->addWidget(m_imageGradientColor2Btn);
+    m_imageContentForm->addRow(tr("Gradiente:"), gradRow);
+
+    m_imageGradientAngleSpin = new QDoubleSpinBox;
+    m_imageGradientAngleSpin->setRange(0.0, 359.0);
+    m_imageGradientAngleSpin->setSingleStep(5.0);
+    m_imageGradientAngleSpin->setSuffix(QString::fromUtf8("°"));
+    m_imageContentForm->addRow(tr("Angolo:"), m_imageGradientAngleSpin);
+
+    m_imageScreensList = new QListWidget;
+    m_imageScreensList->setMaximumHeight(70);
+    m_imageScreensList->setToolTip(
+        tr("Nessuna spunta = nessuna restrizione (si mostra su qualunque schermo)."));
+    m_imageContentForm->addRow(tr("Schermi:"), m_imageScreensList);
+
+    m_imageFitBtn = new QPushButton(tr("Adattamento negli schermi…"));
+    m_imageFitBtn->setToolTip(tr("Come l'immagine riempie lo spazio disponibile in ciascuno schermo assegnato"));
+    m_imageContentForm->addRow(m_imageFitBtn);
+
+    imageRowLay->addWidget(m_imageContentGroup);
 
     m_imageGroup = new QGroupBox(tr("Slideshow"));
     m_imageForm  = new QFormLayout(m_imageGroup);
@@ -1127,6 +1269,16 @@ void InspectorPanel::buildUi() {
     connect(m_videoBgCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onVideoBackgroundChanged);
     connect(m_videoBgImageBtn, &QPushButton::clicked, this, &InspectorPanel::onChooseVideoBackgroundImage);
+    connect(m_videoScreensList, &QListWidget::itemChanged, this, &InspectorPanel::onVideoScreensChanged);
+    connect(m_imageScreensList, &QListWidget::itemChanged, this, &InspectorPanel::onImageScreensChanged);
+    connect(m_videoFadeInSpin,  QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onVideoFadeInChanged);
+    connect(m_videoFadeOutSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onVideoFadeOutChanged);
+    connect(m_videoFitBtn, &QPushButton::clicked, this, &InspectorPanel::onVideoFitButtonClicked);
+    connect(m_imageFitBtn, &QPushButton::clicked, this, &InspectorPanel::onImageFitButtonClicked);
+    connect(m_videoMuteBtn, &QPushButton::toggled, this, &InspectorPanel::onVideoMuteToggled);
+    connect(m_videoVolumeSlider, &QSlider::valueChanged, this, &InspectorPanel::onVideoVolumeSliderChanged);
+    connect(m_fadeChannelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &InspectorPanel::onFadeChannelChanged);
+    connect(m_fadeTargetVisualSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &InspectorPanel::onFadeTargetVisualChanged);
 
     connect(m_textContent, &QTextEdit::textChanged, this, &InspectorPanel::onTextContentChanged);
     connect(m_fontFamilyCombo, &QFontComboBox::currentFontChanged,
@@ -1149,6 +1301,13 @@ void InspectorPanel::buildUi() {
     connect(m_backgroundCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorPanel::onBackgroundChanged);
     connect(m_backgroundImageBtn, &QPushButton::clicked, this, &InspectorPanel::onChooseBackgroundImage);
+    connect(m_imageContentModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorPanel::onImageContentModeChanged);
+    connect(m_imageSolidColorBtn, &QPushButton::clicked, this, &InspectorPanel::onImageSolidColorClicked);
+    connect(m_imageGradientColor1Btn, &QPushButton::clicked, this, &InspectorPanel::onImageGradientColor1Clicked);
+    connect(m_imageGradientColor2Btn, &QPushButton::clicked, this, &InspectorPanel::onImageGradientColor2Clicked);
+    connect(m_imageGradientAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &InspectorPanel::onImageGradientAngleChanged);
     connect(m_addImagesBtn, &QPushButton::clicked, this, &InspectorPanel::onAddImages);
     connect(m_removeImagesBtn, &QPushButton::clicked, this, &InspectorPanel::onRemoveSelectedImages);
     connect(m_imageList->model(), &QAbstractItemModel::rowsMoved,
@@ -1220,7 +1379,12 @@ void InspectorPanel::retranslateUi() {
     if (auto *l = fl(m_mediaForm, 1)) l->setText(tr("Volume:"));
     if (auto *l = fl(m_mediaForm, 2)) l->setText(tr("Uscita:"));
     if (auto *l = fl(m_mediaForm, 3)) l->setText(tr("Loop:"));
-    if (auto *l = fl(m_mediaForm, 4)) l->setText(tr("Sfondo (fade):"));
+    if (auto *l = fl(m_mediaForm, 4)) l->setText(tr("Audio:"));
+    if (auto *l = fl(m_mediaForm, 5)) l->setText(tr("Sfondo (fade):"));
+    if (auto *l = fl(m_mediaForm, 6)) l->setText(tr("Schermi:"));
+    if (auto *l = fl(m_mediaForm, 7)) l->setText(tr("Fade in:"));
+    if (auto *l = fl(m_mediaForm, 8)) l->setText(tr("Fade out:"));
+    if (m_videoMuteBtn) m_videoMuteBtn->setText(tr("Muto"));
     if (m_outputDeviceCombo && m_outputDeviceCombo->count() > 0) {
         const int cur = m_outputDeviceCombo->currentIndex();
         m_outputDeviceCombo->setItemText(0, tr("Predefinita"));
@@ -1281,8 +1445,17 @@ void InspectorPanel::retranslateUi() {
     if (auto *l = fl(m_targetForm, 0)) l->setText(tr("Target:"));
 
     // Fade params form
-    if (auto *l = fl(m_fadeParamsForm, 0)) l->setText(tr("Volume target:"));
-    if (auto *l = fl(m_fadeParamsForm, 1)) l->setText(tr("Durata:"));
+    if (auto *l = fl(m_fadeParamsForm, 0)) l->setText(tr("Canale (target video):"));
+    if (auto *l = fl(m_fadeParamsForm, 1)) l->setText(tr("Volume target (audio):"));
+    if (auto *l = fl(m_fadeParamsForm, 2)) l->setText(tr("Livello video target:"));
+    if (auto *l = fl(m_fadeParamsForm, 3)) l->setText(tr("Durata:"));
+    if (m_fadeChannelCombo) {
+        const int cur = m_fadeChannelCombo->currentIndex();
+        m_fadeChannelCombo->setItemText(0, tr("Video e audio"));
+        m_fadeChannelCombo->setItemText(1, tr("Solo video"));
+        m_fadeChannelCombo->setItemText(2, tr("Solo audio"));
+        m_fadeChannelCombo->setCurrentIndex(cur);
+    }
     if (m_fadeStopAtEndCheck) m_fadeStopAtEndCheck->setText(tr("Stop al termine del fade"));
 
     // Speed form
@@ -1319,6 +1492,20 @@ void InspectorPanel::retranslateUi() {
         m_textAlignCombo->setItemText(1, tr("Centro"));
         m_textAlignCombo->setItemText(2, tr("Destra"));
         m_textAlignCombo->setCurrentIndex(cur);
+    }
+
+    // Image section — contenuto (file/colore/gradiente)
+    if (m_imageContentGroup) m_imageContentGroup->setTitle(tr("Contenuto"));
+    if (auto *l = fl(m_imageContentForm, 0)) l->setText(tr("Tipo:"));
+    if (auto *l = fl(m_imageContentForm, 1)) l->setText(tr("Colore:"));
+    if (auto *l = fl(m_imageContentForm, 2)) l->setText(tr("Gradiente:"));
+    if (auto *l = fl(m_imageContentForm, 3)) l->setText(tr("Angolo:"));
+    if (m_imageContentModeCombo) {
+        const int cur = m_imageContentModeCombo->currentIndex();
+        m_imageContentModeCombo->setItemText(0, tr("File immagine"));
+        m_imageContentModeCombo->setItemText(1, tr("Colore pieno"));
+        m_imageContentModeCombo->setItemText(2, tr("Gradiente"));
+        m_imageContentModeCombo->setCurrentIndex(cur);
     }
 
     // Image section (slideshow)
@@ -1443,6 +1630,11 @@ void InspectorPanel::updateMediaSection() {
     if (auto *item = m_mediaForm->itemAt(4, QFormLayout::LabelRole))
         if (auto *l = item->widget()) l->setVisible(isVideo);
     m_videoBgCombo->parentWidget()->setVisible(isVideo);
+    m_videoScreensList->setVisible(isVideo);
+    m_videoFadeInSpin->setVisible(isVideo);
+    m_videoFadeOutSpin->setVisible(isVideo);
+    m_videoFitBtn->setVisible(isVideo);
+    m_videoMuteBtn->parentWidget()->setVisible(isVideo);
     if (auto *item = m_mediaForm->itemAt(2, QFormLayout::LabelRole))
         if (auto *l = item->widget()) l->setVisible(isAudio);
     m_outputDeviceCombo->setVisible(isAudio);
@@ -1555,6 +1747,21 @@ void InspectorPanel::updateMediaSection() {
         m_videoBgImageBtn->setText(v->backgroundImagePath().isEmpty()
             ? tr("Scegli immagine…")
             : QFileInfo(v->backgroundImagePath()).fileName());
+        populateScreensList(m_videoScreensList, m_workspace, v->assignedScreenIds());
+
+        m_videoFadeInSpin->blockSignals(true);
+        m_videoFadeOutSpin->blockSignals(true);
+        m_videoFadeInSpin->setValue(v->fadeInDuration());
+        m_videoFadeOutSpin->setValue(v->fadeOutDuration());
+        m_videoFadeInSpin->blockSignals(false);
+        m_videoFadeOutSpin->blockSignals(false);
+
+        m_videoMuteBtn->blockSignals(true);
+        m_videoVolumeSlider->blockSignals(true);
+        m_videoMuteBtn->setChecked(v->muted());
+        m_videoVolumeSlider->setValue(qRound(v->volume() * 100.0));
+        m_videoMuteBtn->blockSignals(false);
+        m_videoVolumeSlider->blockSignals(false);
 
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
@@ -1605,14 +1812,23 @@ void InspectorPanel::updateMediaSection() {
         if (isFade) {
             auto *fc = static_cast<FadeCue*>(m_cue.data());
             m_fadeTargetVolSpin->blockSignals(true);
+            m_fadeTargetVisualSpin->blockSignals(true);
             m_fadeDurationSpin->blockSignals(true);
             m_fadeStopAtEndCheck->blockSignals(true);
+            m_fadeChannelCombo->blockSignals(true);
             m_fadeTargetVolSpin->setValue(linearToDb(fc->targetVolume()));
+            m_fadeTargetVisualSpin->setValue(fc->targetVisualLevel() * 100.0);
             m_fadeDurationSpin->setValue(fc->fadeDuration());
             m_fadeStopAtEndCheck->setChecked(fc->stopAtEnd());
+            const int chIdx = m_fadeChannelCombo->findData(int(fc->fadeChannel()));
+            m_fadeChannelCombo->setCurrentIndex(chIdx >= 0 ? chIdx : 0);
             m_fadeTargetVolSpin->blockSignals(false);
+            m_fadeTargetVisualSpin->blockSignals(false);
             m_fadeDurationSpin->blockSignals(false);
             m_fadeStopAtEndCheck->blockSignals(false);
+            m_fadeChannelCombo->blockSignals(false);
+
+            updateFadeTargetFieldsVisibility();
         }
     } else if (isTextCue) {
         auto *tc = static_cast<TextCue*>(m_cue.data());
@@ -1661,6 +1877,37 @@ void InspectorPanel::updateMediaSection() {
         m_transitionCombo->blockSignals(true);
         m_loopCheck->blockSignals(true);
         m_backgroundCombo->blockSignals(true);
+        m_imageContentModeCombo->blockSignals(true);
+        m_imageGradientAngleSpin->blockSignals(true);
+
+        const int contentIdx = m_imageContentModeCombo->findData(int(ic->contentMode()));
+        m_imageContentModeCombo->setCurrentIndex(contentIdx >= 0 ? contentIdx : 0);
+        auto swatchStyle = [](const QColor &c) {
+            return QString("background:%1; color:%2;")
+                .arg(c.name(), c.lightness() > 128 ? "#000" : "#fff");
+        };
+        m_imageSolidColorBtn->setText(ic->solidColor().name());
+        m_imageSolidColorBtn->setStyleSheet(swatchStyle(ic->solidColor()));
+        m_imageGradientColor1Btn->setText(ic->gradientColor1().name());
+        m_imageGradientColor1Btn->setStyleSheet(swatchStyle(ic->gradientColor1()));
+        m_imageGradientColor2Btn->setText(ic->gradientColor2().name());
+        m_imageGradientColor2Btn->setStyleSheet(swatchStyle(ic->gradientColor2()));
+        m_imageGradientAngleSpin->setValue(ic->gradientAngle());
+
+        const bool isFile = ic->contentMode() == ImageCue::ContentMode::File;
+        // I color picker restano sempre cliccabili (anche in modalità File):
+        // disabilitarli finché non si sceglie il "Tipo" giusto li faceva
+        // sembrare non editabili. Il colore impostato ha effetto visivo solo
+        // quando quella modalità è quella attiva, ma si può prepararlo prima.
+        // Colore pieno/gradiente riempiono già tutta la finestra: la
+        // slideshow (immagini, sfondo, transizioni) non ha senso in quei
+        // modi, quindi il gruppo si disabilita invece di sparire — più
+        // chiaro del nascondere del tutto perché il passaggio a "File" lo
+        // riattiva senza bisogno di spiegazioni.
+        m_imageGroup->setEnabled(isFile);
+
+        m_imageContentModeCombo->blockSignals(false);
+        m_imageGradientAngleSpin->blockSignals(false);
 
         m_slideDurationSpin->setValue(ic->slideDuration());
         m_transitionDurationSpin->setValue(ic->transitionDuration());
@@ -1687,6 +1934,7 @@ void InspectorPanel::updateMediaSection() {
         if (m_imageListDialog)
             m_imageListDialog->setWindowTitle(tr("Immagini — %1").arg(ic->name()));
         refreshImageList();
+        populateScreensList(m_imageScreensList, m_workspace, ic->assignedScreenIds());
         m_pluginChainWidget->setChain(nullptr);
         m_effectPluginChainWidget->setChain(nullptr);
     } else if (isRecord) {
@@ -1804,7 +2052,13 @@ void InspectorPanel::onVolumeChanged(double v) {
     if (!m_cue) return;
     const double linear = dbToLinear(v);
     if (m_cue->type() == Cue::Type::Audio) static_cast<AudioCue*>(m_cue.data())->setVolume(linear);
-    if (m_cue->type() == Cue::Type::Video) static_cast<VideoCue*>(m_cue.data())->setVolume(linear);
+    if (m_cue->type() == Cue::Type::Video) {
+        static_cast<VideoCue*>(m_cue.data())->setVolume(linear);
+        // Tiene lo slider "Audio:" sincronizzato — stesso valore, due
+        // controlli (dB preciso qui, slider più immediato lì).
+        const QSignalBlocker b(m_videoVolumeSlider);
+        m_videoVolumeSlider->setValue(qRound(linear * 100.0));
+    }
 }
 
 void InspectorPanel::onOutputDeviceChanged(int index) {
@@ -1932,6 +2186,32 @@ void InspectorPanel::onTargetChanged(int) {
      || t == Cue::Type::Play  || t == Cue::Type::Speed
      || t == Cue::Type::Effect || t == Cue::Type::ResetEffect)
         static_cast<ControlCue*>(m_cue.data())->setTargetId(m_targetCombo->currentData().toString());
+
+    if (t == Cue::Type::Fade)
+        updateFadeTargetFieldsVisibility();
+}
+
+void InspectorPanel::updateFadeTargetFieldsVisibility() {
+    if (!m_cue || m_cue->type() != Cue::Type::Fade) return;
+    auto *fc = static_cast<FadeCue*>(m_cue.data());
+    Cue *target = m_cueList ? m_cueList->findCueById(fc->targetId()) : nullptr;
+    const bool targetIsVideo = target && target->type() == Cue::Type::Video;
+
+    // Il canale e il livello video (%) hanno senso solo con un target
+    // video — per ogni altro tipo di target (o nessun target) restano
+    // nascosti invece che confusi/senza effetto. Il volume audio (dB)
+    // invece si nasconde solo quando il canale scelto è "Solo video" (per
+    // un target non-video il canale è sempre Both, quindi resta visibile).
+    const bool showVisual = targetIsVideo && fc->fadeChannel() != FadeCue::FadeChannel::AudioOnly;
+    const bool showAudio  = !targetIsVideo || fc->fadeChannel() != FadeCue::FadeChannel::VideoOnly;
+
+    auto setRowVisible = [this](QWidget *field, bool visible) {
+        if (auto *label = m_fadeParamsForm->labelForField(field)) label->setVisible(visible);
+        field->setVisible(visible);
+    };
+    setRowVisible(m_fadeChannelCombo, targetIsVideo);
+    setRowVisible(m_fadeTargetVisualSpin, showVisual);
+    setRowVisible(m_fadeTargetVolSpin, showAudio);
 }
 
 void InspectorPanel::onFadeTargetVolChanged(double v) {
@@ -1947,6 +2227,43 @@ void InspectorPanel::onFadeDurationChanged(double v) {
 void InspectorPanel::onFadeStopAtEndChanged(bool v) {
     if (m_cue && m_cue->type() == Cue::Type::Fade)
         static_cast<FadeCue*>(m_cue.data())->setStopAtEnd(v);
+}
+
+void InspectorPanel::onFadeChannelChanged(int idx) {
+    if (!m_cue || m_cue->type() != Cue::Type::Fade) return;
+    auto *fc = static_cast<FadeCue*>(m_cue.data());
+    fc->setFadeChannel(FadeCue::FadeChannel(m_fadeChannelCombo->itemData(idx).toInt()));
+    updateFadeTargetFieldsVisibility();
+}
+
+void InspectorPanel::onFadeTargetVisualChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Fade)
+        static_cast<FadeCue*>(m_cue.data())->setTargetVisualLevel(v / 100.0);
+}
+
+void InspectorPanel::onVideoFadeInChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Video)
+        static_cast<VideoCue*>(m_cue.data())->setFadeInDuration(v);
+}
+
+void InspectorPanel::onVideoFadeOutChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Video)
+        static_cast<VideoCue*>(m_cue.data())->setFadeOutDuration(v);
+}
+
+void InspectorPanel::onVideoMuteToggled(bool checked) {
+    if (m_cue && m_cue->type() == Cue::Type::Video)
+        static_cast<VideoCue*>(m_cue.data())->setMuted(checked);
+}
+
+void InspectorPanel::onVideoVolumeSliderChanged(int value) {
+    if (!m_cue || m_cue->type() != Cue::Type::Video) return;
+    const double linear = value / 100.0;
+    static_cast<VideoCue*>(m_cue.data())->setVolume(linear);
+    // Tiene lo spinbox "Volume:" (dB) sincronizzato — vedi lo stesso
+    // commento in onVolumeChanged().
+    const QSignalBlocker b(m_volumeSpin);
+    m_volumeSpin->setValue(linearToDb(linear));
 }
 
 void InspectorPanel::onMicDeviceChanged(int) {
@@ -2067,6 +2384,88 @@ void InspectorPanel::onChooseBackgroundImage() {
     if (file.isEmpty()) return;
     ic->setBackgroundImagePath(file);
     m_backgroundImageBtn->setText(QFileInfo(file).fileName());
+}
+
+void InspectorPanel::onImageContentModeChanged(int idx) {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
+    const auto mode = ImageCue::ContentMode(m_imageContentModeCombo->itemData(idx).toInt());
+    ic->setContentMode(mode);
+    m_imageGroup->setEnabled(mode == ImageCue::ContentMode::File);
+}
+
+static QString colorSwatchStyle(const QColor &c) {
+    return QString("background:%1; color:%2;")
+        .arg(c.name(), c.lightness() > 128 ? "#000" : "#fff");
+}
+
+void InspectorPanel::onImageSolidColorClicked() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
+    const QColor c = QColorDialog::getColor(ic->solidColor(), this, tr("Colore pieno"));
+    if (!c.isValid()) return;
+    ic->setSolidColor(c);
+    m_imageSolidColorBtn->setText(c.name());
+    m_imageSolidColorBtn->setStyleSheet(colorSwatchStyle(c));
+}
+
+void InspectorPanel::onImageGradientColor1Clicked() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
+    const QColor c = QColorDialog::getColor(ic->gradientColor1(), this, tr("Gradiente — colore 1"));
+    if (!c.isValid()) return;
+    ic->setGradientColor1(c);
+    m_imageGradientColor1Btn->setText(c.name());
+    m_imageGradientColor1Btn->setStyleSheet(colorSwatchStyle(c));
+}
+
+void InspectorPanel::onImageGradientColor2Clicked() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    auto *ic = static_cast<ImageCue*>(m_cue.data());
+    const QColor c = QColorDialog::getColor(ic->gradientColor2(), this, tr("Gradiente — colore 2"));
+    if (!c.isValid()) return;
+    ic->setGradientColor2(c);
+    m_imageGradientColor2Btn->setText(c.name());
+    m_imageGradientColor2Btn->setStyleSheet(colorSwatchStyle(c));
+}
+
+void InspectorPanel::onImageGradientAngleChanged(double v) {
+    if (m_cue && m_cue->type() == Cue::Type::Image)
+        static_cast<ImageCue*>(m_cue.data())->setGradientAngle(v);
+}
+
+static QStringList checkedScreenIds(QListWidget *list) {
+    QStringList ids;
+    for (int i = 0; i < list->count(); ++i) {
+        const auto *item = list->item(i);
+        if (item->checkState() == Qt::Checked)
+            ids.append(item->data(Qt::UserRole).toString());
+    }
+    return ids;
+}
+
+void InspectorPanel::onVideoScreensChanged() {
+    if (!m_cue || m_cue->type() != Cue::Type::Video) return;
+    static_cast<VideoCue*>(m_cue.data())->setAssignedScreenIds(checkedScreenIds(m_videoScreensList));
+}
+
+void InspectorPanel::onImageScreensChanged() {
+    if (!m_cue || m_cue->type() != Cue::Type::Image) return;
+    static_cast<ImageCue*>(m_cue.data())->setAssignedScreenIds(checkedScreenIds(m_imageScreensList));
+}
+
+void InspectorPanel::onVideoFitButtonClicked() {
+    if (!m_workspace || !m_cue) return;
+    auto *dlg = new ScreenFitDialog(m_workspace, m_cue.data(), checkedScreenIds(m_videoScreensList), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+void InspectorPanel::onImageFitButtonClicked() {
+    if (!m_workspace || !m_cue) return;
+    auto *dlg = new ScreenFitDialog(m_workspace, m_cue.data(), checkedScreenIds(m_imageScreensList), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void InspectorPanel::onVideoBackgroundChanged(int idx) {

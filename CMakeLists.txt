@@ -18,7 +18,7 @@ if(UNIX AND NOT APPLE)
     list(APPEND CMAKE_PREFIX_PATH "/usr/lib/cmake/Qt6")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml LinguistTools Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Svg Network Qml LinguistTools Test Concurrent)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LILV REQUIRED lilv-0)
 pkg_check_modules(SOUNDTOUCH soundtouch)
@@ -48,6 +48,8 @@ qt_add_executable(oql
     src/engine/VideoCue.cpp
     src/engine/ProjectionWarp.h
     src/engine/ProjectionWarp.cpp
+    src/engine/VirtualScreen.h
+    src/engine/VirtualScreen.cpp
     src/engine/CueList.h
     src/engine/CueList.cpp
     src/engine/ControlCues.h
@@ -78,12 +80,26 @@ qt_add_executable(oql
     src/ui/InspectorPanel.cpp
     src/ui/WarpCalibrationOverlay.h
     src/ui/WarpCalibrationOverlay.cpp
+    src/ui/ProjectionCalibrationWindow.h
+    src/ui/ProjectionCalibrationWindow.cpp
+    src/ui/ProjectionCalibrationToolbar.h
+    src/ui/ProjectionCalibrationToolbar.cpp
+    src/ui/PhysicalOutputZonesCanvas.h
+    src/ui/PhysicalOutputZonesCanvas.cpp
+    src/ui/ScreensManagerDialog.h
+    src/ui/ScreensManagerDialog.cpp
+    src/ui/ScreenFitDialog.h
+    src/ui/ScreenFitDialog.cpp
+    src/ui/ScreenFitPreview.h
+    src/ui/ScreenFitPreview.cpp
     src/ui/VideoOutputWindow.h
     src/ui/VideoOutputWindow.cpp
     src/ui/TextOutputWindow.h
     src/ui/TextOutputWindow.cpp
     src/ui/ImageOutputWindow.h
     src/ui/ImageOutputWindow.cpp
+    src/ui/CombinedOutputWindow.h
+    src/ui/CombinedOutputWindow.cpp
     src/ui/CueInfoBar.h
     src/ui/CueInfoBar.cpp
     src/ui/ActiveCuesPanel.h
@@ -120,6 +136,7 @@ target_link_libraries(oql PRIVATE
     Qt6::Svg
     Qt6::Network
     Qt6::Qml
+    Qt6::Concurrent
     ${LILV_LIBRARIES}
 )
 if(SOUNDTOUCH_FOUND)
@@ -223,6 +240,8 @@ if(OQL_BUILD_TESTS)
         src/engine/VideoCue.cpp
         src/engine/ProjectionWarp.h
         src/engine/ProjectionWarp.cpp
+        src/engine/VirtualScreen.h
+        src/engine/VirtualScreen.cpp
         src/engine/CueList.h
         src/engine/CueList.cpp
         src/engine/ControlCues.h
@@ -259,6 +278,11 @@ if(OQL_BUILD_TESTS)
         tests/fase5_tests.cpp
         tests/fase6_tests.cpp
         tests/fase7_tests.cpp
+        tests/fase8_tests.cpp
+        tests/fase9_tests.cpp
+        tests/fase10_tests.cpp
+        tests/fase11_tests.cpp
+        tests/fase12_tests.cpp
     )
 
     target_link_libraries(oql_tests PRIVATE
@@ -268,6 +292,7 @@ if(OQL_BUILD_TESTS)
         Qt6::Network
         Qt6::Qml
         Qt6::Test
+        Qt6::Concurrent
         ${LILV_LIBRARIES}
     )
     if(SOUNDTOUCH_FOUND)

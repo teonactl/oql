@@ -188,11 +188,11 @@ void AppSettings::setAudioOutputDevice(const QString &name) {
     m_s.setValue("hardware/audioOutputDevice", name);
 }
 
-QString AppSettings::outputScreenName() const {
-    return m_s.value("hardware/outputScreenName", QString{}).toString();
+bool AppSettings::combinedOutputWindow() const {
+    return m_s.value("hardware/combinedOutputWindow", true).toBool();
 }
-void AppSettings::setOutputScreenName(const QString &name) {
-    m_s.setValue("hardware/outputScreenName", name);
+void AppSettings::setCombinedOutputWindow(bool v) {
+    m_s.setValue("hardware/combinedOutputWindow", v);
 }
 
 QStringList AppSettings::recentFiles() const {

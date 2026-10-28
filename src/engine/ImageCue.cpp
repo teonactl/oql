@@ -1,6 +1,9 @@
 #include "ImageCue.h"
 #include <QJsonArray>
 #include <QFileInfo>
+#include <QPainter>
+#include <QLinearGradient>
+#include <cmath>
 
 ImageCue::ImageCue(QObject *parent) : Cue(parent) {
     m_timer = new QTimer(this);
@@ -9,6 +12,17 @@ ImageCue::ImageCue(QObject *parent) : Cue(parent) {
 }
 
 void ImageCue::go() {
+    if (m_contentMode != ContentMode::File) {
+        // Colore pieno o gradiente: nessuna slideshow/timer, il contenuto
+        // resta fisso finché la cue non viene fermata manualmente (stesso
+        // comportamento di un fondale statico).
+        m_phase        = Phase::Holding;
+        m_phaseElapsed = 0.0;
+        m_visualLevel  = 1.0;
+        setState(State::Playing);
+        emit displayChanged();
+        return;
+    }
     if (m_imagePaths.isEmpty()) {
         setState(State::Idle);
         emit finished();
@@ -43,9 +57,38 @@ void ImageCue::setPlaybackVolume(double v) {
 }
 
 double ImageCue::duration() const {
+    if (m_contentMode != ContentMode::File) return 0.0; // durata indefinita, stop manuale
     const int n = m_imagePaths.size();
     if (n <= 0) return 0.0;
     return n * m_slideDuration + qMax(0, n - 1) * m_transitionDuration;
+}
+
+QImage ImageCue::renderGeneratedContent(QSize size) const {
+    QImage img(size, QImage::Format_ARGB32_Premultiplied);
+    if (size.isEmpty()) return img;
+
+    if (m_contentMode == ContentMode::SolidColor) {
+        img.fill(m_solidColor);
+        return img;
+    }
+    if (m_contentMode == ContentMode::Gradient) {
+        QPainter p(&img);
+        const double w = size.width(), h = size.height();
+        const double rad = m_gradientAngle * M_PI / 180.0;
+        const double cx = w / 2.0, cy = h / 2.0;
+        // Segmento centrato sul rettangolo, lungo quanto la diagonale: così
+        // il gradiente copre sempre l'intera immagine qualunque sia l'angolo.
+        const double half = std::hypot(w, h) / 2.0;
+        const double dx = std::cos(rad) * half;
+        const double dy = std::sin(rad) * half;
+        QLinearGradient grad(cx - dx, cy - dy, cx + dx, cy + dy);
+        grad.setColorAt(0.0, m_gradientColor1);
+        grad.setColorAt(1.0, m_gradientColor2);
+        p.fillRect(img.rect(), grad);
+        return img;
+    }
+    img.fill(Qt::black);
+    return img;
 }
 
 QString ImageCue::currentImagePath() const {
@@ -129,6 +172,13 @@ QJsonObject ImageCue::toJson() const {
     obj["loop"]                = m_loop;
     obj["background"]         = static_cast<int>(m_background);
     obj["backgroundImage"]    = m_backgroundImagePath;
+
+    obj["contentMode"]    = static_cast<int>(m_contentMode);
+    obj["solidColor"]     = m_solidColor.name(QColor::HexArgb);
+    obj["gradientColor1"] = m_gradientColor1.name(QColor::HexArgb);
+    obj["gradientColor2"] = m_gradientColor2.name(QColor::HexArgb);
+    obj["gradientAngle"]  = m_gradientAngle;
+    obj["assignedScreens"] = QJsonArray::fromStringList(m_assignedScreenIds);
     return obj;
 }
 
@@ -147,4 +197,17 @@ void ImageCue::fromJson(const QJsonObject &o) {
     m_background           = static_cast<Background>(o["background"].toInt(
                                   static_cast<int>(Background::Black)));
     m_backgroundImagePath  = o["backgroundImage"].toString();
+
+    m_contentMode = static_cast<ContentMode>(o["contentMode"].toInt(
+                        static_cast<int>(ContentMode::File)));
+    m_solidColor     = QColor(o["solidColor"].toString());
+    if (!m_solidColor.isValid()) m_solidColor = Qt::black;
+    m_gradientColor1 = QColor(o["gradientColor1"].toString());
+    if (!m_gradientColor1.isValid()) m_gradientColor1 = Qt::black;
+    m_gradientColor2 = QColor(o["gradientColor2"].toString());
+    if (!m_gradientColor2.isValid()) m_gradientColor2 = Qt::white;
+    m_gradientAngle  = o["gradientAngle"].toDouble(0.0);
+    m_assignedScreenIds.clear();
+    for (const QJsonValue &v : o["assignedScreens"].toArray())
+        m_assignedScreenIds.append(v.toString());
 }

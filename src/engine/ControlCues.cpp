@@ -1,5 +1,6 @@
 #include "ControlCues.h"
 #include "AudioCue.h"
+#include "VideoCue.h"
 #include <QJsonObject>
 
 // ── SpeedCue ──────────────────────────────────────────────────────────────────
@@ -42,6 +43,11 @@ FadeCue::FadeCue(QObject *parent) : ControlCue(parent) {
 void FadeCue::go() {
     if (!m_target) { setState(State::Idle); emit finished(); return; }
     m_startVolume = m_target->volume();
+    // Solo per un target video c'è un livello visivo distinto dal volume da
+    // cui partire — per ogni altro target resta un valore di comodo
+    // (ignorato, visto che onTick() non chiama mai setVisualPlaybackVolume
+    // su qualcosa che non è una VideoCue).
+    if (auto *vc = qobject_cast<VideoCue*>(m_target)) m_startVisualLevel = vc->visualLevel();
     m_elapsed = 0.0;
     setState(State::Playing);
     m_timer->start();
@@ -56,8 +62,17 @@ void FadeCue::onTick() {
     if (!m_target) { stop(); emit finished(); return; }
     m_elapsed += 0.05;
     const double progress = qMin(m_elapsed / m_fadeDuration, 1.0);
-    const double vol = m_startVolume + (m_targetVolume - m_startVolume) * progress;
-    m_target->setPlaybackVolume(vol);
+    const double vol    = m_startVolume      + (m_targetVolume      - m_startVolume)      * progress;
+    const double visual = m_startVisualLevel + (m_targetVisualLevel - m_startVisualLevel) * progress;
+    if (auto *vc = qobject_cast<VideoCue*>(m_target)) {
+        // Audio e video hanno traguardi/durate indipendenti (vedi il
+        // commento su targetVisualLevel in ControlCues.h) — Both applica
+        // entrambi gli inviluppi insieme, non un unico valore condiviso.
+        if (m_fadeChannel != FadeChannel::VideoOnly) vc->setAudioPlaybackVolume(vol);
+        if (m_fadeChannel != FadeChannel::AudioOnly) vc->setVisualPlaybackVolume(visual);
+    } else {
+        m_target->setPlaybackVolume(vol);
+    }
     if (progress >= 1.0) {
         m_timer->stop();
         if (m_stopAtEnd)
@@ -70,17 +85,21 @@ void FadeCue::onTick() {
 QJsonObject FadeCue::toJson() const {
     auto obj               = ControlCue::toJson();
     obj["cueType"]         = "fade";
-    obj["targetVolume"]    = m_targetVolume;
+    obj["targetVolume"]      = m_targetVolume;
+    obj["targetVisualLevel"] = m_targetVisualLevel;
     obj["fadeDuration"]    = m_fadeDuration;
     obj["stopAtEnd"]       = m_stopAtEnd;
+    obj["fadeChannel"]     = static_cast<int>(m_fadeChannel);
     return obj;
 }
 
 void FadeCue::fromJson(const QJsonObject &o) {
     ControlCue::fromJson(o);
-    m_targetVolume = o["targetVolume"].toDouble(0.0);
+    m_targetVolume      = o["targetVolume"].toDouble(0.0);
+    m_targetVisualLevel = o["targetVisualLevel"].toDouble(0.0);
     m_fadeDuration = o["fadeDuration"].toDouble(2.0);
     m_stopAtEnd    = o["stopAtEnd"].toBool(false);
+    m_fadeChannel  = static_cast<FadeChannel>(o["fadeChannel"].toInt(static_cast<int>(FadeChannel::Both)));
 }
 
 // ── PauseCue ──────────────────────────────────────────────────────────────────

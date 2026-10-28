@@ -19,6 +19,7 @@ class QGroupBox;
 class QStackedWidget;
 class QComboBox;
 class QSpinBox;
+class QSlider;
 class QTimer;
 class WaveformView;
 class QFontComboBox;
@@ -29,11 +30,16 @@ class QPlainTextEdit;
 class QTableWidget;
 class QListWidget;
 class ImageCue;
+class Workspace;
 
 class InspectorPanel : public QWidget {
     Q_OBJECT
 public:
     explicit InspectorPanel(CueList *cueList, QWidget *parent = nullptr);
+
+    // Necessario solo per popolare le liste "Schermi" delle cue video/
+    // immagine (engine/VirtualScreen.h) — non posseduto.
+    void setWorkspace(Workspace *ws);
 
     void setCue(Cue *cue);
     void setShowMode(bool showMode);
@@ -62,6 +68,8 @@ private slots:
     void onFadeTargetVolChanged(double v);
     void onFadeDurationChanged(double v);
     void onFadeStopAtEndChanged(bool v);
+    void onFadeChannelChanged(int idx);
+    void onFadeTargetVisualChanged(double v);
     void onMicDeviceChanged(int idx);
     void onMicVolumeChanged(double v);
     void onSpeedRateChanged(double v);
@@ -88,6 +96,19 @@ private slots:
     void onImageListReordered();
     void onBackgroundChanged(int idx);
     void onChooseBackgroundImage();
+    void onImageContentModeChanged(int idx);
+    void onImageSolidColorClicked();
+    void onImageGradientColor1Clicked();
+    void onImageGradientColor2Clicked();
+    void onImageGradientAngleChanged(double v);
+    void onVideoScreensChanged();
+    void onImageScreensChanged();
+    void onVideoFadeInChanged(double v);
+    void onVideoFadeOutChanged(double v);
+    void onVideoFitButtonClicked();
+    void onImageFitButtonClicked();
+    void onVideoMuteToggled(bool checked);
+    void onVideoVolumeSliderChanged(int value);
     void onVideoBackgroundChanged(int idx);
     void onChooseVideoBackgroundImage();
 
@@ -103,12 +124,20 @@ private:
     // propri) — rinominata per evitare l'ambiguità.
     void blockFieldSignals(bool block);
     void updateMediaSection();
+    // Mostra/nasconde canale, volume audio (dB) e livello video (%) della
+    // sezione Fade in base al tipo del target corrente e al canale scelto
+    // — richiamata sia quando si seleziona una cue Fade sia quando si
+    // cambia target o canale sul posto, così i due spinbox mai pertinenti
+    // insieme (dB per audio-only, % per video-only) non restano visibili a
+    // vuoto.
+    void updateFadeTargetFieldsVisibility();
     void refreshImageList();
     void syncPlayButton(Cue::State state);
     QVector<double>  buildSliceMarkers(AudioCue *a) const;
     void             rebuildSliceTable(AudioCue *a);
 
-    CueList *m_cueList       = nullptr;
+    CueList   *m_cueList     = nullptr;
+    Workspace *m_workspace   = nullptr;
     // QPointer, non Cue*: si azzera da solo se la cue puntata viene distrutta
     // altrove (undo/redo, eliminazione) senza passare da setCue(nullptr).
     QPointer<Cue> m_cue;
@@ -163,6 +192,8 @@ private:
     QDoubleSpinBox *m_fadeTargetVolSpin;
     QDoubleSpinBox *m_fadeDurationSpin;
     QCheckBox      *m_fadeStopAtEndCheck = nullptr;
+    QComboBox      *m_fadeChannelCombo   = nullptr;
+    QDoubleSpinBox *m_fadeTargetVisualSpin = nullptr;
     QGroupBox      *m_speedGroup     = nullptr;
     QDoubleSpinBox *m_speedRateSpin  = nullptr;
     QPushButton    *m_effectFxBtn      = nullptr;
@@ -197,6 +228,23 @@ private:
     QCheckBox      *m_loopCheck              = nullptr;
     QComboBox      *m_backgroundCombo        = nullptr;
     QPushButton    *m_backgroundImageBtn     = nullptr;
+
+    // Image cue — contenuto (file / colore pieno / gradiente)
+    QGroupBox      *m_imageContentGroup      = nullptr;
+    QFormLayout    *m_imageContentForm       = nullptr;
+    QComboBox      *m_imageContentModeCombo  = nullptr;
+    QPushButton    *m_imageSolidColorBtn     = nullptr;
+    QPushButton    *m_imageGradientColor1Btn = nullptr;
+    QPushButton    *m_imageGradientColor2Btn = nullptr;
+    QDoubleSpinBox *m_imageGradientAngleSpin = nullptr;
+    QListWidget    *m_imageScreensList       = nullptr;
+    QListWidget    *m_videoScreensList       = nullptr;
+    QDoubleSpinBox *m_videoFadeInSpin        = nullptr;
+    QDoubleSpinBox *m_videoFadeOutSpin       = nullptr;
+    QPushButton    *m_videoFitBtn            = nullptr;
+    QPushButton    *m_imageFitBtn            = nullptr;
+    QPushButton    *m_videoMuteBtn           = nullptr;
+    QSlider        *m_videoVolumeSlider      = nullptr;
     QDialog        *m_imageListDialog        = nullptr;   // non-modal: lista immagini riordinabile
     QListWidget    *m_imageList              = nullptr;
     QPushButton    *m_addImagesBtn           = nullptr;

@@ -1,29 +1,42 @@
 #include "ImageOutputWindow.h"
-#include "WarpCalibrationOverlay.h"
 #include "engine/ImageCue.h"
+#include "engine/Workspace.h"
 #include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
-#include <QResizeEvent>
 
-ImageOutputWindow::ImageOutputWindow(QWidget *parent)
-    : QWidget(parent, Qt::Window)
+ImageOutputWindow::ImageOutputWindow(QWidget *parent, bool embedded)
+    : QWidget(parent, embedded ? Qt::Widget : (Qt::Window | Qt::FramelessWindowHint)), m_embedded(embedded)
 {
-    setWindowTitle("Image Output — OQL");
-    resize(1280, 720);
+    if (!embedded) {
+        setWindowTitle("Image Output — OQL");
+        resize(1280, 720);
+    }
 
-    m_calibOverlay = new WarpCalibrationOverlay(this);
-    m_calibOverlay->setGeometry(rect());
-    connect(m_calibOverlay, &WarpCalibrationOverlay::warpEdited,
-            this, [this] { update(); emit calibrationEdited(); });
-    connect(m_calibOverlay, &WarpCalibrationOverlay::warpCommitted,
-            this, [this] { update(); emit calibrationCommitted(); });
+    m_repaintTimer = new QTimer(this);
+    m_repaintTimer->setInterval(33);
+    connect(m_repaintTimer, &QTimer::timeout, this, QOverload<>::of(&QWidget::update));
 }
 
-QPixmap ImageOutputWindow::pixmapFor(const QString &path) {
+void ImageOutputWindow::setOutput(Workspace *workspace, const QString &physicalOutputId) {
+    m_workspace = workspace;
+    m_outputId  = physicalOutputId;
+    update();
+}
+
+void ImageOutputWindow::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    m_repaintTimer->start();
+}
+
+void ImageOutputWindow::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    m_repaintTimer->stop();
+}
+
+QPixmap ImageOutputWindow::pixmapFor(const QString &path) const {
     auto it = m_pixmapCache.find(path);
     if (it != m_pixmapCache.end()) {
-        // Voce riusata: spostala in fondo alla coda di accesso (LRU).
         m_pixmapOrder.removeOne(path);
         m_pixmapOrder.append(path);
         return it.value();
@@ -38,72 +51,63 @@ QPixmap ImageOutputWindow::pixmapFor(const QString &path) {
     return px;
 }
 
-void ImageOutputWindow::showCue(ImageCue *cue) {
-    if (m_connection) disconnect(m_connection);
-    m_cue = cue;
-    if (!cue) { clearImage(); return; }
-    m_connection = connect(cue, &Cue::displayChanged, this, &ImageOutputWindow::refresh);
-    refresh();
-    show();
-    raise();
-}
+QImage ImageOutputWindow::composeCueFrame(ImageCue *cue) const {
+    // Nessun pre-adattamento a una dimensione di finestra qui — vedi il
+    // commento in VideoOutputWindow::composeCueFrame() sul perché
+    // (altrimenti il fitMode per-schermo lavorerebbe su bande di letterbox
+    // già "cotte" nei pixel invece che sul contenuto vero). Per colore/
+    // gradiente non esiste una risoluzione nativa: si usa una dimensione di
+    // lavoro fissa, tanto fitMode la adatta comunque a qualunque zona.
+    if (cue->contentMode() != ImageCue::ContentMode::File) {
+        const QSize sz(1920, 1080);
+        QImage canvas = cue->renderGeneratedContent(sz);
+        const double overlayAlpha = 1.0 - cue->visualLevel();
+        if (overlayAlpha > 0.001) {
+            QPainter p(&canvas);
+            p.setOpacity(overlayAlpha);
+            p.fillRect(canvas.rect(), Qt::black);
+        }
+        return canvas;
+    }
 
-void ImageOutputWindow::clearImage() {
-    if (m_connection) disconnect(m_connection);
-    m_cue = nullptr;
-    update();
-}
+    // Per una slideshow da file, la dimensione "nativa" di lavoro è quella
+    // dell'immagine corrente ("bottom"): riempie così esattamente il canvas
+    // di composizione senza bande, e sfondo/transizione si adattano a lei.
+    const QString bottomPath = cue->currentImagePath();
+    if (bottomPath.isEmpty()) return QImage();
+    const QPixmap bottomPx = pixmapFor(bottomPath);
+    if (bottomPx.isNull()) return QImage();
+    const QSize sz = bottomPx.size();
 
-void ImageOutputWindow::refresh() {
-    update();
-}
-
-QImage ImageOutputWindow::composeFrame() const {
-    const QSize sz = size();
     QImage canvas(sz, QImage::Format_ARGB32_Premultiplied);
-    canvas.fill(Qt::black);
-    if (sz.isEmpty() || !m_cue) return canvas;
-
     QPainter p(&canvas);
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    // Sfondo: colore pieno o immagine "expanding" (riempie tutta la
-    // finestra, eventualmente ritagliata) — stesso comportamento di prima.
-    if (m_cue->background() == ImageCue::Background::Image && !m_cue->backgroundImagePath().isEmpty()) {
-        const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(m_cue->backgroundImagePath());
+    if (cue->background() == ImageCue::Background::Image && !cue->backgroundImagePath().isEmpty()) {
+        const QPixmap src = pixmapFor(cue->backgroundImagePath());
         if (!src.isNull()) {
             p.drawPixmap(canvas.rect(), src.scaled(
                 sz, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
         }
     } else {
         p.fillRect(canvas.rect(),
-                   m_cue->background() == ImageCue::Background::White ? QColor(Qt::white)
-                                                                         : QColor(Qt::black));
+                   cue->background() == ImageCue::Background::White ? QColor(Qt::white)
+                                                                       : QColor(Qt::black));
     }
 
-    // Immagine corrente ("bottom"), centrata mantenendo le proporzioni.
-    const QString bottomPath = m_cue->currentImagePath();
-    if (!bottomPath.isEmpty()) {
-        const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(bottomPath);
-        if (!src.isNull()) {
-            const QImage scaled = src.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
-            const QPoint topLeft((sz.width() - scaled.width()) / 2, (sz.height() - scaled.height()) / 2);
-            p.drawImage(topLeft, scaled);
-        }
-    }
+    p.drawPixmap(0, 0, bottomPx);
 
-    // Transizione verso la prossima immagine ("top"): crossfade o scorrimento.
-    const bool transitioning = m_cue->isTransitioning()
-                             && m_cue->transitionType() != ImageCue::Transition::Cut;
+    const bool transitioning = cue->isTransitioning()
+                             && cue->transitionType() != ImageCue::Transition::Cut;
     if (transitioning) {
-        const QString topPath = m_cue->nextImagePath();
+        const QString topPath = cue->nextImagePath();
         if (!topPath.isEmpty()) {
-            const QPixmap src = const_cast<ImageOutputWindow*>(this)->pixmapFor(topPath);
+            const QPixmap src = pixmapFor(topPath);
             if (!src.isNull()) {
                 const QImage scaled = src.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
                 const QPoint centered((sz.width() - scaled.width()) / 2, (sz.height() - scaled.height()) / 2);
-                const double progress = m_cue->transitionProgress();
-                if (m_cue->transitionType() == ImageCue::Transition::Crossfade) {
+                const double progress = cue->transitionProgress();
+                if (cue->transitionType() == ImageCue::Transition::Crossfade) {
                     p.setOpacity(progress);
                     p.drawImage(centered, scaled);
                     p.setOpacity(1.0);
@@ -115,44 +119,44 @@ QImage ImageOutputWindow::composeFrame() const {
         }
     }
 
-    // Fade a nero/bianco/immagine (stesso schema di VideoOutputWindow).
-    const double overlayAlpha = 1.0 - m_cue->visualLevel();
+    const double overlayAlpha = 1.0 - cue->visualLevel();
     if (overlayAlpha > 0.001) {
-        QColor c = Qt::black;
         p.setOpacity(overlayAlpha);
-        p.fillRect(canvas.rect(), c);
+        p.fillRect(canvas.rect(), Qt::black);
         p.setOpacity(1.0);
     }
     return canvas;
 }
 
+QImage ImageOutputWindow::composeCanvas() const {
+    const QSize sz = size();
+    QImage canvas(sz, QImage::Format_ARGB32_Premultiplied);
+    // Vedi lo stesso commento in VideoOutputWindow::composeCanvas(): da
+    // incorporato resta trasparente dove non c'è nessuna cue immagine
+    // attiva, per non coprire il video sotto.
+    canvas.fill(m_embedded ? Qt::transparent : Qt::black);
+    if (sz.isEmpty() || !m_workspace) return canvas;
+
+    QPainter painter(&canvas);
+    for (VirtualScreen *screen : m_workspace->virtualScreensFor(m_outputId)) {
+        ImageCue *cue = m_workspace->cueList()->activeImageCueForScreen(screen->id());
+        if (!cue) continue;
+        const QImage cueFrame = composeCueFrame(cue);
+        if (cueFrame.isNull()) continue;
+        // Vedi lo stesso commento in VideoOutputWindow::composeCanvas().
+        applyVirtualScreenMask(painter, cueFrame, sz, *screen);
+    }
+    return canvas;
+}
+
 void ImageOutputWindow::paintEvent(QPaintEvent *) {
-    const QImage frame = composeFrame();
+    QImage canvas = composeCanvas();
+    PhysicalOutput *out = m_workspace ? m_workspace->physicalOutputById(m_outputId) : nullptr;
     QPainter painter(this);
-    if (m_warp && !m_warp->isIdentity())
-        painter.drawImage(0, 0, m_warp->renderWarped(frame, size()));
+    if (out && !out->warp().isIdentity())
+        painter.drawImage(0, 0, out->warp().renderWarped(canvas, size()));
     else
-        painter.drawImage(0, 0, frame);
-}
-
-void ImageOutputWindow::setProjectionWarp(ProjectionWarp *warp) {
-    m_warp = warp;
-    m_calibOverlay->setWarp(warp);
-    update();
-}
-
-void ImageOutputWindow::setCalibrating(bool on) {
-    m_calibOverlay->setCalibrating(on);
-    update();
-}
-
-bool ImageOutputWindow::isCalibrating() const {
-    return m_calibOverlay->isCalibrating();
-}
-
-void ImageOutputWindow::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event);
-    m_calibOverlay->setGeometry(rect());
+        painter.drawImage(0, 0, canvas);
 }
 
 void ImageOutputWindow::toggleFullScreen() {
@@ -162,9 +166,25 @@ void ImageOutputWindow::toggleFullScreen() {
         showFullScreen();
 }
 
-void ImageOutputWindow::mouseDoubleClickEvent(QMouseEvent *event) {
-    if (isCalibrating()) { QWidget::mouseDoubleClickEvent(event); return; }
+void ImageOutputWindow::mouseDoubleClickEvent(QMouseEvent *) {
     toggleFullScreen();
+}
+
+void ImageOutputWindow::mousePressEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton || window()->isFullScreen()) return;
+    m_draggingWindow     = true;
+    m_dragStartGlobalPos = event->globalPosition().toPoint();
+    m_dragStartWindowPos = window()->pos();
+}
+
+void ImageOutputWindow::mouseMoveEvent(QMouseEvent *event) {
+    if (!m_draggingWindow) return;
+    const QPoint delta = event->globalPosition().toPoint() - m_dragStartGlobalPos;
+    window()->move(m_dragStartWindowPos + delta);
+}
+
+void ImageOutputWindow::mouseReleaseEvent(QMouseEvent *) {
+    m_draggingWindow = false;
 }
 
 void ImageOutputWindow::keyPressEvent(QKeyEvent *event) {

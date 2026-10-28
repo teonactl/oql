@@ -49,6 +49,13 @@ public:
 class FadeCue : public ControlCue {
     Q_OBJECT
 public:
+    // Quale aspetto far sfumare quando il target è una VideoCue (ignorato
+    // per ogni altro tipo di target, che ha un solo "canale" comunque):
+    // Both = comportamento di sempre (video e audio insieme), VideoOnly/
+    // AudioOnly isolano l'uno dall'altro (es. abbassare solo l'audio
+    // lasciando il video a piena luminosità, o viceversa).
+    enum class FadeChannel { Both, VideoOnly, AudioOnly };
+
     explicit FadeCue(QObject *parent = nullptr);
 
     Type    type()     const override { return Type::Fade; }
@@ -58,12 +65,20 @@ public:
     double  duration() const override { return m_fadeDuration; }
     double  position() const override { return m_elapsed; }
 
-    double targetVolume()  const { return m_targetVolume; }
-    double fadeDuration()  const { return m_fadeDuration; }
-    bool   stopAtEnd()     const { return m_stopAtEnd; }
-    void   setTargetVolume(double v) { m_targetVolume = qBound(0.0,v,1.0); emit propertyChanged(); }
+    double      targetVolume()      const { return m_targetVolume; }
+    // Livello visivo target (0..1) per il canale video — indipendente dal
+    // volume audio: Both deve poter portare l'audio a -20dB e il video al
+    // 50% con due durate/traguardi scelti separatamente, non un unico
+    // valore condiviso che non ha lo stesso significato sui due canali.
+    double      targetVisualLevel() const { return m_targetVisualLevel; }
+    double      fadeDuration()      const { return m_fadeDuration; }
+    bool        stopAtEnd()         const { return m_stopAtEnd; }
+    FadeChannel fadeChannel()       const { return m_fadeChannel; }
+    void   setTargetVolume(double v)      { m_targetVolume      = qBound(0.0,v,1.0); emit propertyChanged(); }
+    void   setTargetVisualLevel(double v) { m_targetVisualLevel = qBound(0.0,v,1.0); emit propertyChanged(); }
     void   setFadeDuration(double s) { m_fadeDuration = qMax(0.01, s); emit propertyChanged(); }
     void   setStopAtEnd(bool v)      { m_stopAtEnd = v; emit propertyChanged(); }
+    void   setFadeChannel(FadeChannel c) { m_fadeChannel = c; emit propertyChanged(); }
 
     QJsonObject toJson()                  const override;
     void        fromJson(const QJsonObject &o)  override;
@@ -72,12 +87,15 @@ private slots:
     void onTick();
 
 private:
-    QTimer *m_timer;
-    double  m_targetVolume = 0.0;
-    double  m_fadeDuration = 2.0;
-    double  m_startVolume  = 1.0;
-    double  m_elapsed      = 0.0;
-    bool    m_stopAtEnd    = false;
+    QTimer      *m_timer;
+    double       m_targetVolume      = 0.0;
+    double       m_targetVisualLevel = 0.0;
+    double       m_fadeDuration      = 2.0;
+    double       m_startVolume       = 1.0;
+    double       m_startVisualLevel  = 1.0;
+    double       m_elapsed           = 0.0;
+    bool         m_stopAtEnd         = false;
+    FadeChannel  m_fadeChannel       = FadeChannel::Both;
 };
 
 // ── PauseCue ──────────────────────────────────────────────────────────────────

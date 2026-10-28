@@ -1,39 +1,12 @@
 #include "WarpCalibrationOverlay.h"
 #include <QPainter>
 #include <QMouseEvent>
-#include <QPushButton>
 #include <QLineF>
 
 WarpCalibrationOverlay::WarpCalibrationOverlay(QWidget *parent) : QWidget(parent) {
-    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    // Vive solo dentro ProjectionCalibrationWindow, che esiste solo per
+    // calibrare: sempre attivo, niente stato "calibrating" da commutare.
     setAutoFillBackground(false);
-
-    auto makeBtn = [this](const QString &text) {
-        auto *b = new QPushButton(text, this);
-        b->setFixedSize(28, 28);
-        b->setStyleSheet(
-            "QPushButton { background: rgba(30,30,30,200); color: white; "
-            "border: 1px solid #888; border-radius: 4px; font-weight: bold; } "
-            "QPushButton:hover { background: rgba(60,60,60,220); }");
-        b->hide();
-        return b;
-    };
-    m_addColBtn    = makeBtn("+|");
-    m_removeColBtn = makeBtn("-|");
-    m_addRowBtn    = makeBtn("+—");
-    m_removeRowBtn = makeBtn("-—");
-    m_resetBtn     = makeBtn("R");
-    m_resetBtn->setToolTip(tr("Reset calibrazione"));
-    m_addColBtn->setToolTip(tr("Aggiungi colonna alla griglia"));
-    m_removeColBtn->setToolTip(tr("Rimuovi colonna dalla griglia"));
-    m_addRowBtn->setToolTip(tr("Aggiungi riga alla griglia"));
-    m_removeRowBtn->setToolTip(tr("Rimuovi riga dalla griglia"));
-
-    connect(m_addColBtn,    &QPushButton::clicked, this, &WarpCalibrationOverlay::addColumn);
-    connect(m_removeColBtn, &QPushButton::clicked, this, &WarpCalibrationOverlay::removeColumn);
-    connect(m_addRowBtn,    &QPushButton::clicked, this, &WarpCalibrationOverlay::addRow);
-    connect(m_removeRowBtn, &QPushButton::clicked, this, &WarpCalibrationOverlay::removeRow);
-    connect(m_resetBtn,     &QPushButton::clicked, this, &WarpCalibrationOverlay::resetWarp);
 }
 
 void WarpCalibrationOverlay::setWarp(ProjectionWarp *warp) {
@@ -41,33 +14,19 @@ void WarpCalibrationOverlay::setWarp(ProjectionWarp *warp) {
     update();
 }
 
-void WarpCalibrationOverlay::setCalibrating(bool on) {
-    if (m_calibrating == on) return;
-    m_calibrating = on;
-    setAttribute(Qt::WA_TransparentForMouseEvents, !on);
-    for (QPushButton *b : {m_addColBtn, m_removeColBtn, m_addRowBtn, m_removeRowBtn, m_resetBtn})
-        b->setVisible(on);
-    m_dragging = false;
-    update();
-}
-
-void WarpCalibrationOverlay::layoutButtons() {
-    const int margin = 8;
-    int x = margin;
-    const int y = margin;
-    for (QPushButton *b : {m_addColBtn, m_removeColBtn, m_addRowBtn, m_removeRowBtn, m_resetBtn}) {
-        b->move(x, y);
-        x += b->width() + 4;
-    }
-}
-
-void WarpCalibrationOverlay::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event);
-    layoutButtons();
+QPointF WarpCalibrationOverlay::handlePixelPos(int col, int row) const {
+    const QPointF n = m_warp->controlPoint(col, row);
+    double x = n.x() * width();
+    double y = n.y() * height();
+    if (col == 0 || col == m_warp->cols())
+        x = qBound(kEdgeInsetPx, x, double(width())  - kEdgeInsetPx);
+    if (row == 0 || row == m_warp->rows())
+        y = qBound(kEdgeInsetPx, y, double(height()) - kEdgeInsetPx);
+    return QPointF(x, y);
 }
 
 void WarpCalibrationOverlay::paintEvent(QPaintEvent *) {
-    if (!m_calibrating || !m_warp) return;
+    if (!m_warp) return;
 
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -77,43 +36,78 @@ void WarpCalibrationOverlay::paintEvent(QPaintEvent *) {
     const double w = width();
     const double h = height();
 
-    auto toPx = [&](int c, int r) {
+    auto truePx = [&](int c, int r) {
         const QPointF n = m_warp->controlPoint(c, r);
         return QPointF(n.x() * w, n.y() * h);
     };
 
-    // Linee della mesh: più leggibile dei soli punti per capire come si sta
-    // deformando la griglia mentre si trascina.
+    // Linee della mesh: polilinea attraverso la griglia DENSA (spline di
+    // Catmull-Rom, vedi ProjectionWarp::smoothGrid) invece che un segmento
+    // retto tra due punti di controllo consecutivi. Una trasformazione
+    // proiettiva per-cella mappa rette in rette: disegnando solo i punti
+    // grezzi, la griglia appare "spezzata" (pendenza diversa da un lato e
+    // dall'altro di ogni punto interno) invece che curva continua — qui si
+    // mostra invece esattamente la stessa curva che renderWarped() userà per
+    // deformare il contenuto vero, utile quando si calibra su una superficie
+    // non piatta.
+    int denseCols = cols, denseRows = rows;
+    const QVector<QPointF> &grid = m_warp->smoothGrid(&denseCols, &denseRows);
+    const int subdiv = m_warp->smoothSubdiv();
+    auto densePx = [&](int dc, int dr) {
+        const QPointF n = grid[dr * (denseCols + 1) + dc];
+        return QPointF(n.x() * w, n.y() * h);
+    };
+
     QPen linePen(QColor(255, 210, 0, 200));
     linePen.setWidthF(1.5);
     p.setPen(linePen);
-    for (int r = 0; r <= rows; ++r)
-        for (int c = 0; c < cols; ++c)
-            p.drawLine(toPx(c, r), toPx(c + 1, r));
-    for (int c = 0; c <= cols; ++c)
-        for (int r = 0; r < rows; ++r)
-            p.drawLine(toPx(c, r), toPx(c, r + 1));
+    for (int r = 0; r <= rows; ++r) {
+        QPolygonF poly;
+        for (int dc = 0; dc <= denseCols; ++dc) poly << densePx(dc, r * subdiv);
+        p.drawPolyline(poly);
+    }
+    for (int c = 0; c <= cols; ++c) {
+        QPolygonF poly;
+        for (int dr = 0; dr <= denseRows; ++dr) poly << densePx(c * subdiv, dr);
+        p.drawPolyline(poly);
+    }
 
-    // Handle ai punti di controllo.
+    // Handle ai punti di controllo: alla posizione inset (facile da vedere e
+    // afferrare anche quando il punto vero è sul bordo della finestra), con
+    // un piccolo segmento che lo collega alla posizione vera se sono diverse.
     for (int r = 0; r <= rows; ++r) {
         for (int c = 0; c <= cols; ++c) {
-            const QPointF pos = toPx(c, r);
+            const QPointF truePos   = truePx(c, r);
+            const QPointF handlePos = handlePixelPos(c, r);
+            if (QLineF(truePos, handlePos).length() > 1.0) {
+                QPen stub(QColor(255, 210, 0, 120));
+                stub.setStyle(Qt::DashLine);
+                p.setPen(stub);
+                p.drawLine(truePos, handlePos);
+            }
             const bool active = (m_dragging && c == m_dragCol && r == m_dragRow);
             p.setBrush(active ? QColor(255, 255, 255) : QColor(255, 210, 0));
             p.setPen(QPen(Qt::black, 1.5));
-            const double radius = active ? 7.0 : 5.0;
-            p.drawEllipse(pos, radius, radius);
+            const double radius = active ? 8.0 : 6.0;
+            p.drawEllipse(handlePos, radius, radius);
         }
     }
 }
 
 void WarpCalibrationOverlay::mousePressEvent(QMouseEvent *event) {
-    if (!m_calibrating || !m_warp) return;
-    int col = -1, row = -1;
-    if (m_warp->nearestControlPoint(event->position(), size(), kHandleRadiusPx, &col, &row)) {
+    if (!m_warp) return;
+    double bestDist = kHandleRadiusPx;
+    int bestCol = -1, bestRow = -1;
+    for (int r = 0; r <= m_warp->rows(); ++r) {
+        for (int c = 0; c <= m_warp->cols(); ++c) {
+            const double dist = QLineF(event->position(), handlePixelPos(c, r)).length();
+            if (dist <= bestDist) { bestDist = dist; bestCol = c; bestRow = r; }
+        }
+    }
+    if (bestCol >= 0) {
         m_dragging = true;
-        m_dragCol = col;
-        m_dragRow = row;
+        m_dragCol = bestCol;
+        m_dragRow = bestRow;
         update();
     }
 }
@@ -122,7 +116,9 @@ void WarpCalibrationOverlay::mouseMoveEvent(QMouseEvent *event) {
     if (!m_dragging || !m_warp) return;
     // Consentito uscire un po' dal rettangolo [0,1] (margine extra) per
     // correggere proiettori che "sforano" oltre il bordo dello schermo o
-    // per tirare un punto dentro oltre il centro in casi estremi.
+    // per tirare un punto dentro oltre il centro in casi estremi. Il
+    // trascinamento segue comunque la posizione VERA del mouse (non quella
+    // inset dell'handle) così il punto arriva esattamente dove si rilascia.
     const double nx = qBound(-0.5, event->position().x() / qMax(1, width()),  1.5);
     const double ny = qBound(-0.5, event->position().y() / qMax(1, height()), 1.5);
     m_warp->setControlPoint(m_dragCol, m_dragRow, QPointF(nx, ny));

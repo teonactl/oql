@@ -16,6 +16,16 @@ public:
 
     Cue* cueAt(int index)        const;
     Cue* findCueById(const QString &id) const;
+
+    // Prima VideoCue/ImageCue in stato Playing assegnata allo schermo
+    // `screenId` (assignedScreenIds() vuota = nessuna restrizione, conta per
+    // qualunque schermo — vedi il commento in VideoCue.h). "Prima nell'ordine
+    // della lista" è una semplificazione deliberata: se più cue dello stesso
+    // tipo sono assegnate allo stesso schermo contemporaneamente, vince
+    // quella più in alto nella cue list, non necessariamente quella avviata
+    // per ultima.
+    class VideoCue* activeVideoCueForScreen(const QString &screenId) const;
+    class ImageCue* activeImageCueForScreen(const QString &screenId) const;
     int  count()                 const { return int(m_cues.size()); }
     int  playheadIndex()     const { return m_playhead; }
     void setPlayhead(int index);

@@ -7,12 +7,21 @@
 #include <QMouseEvent>
 #include <QFont>
 
-TextOutputWindow::TextOutputWindow(QWidget *parent)
-    : QWidget(parent, Qt::Window)
+TextOutputWindow::TextOutputWindow(QWidget *parent, bool embedded)
+    : QWidget(parent, embedded ? Qt::Widget : (Qt::Window | Qt::FramelessWindowHint))
 {
-    setWindowTitle("Text Output — OQL");
-    setStyleSheet("background: black;");
-    resize(1280, 720);
+    if (!embedded) {
+        setWindowTitle("Text Output — OQL");
+        setStyleSheet("background: black;");
+        resize(1280, 720);
+    } else {
+        // Widget figlio, non finestra top-level: basta non riempire lo
+        // sfondo (nessuno stylesheet opaco) perché il contenuto del
+        // genitore resti visibile sotto — niente WA_TranslucentBackground,
+        // che serve solo per la vera trasparenza compositata a livello di
+        // finestra top-level.
+        setStyleSheet("background: transparent;");
+    }
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(40, 40, 40, 40);
@@ -66,6 +75,23 @@ void TextOutputWindow::toggleFullScreen() {
 
 void TextOutputWindow::mouseDoubleClickEvent(QMouseEvent *) {
     toggleFullScreen();
+}
+
+void TextOutputWindow::mousePressEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton || window()->isFullScreen()) return;
+    m_draggingWindow     = true;
+    m_dragStartGlobalPos = event->globalPosition().toPoint();
+    m_dragStartWindowPos = window()->pos();
+}
+
+void TextOutputWindow::mouseMoveEvent(QMouseEvent *event) {
+    if (!m_draggingWindow) return;
+    const QPoint delta = event->globalPosition().toPoint() - m_dragStartGlobalPos;
+    window()->move(m_dragStartWindowPos + delta);
+}
+
+void TextOutputWindow::mouseReleaseEvent(QMouseEvent *) {
+    m_draggingWindow = false;
 }
 
 void TextOutputWindow::keyPressEvent(QKeyEvent *event) {

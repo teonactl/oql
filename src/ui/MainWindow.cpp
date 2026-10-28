@@ -199,26 +199,37 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // quando l'utente apre per la prima volta "Aggiungi effetto".
     Lv2Plugin::prewarmAsync();
 
-    m_videoOut  = new VideoOutputWindow(this);
-    m_textOut   = new TextOutputWindow(this);
-    m_imageOut  = new ImageOutputWindow(this);
-    m_videoOut->installEventFilter(this);
-    m_textOut->installEventFilter(this);
-    m_imageOut->installEventFilter(this);
+    // Le finestre di output vere e proprie (una per PhysicalOutput
+    // configurato) si creano pigramente alla prima richiesta — vedi
+    // ensureOutputWindowSet()/toggleAllOutputs() — non tutte a priori qui.
+    m_calibWindow = new ProjectionCalibrationWindow(this);
 
-    // Calibrazione proiezione: Video e Image Output condividono lo stesso
-    // warp (vedi commento su Workspace::projectionWarp) — puntatore stabile
-    // per tutta la vita di m_workspace, non serve riagganciarlo a ogni
-    // load()/reset() perché quelle mutano l'oggetto esistente sul posto.
-    m_videoOut->setProjectionWarp(&m_workspace.projectionWarp());
-    m_imageOut->setProjectionWarp(&m_workspace.projectionWarp());
-    connect(&m_workspace, &Workspace::projectionWarpChanged, this, [this] {
-        m_videoOut->update();
-        m_imageOut->update();
+    // La finestra di calibrazione edita UN output alla volta (m_calibTargetOutputId,
+    // vedi il sottomenu "Calibra proiezione" in buildMenus/rebuildCalibrationMenu)
+    // ma ora qualunque dei configurati nel progetto, non più sempre e solo
+    // il primo. Il binding va rifatto a ogni screensChanged() perché QList<
+    // PhysicalOutput> può riallocare (non solo a load()/reset()), e perché
+    // l'output scelto potrebbe nel frattempo essere stato rimosso.
+    auto rebindCalibration = [this] {
+        PhysicalOutput *out = m_workspace.physicalOutputById(m_calibTargetOutputId);
+        if (!out && !m_workspace.physicalOutputs().isEmpty()) {
+            out = &m_workspace.physicalOutputs()[0];
+            m_calibTargetOutputId = out->id();
+        }
+        if (out) m_calibWindow->setProjectionWarp(&out->warp());
+    };
+    rebindCalibration();
+    connect(&m_workspace, &Workspace::screensChanged, this, [this, rebindCalibration] {
+        rebindCalibration();
+        rebuildOutputWindowBindings();
+        rebuildCalibrationMenu();
+        m_calibWindow->update();
+        if (m_screensManagerDialog && m_screensManagerDialog->isVisible())
+            m_screensManagerDialog->refreshAll();
     });
-    auto commitWarp = [this] { m_workspace.setProjectionWarp(m_workspace.projectionWarp()); };
-    connect(m_videoOut, &VideoOutputWindow::calibrationCommitted, this, commitWarp);
-    connect(m_imageOut, &ImageOutputWindow::calibrationCommitted, this, commitWarp);
+    connect(m_calibWindow, &ProjectionCalibrationWindow::calibrationCommitted, this, [this] {
+        m_workspace.notifyScreensChanged();
+    });
     m_undoStack = new QUndoStack(this);
 
     buildUi();   // m_cueView is created here
@@ -261,26 +272,33 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     if (AppSettings::instance().webEnabled())
         m_webServer->start(AppSettings::instance().webPort());
 
-    connect(m_workspace.cueList(), &CueList::cueAdded, this, [this](int index) {
-        if (m_workspace.cueList()->cueAt(index)->type() == Cue::Type::Video)
-            setupNewVideoCue(index);
-    });
-
     connect(m_workspace.cueList(), &CueList::cueStateChanged, this, [this](int index, Cue::State state) {
         Cue *cue = m_workspace.cueList()->cueAt(index);
         if (!cue) return;
+        const bool isOutputCue = cue->type() == Cue::Type::Text || cue->type() == Cue::Type::Video
+                               || cue->type() == Cue::Type::Image;
+        // Avvia TUTTE le finestre di output (una per output fisico
+        // configurato) al via della prima cue video/immagine/testo, se non
+        // sono già attive — senza questo, far partire una cue non mostrava
+        // nulla finché l'utente non premeva il pulsante "Output" a mano.
+        if (isOutputCue && state == Cue::State::Playing)
+            ensureOutputsVisible();
+
         if (cue->type() == Cue::Type::Text) {
-            if (state == Cue::State::Playing)
-                m_textOut->showCue(static_cast<TextCue*>(cue));
-            else if (state == Cue::State::Idle)
-                m_textOut->clearText();
+            // Il testo non ha un concetto di assegnazione per-schermo (a
+            // differenza di video/immagine): resta spinto identico su OGNI
+            // output attivo, come lo era sull'unica finestra di prima.
+            for (auto it = m_outputWindows.begin(); it != m_outputWindows.end(); ++it) {
+                if (state == Cue::State::Playing) it.value().text->showCue(static_cast<TextCue*>(cue));
+                else if (state == Cue::State::Idle) it.value().text->clearText();
+            }
         }
-        if (cue->type() == Cue::Type::Image) {
-            if (state == Cue::State::Playing)
-                m_imageOut->showCue(static_cast<ImageCue*>(cue));
-            else if (state == Cue::State::Idle)
-                m_imageOut->clearImage();
-        }
+        // Video e Image Output non ricevono più push del CONTENUTO per-cue:
+        // a ogni ridisegno scansionano da sé la CueList per ciascuno
+        // schermo virtuale (CueList::activeVideoCueForScreen/
+        // activeImageCueForScreen, vedi VideoOutputWindow/ImageOutputWindow)
+        // — più cue dello stesso tipo possono così essere "vive" insieme su
+        // schermi diversi.
         // Show mode: inspector stacks waveforms of all playing audio cues
         if (m_showMode && cue->type() == Cue::Type::Audio) {
             auto *a = static_cast<AudioCue*>(cue);
@@ -354,8 +372,10 @@ MainWindow::~MainWindow()
 
 void MainWindow::buildUi() {
     m_model      = new CueListModel(m_workspace.cueList(), this);
+    m_model->setWorkspace(&m_workspace);
     m_cueView    = new CueListView(m_model, this);
     m_inspector  = new InspectorPanel(m_workspace.cueList(), this);
+    m_inspector->setWorkspace(&m_workspace);
     m_infoBar    = new CueInfoBar(this);
     m_activeCues = new ActiveCuesPanel(m_workspace.cueList(), this);
 
@@ -645,24 +665,41 @@ void MainWindow::buildMenus() {
 
     // Finestra
     auto *win = menuBar()->addMenu(tr("&Finestra"));
-    menuAction(win, tr("Output &video"),  QKeySequence("Ctrl+W"), this, &MainWindow::toggleVideoOutput);
-    menuAction(win, tr("Output &testo"),  QKeySequence("Ctrl+T"), this, &MainWindow::toggleTextOutput);
-    menuAction(win, tr("Output &immagine"), QKeySequence("Ctrl+I"), this, &MainWindow::toggleImageOutput);
+    {
+        // Un solo comando per TUTTE le finestre di output del progetto
+        // (una per PhysicalOutput configurato, vedi m_outputWindows) —
+        // senza bordi/decorazioni, si comportano come schermi reali.
+        m_outputAction = new QAction(tr("&Output"), win);
+        m_outputAction->setCheckable(true);
+        m_outputAction->setShortcut(QKeySequence("Ctrl+W"));
+        connect(m_outputAction, &QAction::toggled, this, &MainWindow::toggleAllOutputs);
+        win->addAction(m_outputAction);
+    }
     win->addSeparator();
     {
-        // Calibrazione warp proiezione: attiva/disattiva la griglia
-        // trascinabile su entrambe le finestre di output (condividono lo
-        // stesso ProjectionWarp — vedi Workspace::projectionWarp) e le apre
-        // se non già visibili, altrimenti non c'è nulla da calibrare a video.
-        auto *calibAction = new QAction(tr("&Calibra proiezione…"), win);
-        calibAction->setCheckable(true);
-        calibAction->setShortcut(QKeySequence("Ctrl+Shift+C"));
-        connect(calibAction, &QAction::toggled, this, [this](bool on) {
-            m_videoOut->setCalibrating(on);
-            m_imageOut->setCalibrating(on);
-            if (on) { m_videoOut->show(); m_imageOut->show(); }
+        // Sottomenu con UNA voce per output fisico: la stessa finestra di
+        // calibrazione (vedi ProjectionCalibrationWindow) viene riagganciata
+        // al warp di quello scelto e posizionata sul suo schermo reale — un
+        // solo output alla volta, ma qualunque dei configurati nel progetto,
+        // non più sempre e solo il primo. Ricostruito a ogni screensChanged
+        // (vedi quella connessione) perché gli output possono cambiare.
+        m_calibMenu = win->addMenu(tr("&Calibra proiezione"));
+        rebuildCalibrationMenu();
+    }
+    {
+        // Creazione/assegnazione di output fisici e schermi virtuali (vedi
+        // engine/VirtualScreen.h) — senza questa voce il modello esisteva
+        // già ma non c'era modo per l'utente di usarlo.
+        auto *screensAction = new QAction(tr("&Gestione schermi…"), win);
+        connect(screensAction, &QAction::triggered, this, [this] {
+            if (!m_screensManagerDialog)
+                m_screensManagerDialog = new ScreensManagerDialog(&m_workspace, this);
+            m_screensManagerDialog->refreshAll();
+            m_screensManagerDialog->show();
+            m_screensManagerDialog->raise();
+            m_screensManagerDialog->activateWindow();
         });
-        win->addAction(calibAction);
+        win->addAction(screensAction);
     }
 
     // Strumenti
@@ -933,7 +970,11 @@ void MainWindow::buildToolBar() {
     connect(webPill, &PillToggle::toggled, m_webAction, &QAction::setChecked);
     connect(m_webAction, &QAction::toggled, webPill, &PillToggle::setChecked);
 
-    auto videoOutIcon = makeTbIconFlat([](QPainter &p) {
+    // Un solo pulsante per avviare/fermare TUTTE le finestre di output del
+    // progetto insieme (una per output fisico configurato) — vedi
+    // MainWindow::toggleAllOutputs. Sostituisce i tre toggle indipendenti
+    // video/testo/immagine di prima.
+    auto outputIcon = makeTbIconFlat([](QPainter &p) {
         p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,40));
         p.drawRoundedRect(3,4,22,14,2,2);
         p.setPen(Qt::NoPen); p.setBrush(Qt::white);
@@ -941,49 +982,10 @@ void MainWindow::buildToolBar() {
         p.setPen(QPen(Qt::white,1.5)); p.setBrush(Qt::NoBrush);
         p.drawLine(14,18,14,22); p.drawLine(9,22,19,22);
     });
-    m_videoAction = new QAction(this);
-    m_videoAction->setCheckable(true);
-    connect(m_videoAction, &QAction::toggled, this, [this](bool on) {
-        m_videoOut->setVisible(on);
-    });
-    auto *videoPill = new PillToggle(videoOutIcon, QColor(0x3c,0xc8,0x7a));
-    videoPill->setToolTip(tr("Mostra / nascondi finestra Video Out"));
-    connect(videoPill, &PillToggle::toggled, m_videoAction, &QAction::setChecked);
-    connect(m_videoAction, &QAction::toggled, videoPill, &PillToggle::setChecked);
-
-    auto textOutIcon = makeTbIconFlat([](QPainter &p) {
-        p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,30));
-        p.drawRoundedRect(6,3,16,22,1,1); p.setPen(QPen(Qt::white,1.5));
-        p.drawLine(9,9,19,9); p.drawLine(9,13,19,13);
-        p.drawLine(9,17,19,17); p.drawLine(9,21,16,21);
-    });
-    m_textAction = new QAction(this);
-    m_textAction->setCheckable(true);
-    connect(m_textAction, &QAction::toggled, this, [this](bool on) {
-        m_textOut->setVisible(on);
-    });
-    auto *textPill = new PillToggle(textOutIcon, QColor(0x1e,0xb4,0xd2));
-    textPill->setToolTip(tr("Mostra / nascondi finestra Text Out"));
-    connect(textPill, &PillToggle::toggled, m_textAction, &QAction::setChecked);
-    connect(m_textAction, &QAction::toggled, textPill, &PillToggle::setChecked);
-
-    auto imageOutIcon = makeTbIconFlat([](QPainter &p) {
-        p.setPen(QPen(Qt::white,1.5)); p.setBrush(QColor(255,255,255,30));
-        p.drawRoundedRect(4,5,20,18,2,2);
-        p.setPen(Qt::NoPen); p.setBrush(Qt::white);
-        p.drawEllipse(8,9,4,4);
-        QPolygon mtn; mtn<<QPoint(7,21)<<QPoint(13,13)<<QPoint(17,17)<<QPoint(20,14)<<QPoint(23,21);
-        p.drawPolygon(mtn);
-    });
-    m_imageAction = new QAction(this);
-    m_imageAction->setCheckable(true);
-    connect(m_imageAction, &QAction::toggled, this, [this](bool on) {
-        m_imageOut->setVisible(on);
-    });
-    auto *imagePill = new PillToggle(imageOutIcon, QColor(0xb0,0x3a,0x6b));
-    imagePill->setToolTip(tr("Mostra / nascondi finestra Image Out"));
-    connect(imagePill, &PillToggle::toggled, m_imageAction, &QAction::setChecked);
-    connect(m_imageAction, &QAction::toggled, imagePill, &PillToggle::setChecked);
+    auto *outputPill = new PillToggle(outputIcon, QColor(0x3c,0xc8,0x7a));
+    outputPill->setToolTip(tr("Avvia / ferma tutte le finestre di output del progetto"));
+    connect(outputPill, &PillToggle::toggled, m_outputAction, &QAction::setChecked);
+    connect(m_outputAction, &QAction::toggled, outputPill, &PillToggle::setChecked);
 
     // ── Expanding spacer ────────────────────────────────────────────────────────
     auto *tbSpacer = new QWidget;
@@ -1055,9 +1057,7 @@ void MainWindow::buildToolBar() {
     // Output toggle pills — separati dal gruppo dark/show
     tb->addSeparator();
     tb->addWidget(webPill);
-    tb->addWidget(videoPill);
-    tb->addWidget(textPill);
-    tb->addWidget(imagePill);
+    tb->addWidget(outputPill);
 
     m_showModeShortcut = new QShortcut(AppSettings::instance().keyShowMode(), this);
     connect(m_showModeShortcut, &QShortcut::activated, this, [showPill]() {
@@ -1229,29 +1229,6 @@ void MainWindow::addRecordCue() {
 }
 #endif // OQL_BASE
 
-void MainWindow::wireVideoCueOpacity(VideoCue *cue) {
-    // disconnect any previous wiring for this cue (context = cue) before re-connecting,
-    // so calling this repeatedly (e.g. on every project load) never stacks duplicate connections
-    disconnect(cue, &Cue::displayChanged, cue, nullptr);
-    disconnect(cue, &Cue::propertyChanged, cue, nullptr);
-    auto pushVisuals = [this, cue]() {
-        m_videoOut->setBackground(VideoOutputWindow::Background(int(cue->background())),
-                                   cue->backgroundImagePath());
-        m_videoOut->setOpacity(cue->visualLevel());
-    };
-    connect(cue, &Cue::displayChanged,  cue, pushVisuals);
-    connect(cue, &Cue::propertyChanged, cue, pushVisuals);
-    pushVisuals();
-}
-
-void MainWindow::setupNewVideoCue(int index) {
-    auto *cue = qobject_cast<VideoCue*>(m_workspace.cueList()->cueAt(index));
-    if (cue) {
-        cue->setVideoSink(m_videoOut->videoSink());
-        wireVideoCueOpacity(cue);
-    }
-}
-
 void MainWindow::showAbout() {
     AboutDialog dlg(this);
     dlg.exec();
@@ -1264,25 +1241,100 @@ void MainWindow::openSettings() {
     applyProjectSettings();
     applyShortcuts();
     applyWebServer();
-    applyOutputScreen();
     m_cueView->applyRowHeight();
     m_cueView->applyFont();
 }
 
-void MainWindow::applyOutputScreen() {
-    const QString screenName = AppSettings::instance().outputScreenName();
-    if (screenName.isEmpty()) return;
-    QScreen *target = nullptr;
-    for (QScreen *s : QApplication::screens()) {
-        if (s->name() == screenName) { target = s; break; }
+MainWindow::OutputWindowSet &MainWindow::ensureOutputWindowSet(const QString &outputId) {
+    auto it = m_outputWindows.find(outputId);
+    if (it != m_outputWindows.end()) return it.value();
+
+    OutputWindowSet set;
+    if (AppSettings::instance().combinedOutputWindow()) {
+        auto *combined = new CombinedOutputWindow(this);
+        set.topLevels = { combined };
+        set.video = combined->video();
+        set.image = combined->image();
+        set.text  = combined->text();
+    } else {
+        auto *v = new VideoOutputWindow(this);
+        auto *t = new TextOutputWindow(this);
+        auto *i = new ImageOutputWindow(this);
+        set.topLevels = { v, t, i };
+        set.video = v; set.text = t; set.image = i;
     }
-    if (!target) return;
-    const QRect geom = target->geometry();
-    for (QWidget *w : {static_cast<QWidget*>(m_videoOut),
-                       static_cast<QWidget*>(m_textOut),
-                       static_cast<QWidget*>(m_imageOut)}) {
-        if (w->isVisible())
-            w->move(geom.topLeft());
+    set.video->setOutput(&m_workspace, outputId);
+    set.image->setOutput(&m_workspace, outputId);
+    m_outputWindows.insert(outputId, set);
+    return m_outputWindows[outputId];
+}
+
+void MainWindow::positionOutputWindowSet(const QString &outputId) {
+    // Posiziona/dimensiona (senza bordi, vedi Qt::FramelessWindowHint nei
+    // costruttori) sullo schermo reale e alla risoluzione (auto o manuale)
+    // configurati per QUESTO output fisico — vedi engine/VirtualScreen.h
+    // (PhysicalOutput::physicalScreenName/resolution) e ScreensManagerDialog.
+    auto it = m_outputWindows.find(outputId);
+    if (it == m_outputWindows.end()) return;
+    PhysicalOutput *out = m_workspace.physicalOutputById(outputId);
+    if (!out) return;
+
+    QScreen *target = nullptr;
+    if (!out->physicalScreenName().isEmpty()) {
+        for (QScreen *s : QApplication::screens())
+            if (s->name() == out->physicalScreenName()) { target = s; break; }
+    }
+    const QSize effectiveSize = out->autoResolution()
+        ? (target ? target->geometry().size() : QSize(1280, 720))
+        : out->resolution();
+    const QPoint pos = target ? target->geometry().topLeft() : QPoint(0, 0);
+
+    for (QWidget *w : it.value().topLevels) {
+        if (w->isFullScreen()) continue; // il vero fullscreen (doppio click) resta una scelta dell'utente
+        w->move(pos);
+        w->resize(effectiveSize);
+    }
+}
+
+void MainWindow::toggleAllOutputs(bool on) {
+    m_outputsActive = on;
+    if (m_outputAction) {
+        const QSignalBlocker b(m_outputAction);
+        m_outputAction->setChecked(on);
+    }
+    if (on) {
+        for (const PhysicalOutput &out : m_workspace.physicalOutputs()) {
+            ensureOutputWindowSet(out.id());
+            positionOutputWindowSet(out.id());
+            for (QWidget *w : m_outputWindows[out.id()].topLevels) { w->show(); w->raise(); }
+        }
+    } else {
+        for (auto it = m_outputWindows.begin(); it != m_outputWindows.end(); ++it)
+            for (QWidget *w : it.value().topLevels) w->hide();
+    }
+}
+
+void MainWindow::ensureOutputsVisible() {
+    if (!m_outputsActive) toggleAllOutputs(true);
+}
+
+void MainWindow::rebuildOutputWindowBindings() {
+    // Ricollega ogni set di finestre già esistente al proprio output (i
+    // puntatori VirtualScreen/PhysicalOutput possono essere cambiati da una
+    // riallocazione di QList) e, se gli output sono attivi, crea/mostra i
+    // set per eventuali nuovi PhysicalOutput apparsi nel frattempo (es.
+    // aggiunti da ScreensManagerDialog mentre l'output è già avviato).
+    for (auto it = m_outputWindows.begin(); it != m_outputWindows.end(); ++it) {
+        it.value().video->setOutput(&m_workspace, it.key());
+        it.value().image->setOutput(&m_workspace, it.key());
+        for (QWidget *w : it.value().topLevels) w->update();
+    }
+    if (!m_outputsActive) return;
+    for (const PhysicalOutput &out : m_workspace.physicalOutputs()) {
+        if (m_outputWindows.contains(out.id())) continue;
+        ensureOutputWindowSet(out.id());
+        positionOutputWindowSet(out.id());
+        for (QWidget *w : m_outputWindows[out.id()].topLevels) { w->show(); w->raise(); }
     }
 }
 
@@ -1398,16 +1450,6 @@ QString MainWindow::nextCueNumber() {
     return QString::number(maxNum + 1);
 }
 
-void MainWindow::assignVideoSinkToAll() {
-    auto *list = m_workspace.cueList();
-    for (int i = 0; i < list->count(); ++i) {
-        auto *cue = qobject_cast<VideoCue*>(list->cueAt(i));
-        if (cue) {
-            cue->setVideoSink(m_videoOut->videoSink());
-            wireVideoCueOpacity(cue);
-        }
-    }
-}
 
 void MainWindow::deleteSelectedCue() {
     if (m_showMode) return;
@@ -1710,7 +1752,6 @@ void MainWindow::openWorkspace() {
 }
 
 void MainWindow::refreshAfterLoad(const QString &path) {
-    assignVideoSinkToAll();
     m_inspector->setCue(nullptr);
     m_undoPropTimer->stop();
     m_undoStack->clear();
@@ -1757,20 +1798,7 @@ bool MainWindow::saveWorkspaceAs() {
 
 // R6: toggleVideo/Text/ImageOutput() erano identiche a meno della finestra
 // e dell'azione di menu coinvolte.
-void MainWindow::toggleOutputWindow(QWidget *win, QAction *action) {
-    const bool nowVisible = !win->isVisible();
-    if (action) {
-        const QSignalBlocker b(action);
-        action->setChecked(nowVisible);
-    }
-    win->setVisible(nowVisible);
-}
-
-void MainWindow::toggleVideoOutput() { toggleOutputWindow(m_videoOut, m_videoAction); }
-void MainWindow::toggleTextOutput()  { toggleOutputWindow(m_textOut,  m_textAction); }
-void MainWindow::toggleImageOutput() { toggleOutputWindow(m_imageOut, m_imageAction); }
-
-// ── Event filter: sync toggle-action checked state with window visibility ─────
+// ── Event filter ──────────────────────────────────────────────────────────────
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
     // Intercept Enter on cueView to exit ultra dark before QTableView consumes it
@@ -1782,23 +1810,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev) {
         }
     }
 
-    const auto type = ev->type();
-    if (type == QEvent::Show || type == QEvent::Hide) {
-        const bool visible = (type == QEvent::Show);
-        // R6: i 3 rami erano identici a meno della finestra/azione coinvolte.
-        const struct { QWidget *win; QAction *action; } outputs[] = {
-            { m_videoOut, m_videoAction },
-            { m_textOut,  m_textAction },
-            { m_imageOut, m_imageAction },
-        };
-        for (const auto &o : outputs) {
-            if (obj == o.win && o.action && o.action->isChecked() != visible) {
-                const QSignalBlocker b(o.action);
-                o.action->setChecked(visible);
-                break;
-            }
-        }
-    }
     return QMainWindow::eventFilter(obj, ev);
 }
 
@@ -1827,7 +1838,7 @@ void MainWindow::flushUndoPropChange() {
         m_undoLastPushed,
         current,
         [this] { m_inspector->setCue(nullptr); m_infoBar->setCue(nullptr); },
-        [this] { assignVideoSinkToAll(); }
+        [] {}
     ));
     m_undoLastPushed = current;
     m_suppressUndoTracking = false;
@@ -1849,7 +1860,7 @@ void MainWindow::doUndoable(const QString &desc, std::function<void()> fn) {
         std::move(before),
         std::move(after),
         [this] { m_inspector->setCue(nullptr); m_infoBar->setCue(nullptr); },
-        [this] { assignVideoSinkToAll(); }
+        [] {}
     ));
     m_undoLastPushed = after;
     m_suppressUndoTracking = false;
@@ -1882,6 +1893,41 @@ void MainWindow::rebuildRecentMenu() {
         AppSettings::instance().setRecentFiles({});
         rebuildRecentMenu();
     });
+}
+
+void MainWindow::rebuildCalibrationMenu() {
+    if (!m_calibMenu) return;
+    m_calibMenu->clear();
+    for (const PhysicalOutput &out : m_workspace.physicalOutputs()) {
+        const QString outId = out.id();
+        m_calibMenu->addAction(out.name(), this, [this, outId] {
+            PhysicalOutput *target = m_workspace.physicalOutputById(outId);
+            if (!target) return;
+            m_calibTargetOutputId = outId;
+            m_calibWindow->setProjectionWarp(&target->warp());
+
+            // Apertura a schermo intero sullo schermo reale assegnato
+            // all'output, non solo posizionata nel suo angolo: per
+            // giudicare subito quanto lo schermo virtuale si estende su
+            // quello reale serve vederla riempirlo per intero.
+            m_calibWindow->showNormal(); // esce da un eventuale fullscreen rimasto su un altro schermo
+            QScreen *screen = nullptr;
+            if (!target->physicalScreenName().isEmpty())
+                for (QScreen *s : QApplication::screens())
+                    if (s->name() == target->physicalScreenName()) { screen = s; break; }
+            if (!screen) screen = QApplication::primaryScreen();
+            if (screen) m_calibWindow->setGeometry(screen->geometry());
+            m_calibWindow->showFullScreen();
+            // setCalibrationVisible() DOPO showFullScreen(): posiziona la
+            // toolbar in base alla geometria finale a schermo intero, non a
+            // quella (più piccola) precedente.
+            m_calibWindow->setCalibrationVisible(true);
+            m_calibWindow->raise();
+            m_calibWindow->activateWindow();
+        });
+    }
+    if (m_workspace.physicalOutputs().isEmpty())
+        m_calibMenu->addAction(tr("(nessun output configurato)"))->setEnabled(false);
 }
 
 void MainWindow::openRecentFile(const QString &path) {

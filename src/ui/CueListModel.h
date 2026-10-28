@@ -6,6 +6,7 @@
 #include "engine/CueList.h"
 
 class RecordCue;
+class Workspace;
 
 class CueListModel : public QAbstractTableModel {
     Q_OBJECT
@@ -24,6 +25,13 @@ public:
     };
 
     explicit CueListModel(CueList *list, QObject *parent = nullptr);
+
+    // Necessario solo per risolvere la colonna "Uscita" delle cue video/
+    // immagine (schermo virtuale → output fisico → schermo reale assegnato,
+    // vedi engine/VirtualScreen.h) — non posseduto. Se non impostato, quella
+    // colonna resta vuota per quelle cue (il resto del modello funziona lo
+    // stesso).
+    void setWorkspace(Workspace *ws);
 
     int     rowCount   (const QModelIndex &p = {}) const override;
     int     columnCount(const QModelIndex &p = {}) const override;
@@ -53,6 +61,7 @@ private:
     void         ensureRecordSrcCache() const;
 
     CueList      *m_list;
+    Workspace    *m_workspace = nullptr;
     QVector<int>  m_visibleRows;
 
     // E3: onCuePropertyChanged() riceve solo l'indice della cue cambiata, non

@@ -13,6 +13,9 @@
 #include "ui/VideoOutputWindow.h"
 #include "ui/TextOutputWindow.h"
 #include "ui/ImageOutputWindow.h"
+#include "ui/CombinedOutputWindow.h"
+#include "ui/ProjectionCalibrationWindow.h"
+#include "ui/ScreensManagerDialog.h"
 #include "ui/CueInfoBar.h"
 
 class CueListModel;
@@ -80,14 +83,11 @@ private slots:
     void stopAll();
     void goToFirstCue();
     void applyShortcuts();
-    void toggleVideoOutput();
-    void toggleTextOutput();
-    void toggleImageOutput();
+    void toggleAllOutputs(bool on);
     void openSettings();
     void showAbout();
     void onSelectionChanged();
     void updateTitle();
-    void assignVideoSinkToAll();
     void applyProjectSettings();
 
 private:
@@ -95,14 +95,13 @@ private:
     void buildMenus();
     void buildToolBar();
     bool confirmUnsaved();
-    void setupNewVideoCue(int index);
-    void wireVideoCueOpacity(VideoCue *cue);
     void addToRecentFiles(const QString &path);
-    // Sequenza comune dopo un load() riuscito (assegna i video sink, pulisce
-    // l'inspector/undo stack, aggiorna i recenti) — condivisa da
+    // Sequenza comune dopo un load() riuscito (pulisce l'inspector/undo
+    // stack, aggiorna i recenti) — condivisa da
     // openWorkspace(), openRecentFile() e openFileAtStartup().
     void refreshAfterLoad(const QString &path);
     void rebuildRecentMenu();
+    void rebuildCalibrationMenu();
     QString nextCueNumber();
 
     Workspace          m_workspace;
@@ -111,9 +110,10 @@ private:
     QSplitter         *m_mainSplit       = nullptr;
     InspectorPanel    *m_inspector       = nullptr;
     ActiveCuesPanel   *m_activeCues      = nullptr;
-    VideoOutputWindow *m_videoOut        = nullptr;
-    TextOutputWindow  *m_textOut         = nullptr;
-    ImageOutputWindow *m_imageOut        = nullptr;
+    ProjectionCalibrationWindow *m_calibWindow = nullptr;
+    QMenu     *m_calibMenu          = nullptr;
+    QString    m_calibTargetOutputId; // quale output sta editando m_calibWindow in questo momento
+    ScreensManagerDialog *m_screensManagerDialog = nullptr;
     CueInfoBar        *m_infoBar         = nullptr;
     QLabel            *m_statusLbl       = nullptr;
     QAction           *m_goAction        = nullptr;
@@ -124,9 +124,10 @@ private:
     QUndoStack        *m_undoStack       = nullptr;
     WebServer         *m_webServer       = nullptr;
     QAction           *m_webAction        = nullptr;
-    QAction           *m_videoAction      = nullptr;
-    QAction           *m_textAction       = nullptr;
-    QAction           *m_imageAction      = nullptr;
+    // Un solo pulsante/azione per avviare o fermare TUTTE le finestre di
+    // output del progetto insieme (vedi m_outputWindows) — non più tre
+    // toggle indipendenti per video/testo/immagine.
+    QAction           *m_outputAction     = nullptr;
     QLabel            *m_webUrlLabel      = nullptr;
     QToolButton       *m_webCopyBtn       = nullptr;
     QLabel            *m_dropoutLabel     = nullptr;
@@ -161,7 +162,6 @@ private:
 
     // R6: toggleVideo/Text/ImageOutput() erano identiche a meno della
     // finestra e dell'azione di menu coinvolte.
-    void toggleOutputWindow(QWidget *win, QAction *action);
     void showMultiControlDialog(const QVector<int> &visRows, Cue::Type type, double extra = 0.0);
 
     bool        m_programmaticSelect    = false;
@@ -172,5 +172,30 @@ private:
     void applyWebServer();
     void applyPanelLayout();
     void applyUltraDark(bool on);
-    void applyOutputScreen();
+    // Un set di finestre di output PER PhysicalOutput — una CombinedOutputWindow
+    // (default, vedi AppSettings::combinedOutputWindow) o tre finestre
+    // separate, mostrate/posizionate sempre insieme (topLevels). Creato alla
+    // prima richiesta (ensureOutputWindowSet), non per ogni output a
+    // priori: un progetto con output mai "avviati" non apre finestre a vuoto.
+    struct OutputWindowSet {
+        QList<QWidget*> topLevels;
+        VideoOutputWindow *video = nullptr;
+        ImageOutputWindow *image = nullptr;
+        TextOutputWindow  *text  = nullptr;
+    };
+    OutputWindowSet &ensureOutputWindowSet(const QString &outputId);
+    // Posiziona/dimensiona (senza bordi, vedi Qt::FramelessWindowHint nei
+    // costruttori) le finestre di un set sullo schermo reale assegnato al
+    // suo PhysicalOutput, alla risoluzione auto/manuale configurata — così
+    // si comportano esattamente come lo schermo/proiettore che rappresentano.
+    void positionOutputWindowSet(const QString &outputId);
+    // Richiamata su Workspace::screensChanged: ricollega ogni set esistente
+    // al proprio output (i puntatori VirtualScreen possono cambiare) e, se
+    // gli output sono attivi, crea/posiziona i set per eventuali nuovi
+    // PhysicalOutput apparsi nel frattempo.
+    void rebuildOutputWindowBindings();
+    void ensureOutputsVisible(); // avvia tutti gli output se non sono già attivi (es. al via di una cue)
+
+    QHash<QString, OutputWindowSet> m_outputWindows;
+    bool m_outputsActive = false;
 };
